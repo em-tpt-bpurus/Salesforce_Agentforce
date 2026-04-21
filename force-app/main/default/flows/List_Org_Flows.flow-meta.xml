@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Flow xmlns="http://soap.sforce.com/2006/04/metadata">
+    <apiVersion>60.0</apiVersion>
+    <description>Sample Flow — invokes MetadataAgentAction to list flows via Agentforce</description>
+    <interviewLabel>List Org Flows {!$Flow.CurrentDateTime}</interviewLabel>
+    <label>List Org Flows</label>
+    <processMetadataValues>
+        <name>BuilderType</name>
+        <value><stringValue>LightningFlowBuilder</stringValue></value>
+    </processMetadataValues>
+    <processType>AutoLaunchedFlow</processType>
+    <status>Draft</status>
+    <actionCalls>
+        <name>Get_Flow_Summary</name>
+        <label>Get Flow Summary</label>
+        <locationX>176</locationX>
+        <locationY>134</locationY>
+        <actionName>MetadataAgentAction</actionName>
+        <actionType>apex</actionType>
+        <inputParameters>
+            <name>input</name>
+            <value><stringValue>list all flows</stringValue></value>
+        </inputParameters>
+        <outputParameters>
+            <assignToReference>flowSummaryOutput</assignToReference>
+            <name>summary</name>
+        </outputParameters>
+    </actionCalls>
+    <variables>
+        <name>flowSummaryOutput</name>
+        <dataType>String</dataType>
+        <isCollection>false</isCollection>
+        <isInput>false</isInput>
+        <isOutput>true</isOutput>
+    </variables>
+    <start>
+        <locationX>50</locationX>
+        <locationY>0</locationY>
+        <connector><targetReference>Get_Flow_Summary</targetReference></connector>
+    </start>
+</Flow>

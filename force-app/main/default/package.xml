@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Package xmlns="http://soap.sforce.com/2006/04/metadata">
+    <types>
+        <members>MetadataEngine</members>
+        <members>MetadataAgentAction</members>
+        <members>ApexClassAgentAction</members>
+        <members>TriggerAgentAction</members>
+        <members>LwcAgentAction</members>
+        <members>AuraAgentAction</members>
+        <members>ProfileAgentAction</members>
+        <members>PermissionSetAgentAction</members>
+        <members>CustomFieldAgentAction</members>
+        <members>CustomObjectAgentAction</members>
+        <members>ValidationRuleAgentAction</members>
+        <members>DeleteApexClassAction</members>
+        <members>DeleteFlowAction</members>
+        <members>DeleteTriggerAction</members>
+        <members>DeleteLwcAction</members>
+        <members>DeleteAuraAction</members>
+        <members>DeleteCustomFieldAction</members>
+        <members>DeleteCustomObjectAction</members>
+        <members>DeleteValidationRuleAction</members>
+        <members>DeletePermissionSetAction</members>
+        <members>DeactivateProfileAction</members>
+        <name>ApexClass</name>
+    </types>
+    <types>
+        <members>metadataDashboard</members>
+        <name>LightningComponentBundle</name>
+    </types>
+    <version>60.0</version>
+</Package>

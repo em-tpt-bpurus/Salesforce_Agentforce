@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Sample validation rule XML — referenced by the ValidationRuleAgentAction.
+     Your existing validation rules in the org are read via Tooling API at runtime.
+     This file is a structural placeholder to show the metadata format. -->
+<!--
+<ValidationRule xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Account.RequireAccountNumber</fullName>
+    <active>true</active>
+    <description>Ensures Account Number is set before saving</description>
+    <errorConditionFormula>ISBLANK(AccountNumber)</errorConditionFormula>
+    <errorDisplayField>AccountNumber</errorDisplayField>
+    <errorMessage>Account Number is required.</errorMessage>
+</ValidationRule>
+-->

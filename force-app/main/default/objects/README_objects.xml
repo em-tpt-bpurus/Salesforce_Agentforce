@@ -1,0 +1,5 @@
+<!-- Custom Objects are read at runtime via Tooling API by CustomObjectAgentAction.
+     To deploy a new custom object, add its .object-meta.xml here.
+     Example: MyObject__c.object-meta.xml
+     The dashboard will automatically discover all custom objects in the org.
+-->

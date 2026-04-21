@@ -1,0 +1,838 @@
+<template>
+    <div class="dashboard-shell">
+
+        <!-- ═══════════════════════════════════════════════════ -->
+        <!-- LEFT PANEL — existing dashboard (unchanged layout) -->
+        <!-- ═══════════════════════════════════════════════════ -->
+        <div class="dashboard">
+
+            <!-- Header -->
+            <div class="dashboard-header">
+                <div class="header-left">
+                    <div class="header-icon">
+                        <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+                            <rect x="2" y="2" width="11" height="11" rx="2" fill="#00A1E0"/>
+                            <rect x="15" y="2" width="11" height="11" rx="2" fill="#0070D2"/>
+                            <rect x="2" y="15" width="11" height="11" rx="2" fill="#0070D2"/>
+                            <rect x="15" y="15" width="11" height="11" rx="2" fill="#032D60"/>
+                        </svg>
+                    </div>
+                    <div>
+                        <h1 class="header-title">Org Metadata Dashboard</h1>
+                        <p class="header-subtitle">Flows · Apex · Triggers · LWC · Aura · Profiles · Permission Sets · Fields · Objects · Validation Rules</p>
+                    </div>
+                </div>
+                <button class="refresh-btn" onclick={handleRefreshAll} disabled={isLoading}>
+                    <svg class={refreshIconClass} width="16" height="16" viewBox="0 0 16 16" fill="none">
+                        <path d="M13.65 2.35A8 8 0 1 0 15 8h-2a6 6 0 1 1-1.08-3.47L10 6h5V1l-1.35 1.35z" fill="currentColor"/>
+                    </svg>
+                    <span>{refreshLabel}</span>
+                </button>
+            </div>
+
+            <!-- Tab Nav — Row 1 -->
+            <div class="tab-nav">
+                <button class={flowTabClass} onclick={showFlows}>
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                        <path d="M2 3h3v3H2zM6.5 4.5h7M2 9h3v3H2zM6.5 10.5h7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                    </svg>
+                    Flows <span class="tab-badge">{flowTotal}</span>
+                </button>
+                <button class={apexTabClass} onclick={showApex}>
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                        <path d="M4 4l-2 4 2 4M12 4l2 4-2 4M7 13l2-10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                    Apex <span class="tab-badge">{apexTotal}</span>
+                </button>
+                <button class={triggerTabClass} onclick={showTriggers}>
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                        <path d="M8 1v6l3 3M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                    </svg>
+                    Triggers <span class="tab-badge">{triggerTotal}</span>
+                </button>
+                <button class={lwcTabClass} onclick={showLwc}>
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                        <rect x="2" y="5" width="12" height="8" rx="1.5" stroke="currentColor" stroke-width="1.5"/>
+                        <path d="M6 8l2 2 2-2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                        <path d="M5 5V4a3 3 0 0 1 6 0v1" stroke="currentColor" stroke-width="1.5"/>
+                    </svg>
+                    LWC <span class="tab-badge">{lwcTotal}</span>
+                </button>
+                <button class={auraTabClass} onclick={showAura}>
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                        <path d="M8 2 L14 5 L14 11 L8 14 L2 11 L2 5 Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+                        <circle cx="8" cy="8" r="2" fill="currentColor"/>
+                    </svg>
+                    Aura <span class="tab-badge">{auraTotal}</span>
+                </button>
+            </div>
+
+            <!-- Tab Nav — Row 2 -->
+            <div class="tab-nav tab-nav-row2">
+                <button class={profileTabClass} onclick={showProfiles}>
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                        <circle cx="8" cy="5" r="3" stroke="currentColor" stroke-width="1.5"/>
+                        <path d="M2 14c0-3.314 2.686-5 6-5s6 1.686 6 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                    </svg>
+                    Profiles <span class="tab-badge">{profileTotal}</span>
+                </button>
+                <button class={permSetTabClass} onclick={showPermSets}>
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                        <rect x="3" y="2" width="10" height="12" rx="1.5" stroke="currentColor" stroke-width="1.5"/>
+                        <path d="M6 6h4M6 9h4M6 12h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                    </svg>
+                    Perm Sets <span class="tab-badge">{permSetTotal}</span>
+                </button>
+                <button class={fieldTabClass} onclick={showFields}>
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                        <rect x="2" y="4" width="12" height="8" rx="1" stroke="currentColor" stroke-width="1.5"/>
+                        <path d="M2 7h12" stroke="currentColor" stroke-width="1"/>
+                        <path d="M6 4v8" stroke="currentColor" stroke-width="1"/>
+                    </svg>
+                    Fields <span class="tab-badge">{fieldTotal}</span>
+                </button>
+                <button class={objectTabClass} onclick={showObjects}>
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                        <ellipse cx="8" cy="5" rx="6" ry="2.5" stroke="currentColor" stroke-width="1.5"/>
+                        <path d="M2 5v6c0 1.38 2.686 2.5 6 2.5S14 12.38 14 11V5" stroke="currentColor" stroke-width="1.5"/>
+                    </svg>
+                    Objects <span class="tab-badge">{objectTotal}</span>
+                </button>
+                <button class={vrTabClass} onclick={showVr}>
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                        <circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5"/>
+                        <path d="M8 5v3l2 2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                    </svg>
+                    Val. Rules <span class="tab-badge">{vrTotal}</span>
+                </button>
+            </div>
+
+            <!-- Namespace Filter Bar -->
+            <template if:true={showNamespaceFilter}>
+                <div class="ns-filter-bar">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                        <circle cx="7" cy="7" r="4.5" stroke="currentColor" stroke-width="1.5"/>
+                        <path d="M10.5 10.5L14 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                    </svg>
+                    <input class="ns-filter-input"
+                           type="text"
+                           placeholder="Filter by namespace (e.g. ITSms, FinanceApp)"
+                           value={namespaceInput}
+                           onchange={handleNamespaceInput}/>
+                    <button class="ns-filter-apply" onclick={handleNamespaceApply} disabled={isLoading}>
+                        Apply
+                    </button>
+                </div>
+            </template>
+
+            <!-- Loading State -->
+            <template if:true={isLoading}>
+                <div class="loading-container">
+                    <div class="spinner"></div>
+                    <p class="loading-text">Fetching metadata...</p>
+                </div>
+            </template>
+
+            <!-- Error State -->
+            <template if:true={hasError}>
+                <div class="error-banner">
+                    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                        <circle cx="9" cy="9" r="8" stroke="#c23934" stroke-width="1.5"/>
+                        <path d="M9 5v4M9 12v1" stroke="#c23934" stroke-width="1.5" stroke-linecap="round"/>
+                    </svg>
+                    <span>{errorMessage}</span>
+                </div>
+            </template>
+
+            <!-- ═══════════════════════════════════════════════ -->
+            <!-- FLOWS TAB -->
+            <!-- ═══════════════════════════════════════════════ -->
+            <template if:true={showFlowsTab}>
+                <template if:false={isLoading}>
+                    <div class="section-fade">
+                        <div class="stats-row">
+                            <div class="stat-card stat-total">
+                                <div class="stat-value">{flowSummary.totalCount}</div>
+                                <div class="stat-label">Total Flows</div>
+                            </div>
+                            <div class="stat-card stat-active">
+                                <div class="stat-dot dot-green"></div>
+                                <div class="stat-value">{flowSummary.activeCount}</div>
+                                <div class="stat-label">Active</div>
+                            </div>
+                            <div class="stat-card stat-inactive">
+                                <div class="stat-dot dot-gray"></div>
+                                <div class="stat-value">{flowSummary.inactiveCount}</div>
+                                <div class="stat-label">Inactive (Unused)</div>
+                            </div>
+                            <template if:true={flowHasFilter}>
+                                <div class="stat-card">
+                                    <div class="stat-dot dot-blue"></div>
+                                    <div class="stat-value">{flowSummary.filteredCount}</div>
+                                    <div class="stat-label">Filtered</div>
+                                </div>
+                            </template>
+                        </div>
+                        <template if:true={flowHasFilter}>
+                            <div class="list-section list-section-highlight">
+                                <div class="list-header">
+                                    <span class="list-title">Namespace: {flowSummary.namespaceFilterApplied}</span>
+                                    <span class="list-count blue">{flowSummary.filteredCount}</span>
+                                </div>
+                                <template if:true={filteredActiveFlowList.length}>
+                                    <div class="list-subheader">Active</div>
+                                    <ul class="metadata-list">
+                                        <template for:each={filteredActiveFlowList} for:item="flow">
+                                            <li key={flow.index} class="list-item">
+                                                <span class="status-dot dot-green"></span>
+                                                <span class="item-index">{flow.index}.</span>
+                                                <span class="item-name">{flow.name}</span>
+                                            </li>
+                                        </template>
+                                    </ul>
+                                </template>
+                                <template if:true={filteredInactiveFlowList.length}>
+                                    <div class="list-subheader">Inactive</div>
+                                    <ul class="metadata-list">
+                                        <template for:each={filteredInactiveFlowList} for:item="flow">
+                                            <li key={flow.index} class="list-item">
+                                                <span class="status-dot dot-gray"></span>
+                                                <span class="item-index">{flow.index}.</span>
+                                                <span class="item-name">{flow.name}</span>
+                                            </li>
+                                        </template>
+                                    </ul>
+                                </template>
+                                <template if:false={filteredActiveFlowList.length}>
+                                    <template if:false={filteredInactiveFlowList.length}>
+                                        <p class="empty-state">No flows found for namespace: {flowSummary.namespaceFilterApplied}</p>
+                                    </template>
+                                </template>
+                            </div>
+                        </template>
+                        <div class="list-section">
+                            <div class="list-header">
+                                <span class="list-title">Active Flows</span>
+                                <span class="list-count green">{flowSummary.activeCount}</span>
+                            </div>
+                            <template if:true={activeFlowList.length}>
+                                <ul class="metadata-list">
+                                    <template for:each={activeFlowList} for:item="flow">
+                                        <li key={flow.index} class="list-item">
+                                            <span class="status-dot dot-green"></span>
+                                            <span class="item-index">{flow.index}.</span>
+                                            <span class="item-name">{flow.name}</span>
+                                        </li>
+                                    </template>
+                                </ul>
+                            </template>
+                            <template if:false={activeFlowList.length}>
+                                <p class="empty-state">No active flows found.</p>
+                            </template>
+                        </div>
+                        <div class="list-section list-section-warn">
+                            <div class="list-header">
+                                <span class="list-title">Inactive Flows</span>
+                                <span class="list-count gray">{flowSummary.inactiveCount}</span>
+                                <span class="delete-badge">Unused — safe to review</span>
+                            </div>
+                            <template if:true={inactiveFlowList.length}>
+                                <ul class="metadata-list">
+                                    <template for:each={inactiveFlowList} for:item="flow">
+                                        <li key={flow.index} class="list-item list-item-warn">
+                                            <span class="status-dot dot-gray"></span>
+                                            <span class="item-index">{flow.index}.</span>
+                                            <span class="item-name">{flow.name}</span>
+                                            <button class="agent-delete-btn" data-type="flow" data-name={flow.name} onclick={handleAgentDeleteFromList} title="Ask agent to delete">
+                                                <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                                                    <path d="M3 4h10M5 4V3h6v1M6 7v5M10 7v5M4 4l1 9h6l1-9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                                                </svg>
+                                            </button>
+                                        </li>
+                                    </template>
+                                </ul>
+                            </template>
+                            <template if:false={inactiveFlowList.length}>
+                                <p class="empty-state">No inactive flows found.</p>
+                            </template>
+                        </div>
+                    </div>
+                </template>
+            </template>
+
+            <!-- ═══════════════════════════════════════════════ -->
+            <!-- APEX TAB -->
+            <!-- ═══════════════════════════════════════════════ -->
+            <template if:true={showApexTab}>
+                <template if:false={isLoading}>
+                    <div class="section-fade">
+                        <div class="stats-row">
+                            <div class="stat-card stat-total">
+                                <div class="stat-value">{apexSummary.totalCount}</div>
+                                <div class="stat-label">Total</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-dot dot-blue"></div>
+                                <div class="stat-value">{apexSummary.standardCount}</div>
+                                <div class="stat-label">Standard</div>
+                            </div>
+                            <div class="stat-card stat-active">
+                                <div class="stat-dot dot-green"></div>
+                                <div class="stat-value">{apexSummary.usedCount}</div>
+                                <div class="stat-label">Used</div>
+                            </div>
+                            <div class="stat-card stat-inactive">
+                                <div class="stat-dot dot-orange"></div>
+                                <div class="stat-value">{apexSummary.unusedCount}</div>
+                                <div class="stat-label">Unused</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-dot dot-purple"></div>
+                                <div class="stat-value">{apexSummary.testCount}</div>
+                                <div class="stat-label">Test</div>
+                            </div>
+                            <template if:true={apexHasFilter}>
+                                <div class="stat-card">
+                                    <div class="stat-dot dot-blue"></div>
+                                    <div class="stat-value">{apexSummary.filteredCount}</div>
+                                    <div class="stat-label">Filtered</div>
+                                </div>
+                            </template>
+                        </div>
+                        <template if:true={apexHasFilter}>
+                            <div class="list-section list-section-highlight">
+                                <div class="list-header">
+                                    <span class="list-title">Namespace: {apexSummary.namespaceFilterApplied}</span>
+                                    <span class="list-count blue">{apexSummary.filteredCount}</span>
+                                </div>
+                                <template if:true={filteredApexList.length}>
+                                    <ul class="metadata-list">
+                                        <template for:each={filteredApexList} for:item="cls">
+                                            <li key={cls.index} class="list-item">
+                                                <span class="status-dot dot-blue"></span>
+                                                <span class="item-index">{cls.index}.</span>
+                                                <div class="item-detail">
+                                                    <span class="item-name">{cls.name}</span>
+                                                    <span class="item-meta">{cls.meta}</span>
+                                                </div>
+                                            </li>
+                                        </template>
+                                    </ul>
+                                </template>
+                                <template if:false={filteredApexList.length}>
+                                    <p class="empty-state">No classes found for namespace: {apexSummary.namespaceFilterApplied}</p>
+                                </template>
+                            </div>
+                        </template>
+                        <div class="list-section">
+                            <div class="list-header">
+                                <span class="list-title">Standard / Package Classes</span>
+                                <span class="list-count blue">{apexSummary.standardCount}</span>
+                                <span class="protect-badge">Do NOT delete</span>
+                            </div>
+                            <template if:true={standardClassList.length}>
+                                <ul class="metadata-list">
+                                    <template for:each={standardClassList} for:item="cls">
+                                        <li key={cls.index} class="list-item">
+                                            <span class="status-dot dot-blue"></span>
+                                            <span class="item-index">{cls.index}.</span>
+                                            <span class="item-name">{cls.name}</span>
+                                        </li>
+                                    </template>
+                                </ul>
+                            </template>
+                            <template if:false={standardClassList.length}>
+                                <p class="empty-state">No standard/package classes found.</p>
+                            </template>
+                        </div>
+                        <div class="list-section">
+                            <div class="list-header">
+                                <span class="list-title">Custom Used Classes</span>
+                                <span class="list-count green">{apexSummary.usedCount}</span>
+                            </div>
+                            <template if:true={usedClassList.length}>
+                                <ul class="metadata-list">
+                                    <template for:each={usedClassList} for:item="cls">
+                                        <li key={cls.index} class="list-item">
+                                            <span class="status-dot dot-green"></span>
+                                            <span class="item-index">{cls.index}.</span>
+                                            <span class="item-name">{cls.name}</span>
+                                        </li>
+                                    </template>
+                                </ul>
+                            </template>
+                            <template if:false={usedClassList.length}>
+                                <p class="empty-state">No used classes found.</p>
+                            </template>
+                        </div>
+                        <div class="list-section list-section-warn">
+                            <div class="list-header">
+                                <span class="list-title">Custom Unused Classes</span>
+                                <span class="list-count orange">{apexSummary.unusedCount}</span>
+                                <span class="delete-badge">Safe to delete</span>
+                            </div>
+                            <template if:true={unusedClassList.length}>
+                                <ul class="metadata-list">
+                                    <template for:each={unusedClassList} for:item="cls">
+                                        <li key={cls.index} class="list-item list-item-warn">
+                                            <span class="status-dot dot-orange"></span>
+                                            <span class="item-index">{cls.index}.</span>
+                                            <div class="item-detail">
+                                                <span class="item-name">{cls.name}</span>
+                                                <span class="item-meta">{cls.meta}</span>
+                                            </div>
+                                            <button class="agent-delete-btn" data-type="apex" data-name={cls.name} onclick={handleAgentDeleteFromList} title="Ask agent to delete">
+                                                <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                                                    <path d="M3 4h10M5 4V3h6v1M6 7v5M10 7v5M4 4l1 9h6l1-9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                                                </svg>
+                                            </button>
+                                        </li>
+                                    </template>
+                                </ul>
+                            </template>
+                            <template if:false={unusedClassList.length}>
+                                <p class="empty-state">No unused classes found.</p>
+                            </template>
+                        </div>
+                        <div class="list-section">
+                            <div class="list-header">
+                                <span class="list-title">Test Classes</span>
+                                <span class="list-count purple">{apexSummary.testCount}</span>
+                                <span class="protect-badge">Do NOT delete</span>
+                            </div>
+                            <template if:true={testClassList.length}>
+                                <ul class="metadata-list">
+                                    <template for:each={testClassList} for:item="cls">
+                                        <li key={cls.index} class="list-item">
+                                            <span class="status-dot dot-purple"></span>
+                                            <span class="item-index">{cls.index}.</span>
+                                            <span class="item-name">{cls.name}</span>
+                                        </li>
+                                    </template>
+                                </ul>
+                            </template>
+                            <template if:false={testClassList.length}>
+                                <p class="empty-state">No test classes found.</p>
+                            </template>
+                        </div>
+                    </div>
+                </template>
+            </template>
+
+            <!-- ═══════════════════════════════════════════════ -->
+            <!-- TRIGGERS TAB -->
+            <!-- ═══════════════════════════════════════════════ -->
+            <template if:true={showTriggersTab}>
+                <template if:false={isLoading}>
+                    <div class="section-fade">
+                        <div class="stats-row">
+                            <div class="stat-card stat-total">
+                                <div class="stat-value">{triggerSummary.totalCount}</div>
+                                <div class="stat-label">Total</div>
+                            </div>
+                            <div class="stat-card stat-active">
+                                <div class="stat-dot dot-green"></div>
+                                <div class="stat-value">{triggerSummary.activeCount}</div>
+                                <div class="stat-label">Active</div>
+                            </div>
+                            <div class="stat-card stat-inactive">
+                                <div class="stat-dot dot-gray"></div>
+                                <div class="stat-value">{triggerSummary.inactiveCount}</div>
+                                <div class="stat-label">Inactive</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-dot dot-teal"></div>
+                                <div class="stat-value">{triggerSummary.usedCount}</div>
+                                <div class="stat-label">Used</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-dot dot-orange"></div>
+                                <div class="stat-value">{triggerSummary.unusedCount}</div>
+                                <div class="stat-label">Unused</div>
+                            </div>
+                            <template if:true={triggerHasFilter}>
+                                <div class="stat-card">
+                                    <div class="stat-dot dot-blue"></div>
+                                    <div class="stat-value">{triggerSummary.filteredCount}</div>
+                                    <div class="stat-label">Filtered</div>
+                                </div>
+                            </template>
+                        </div>
+                        <template if:true={triggerHasFilter}>
+                            <div class="list-section list-section-highlight">
+                                <div class="list-header">
+                                    <span class="list-title">Namespace: {triggerSummary.namespaceFilterApplied}</span>
+                                    <span class="list-count blue">{triggerSummary.filteredCount}</span>
+                                </div>
+                                <template if:true={filteredTriggerList.length}>
+                                    <ul class="metadata-list">
+                                        <template for:each={filteredTriggerList} for:item="trig">
+                                            <li key={trig.index} class="list-item">
+                                                <span class="status-dot dot-blue"></span>
+                                                <span class="item-index">{trig.index}.</span>
+                                                <div class="item-detail">
+                                                    <span class="item-name">{trig.name}</span>
+                                                    <span class="item-meta">{trig.meta}</span>
+                                                </div>
+                                            </li>
+                                        </template>
+                                    </ul>
+                                </template>
+                                <template if:false={filteredTriggerList.length}>
+                                    <p class="empty-state">No triggers found for namespace: {triggerSummary.namespaceFilterApplied}</p>
+                                </template>
+                            </div>
+                        </template>
+                        <div class="list-section">
+                            <div class="list-header">
+                                <span class="list-title">Used Triggers</span>
+                                <span class="list-count teal">{triggerSummary.usedCount}</span>
+                                <span class="protect-badge">Actively referenced</span>
+                            </div>
+                            <template if:true={usedTriggerList.length}>
+                                <ul class="metadata-list">
+                                    <template for:each={usedTriggerList} for:item="trig">
+                                        <li key={trig.index} class="list-item">
+                                            <span class="status-dot dot-teal"></span>
+                                            <span class="item-index">{trig.index}.</span>
+                                            <span class="item-name">{trig.name}</span>
+                                        </li>
+                                    </template>
+                                </ul>
+                            </template>
+                            <template if:false={usedTriggerList.length}>
+                                <p class="empty-state">No used triggers found.</p>
+                            </template>
+                        </div>
+                        <div class="list-section">
+                            <div class="list-header">
+                                <span class="list-title">Active Triggers</span>
+                                <span class="list-count green">{triggerSummary.activeCount}</span>
+                            </div>
+                            <template if:true={activeTriggerList.length}>
+                                <ul class="metadata-list">
+                                    <template for:each={activeTriggerList} for:item="trig">
+                                        <li key={trig.index} class="list-item">
+                                            <span class="status-dot dot-green"></span>
+                                            <span class="item-index">{trig.index}.</span>
+                                            <div class="item-detail">
+                                                <span class="item-name">{trig.name}</span>
+                                                <span class="item-meta">{trig.meta}</span>
+                                            </div>
+                                        </li>
+                                    </template>
+                                </ul>
+                            </template>
+                            <template if:false={activeTriggerList.length}>
+                                <p class="empty-state">No active triggers found.</p>
+                            </template>
+                        </div>
+                        <div class="list-section list-section-warn">
+                            <div class="list-header">
+                                <span class="list-title">Unused Triggers</span>
+                                <span class="list-count orange">{triggerSummary.unusedCount}</span>
+                                <span class="delete-badge">Safe to delete</span>
+                            </div>
+                            <template if:true={unusedTriggerList.length}>
+                                <ul class="metadata-list">
+                                    <template for:each={unusedTriggerList} for:item="trig">
+                                        <li key={trig.index} class="list-item list-item-warn">
+                                            <span class="status-dot dot-orange"></span>
+                                            <span class="item-index">{trig.index}.</span>
+                                            <div class="item-detail">
+                                                <span class="item-name">{trig.name}</span>
+                                                <span class="item-meta">{trig.meta}</span>
+                                            </div>
+                                            <button class="agent-delete-btn" data-type="trigger" data-name={trig.name} onclick={handleAgentDeleteFromList} title="Ask agent to delete">
+                                                <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                                                    <path d="M3 4h10M5 4V3h6v1M6 7v5M10 7v5M4 4l1 9h6l1-9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                                                </svg>
+                                            </button>
+                                        </li>
+                                    </template>
+                                </ul>
+                            </template>
+                            <template if:false={unusedTriggerList.length}>
+                                <p class="empty-state">No unused triggers found.</p>
+                            </template>
+                        </div>
+                        <div class="list-section">
+                            <div class="list-header">
+                                <span class="list-title">Inactive Triggers</span>
+                                <span class="list-count gray">{triggerSummary.inactiveCount}</span>
+                            </div>
+                            <template if:true={inactiveTriggerList.length}>
+                                <ul class="metadata-list">
+                                    <template for:each={inactiveTriggerList} for:item="trig">
+                                        <li key={trig.index} class="list-item">
+                                            <span class="status-dot dot-gray"></span>
+                                            <span class="item-index">{trig.index}.</span>
+                                            <div class="item-detail">
+                                                <span class="item-name">{trig.name}</span>
+                                                <span class="item-meta">{trig.meta}</span>
+                                            </div>
+                                        </li>
+                                    </template>
+                                </ul>
+                            </template>
+                            <template if:false={inactiveTriggerList.length}>
+                                <p class="empty-state">No inactive triggers found.</p>
+                            </template>
+                        </div>
+                    </div>
+                </template>
+            </template>
+
+            <!-- LWC / AURA / PROFILES / PERMSETS / FIELDS / OBJECTS / VR TABS — unchanged from original -->
+            <template if:true={showLwcTab}>
+                <template if:false={isLoading}>
+                    <div class="section-fade">
+                        <div class="stats-row">
+                            <div class="stat-card stat-total"><div class="stat-value">{lwcSummary.totalCount}</div><div class="stat-label">Total LWC</div></div>
+                            <div class="stat-card"><div class="stat-dot dot-blue"></div><div class="stat-value">{lwcSummary.withNamespaceCount}</div><div class="stat-label">With Namespace</div></div>
+                            <div class="stat-card"><div class="stat-dot dot-gray"></div><div class="stat-value">{lwcSummary.withoutNamespaceCount}</div><div class="stat-label">No Namespace</div></div>
+                            <template if:true={lwcHasFilter}><div class="stat-card stat-active"><div class="stat-dot dot-green"></div><div class="stat-value">{lwcSummary.filteredCount}</div><div class="stat-label">Filtered</div></div></template>
+                        </div>
+                        <template if:true={lwcHasFilter}>
+                            <div class="list-section list-section-highlight">
+                                <div class="list-header"><span class="list-title">Namespace: {lwcSummary.namespaceFilterApplied}</span><span class="list-count blue">{lwcSummary.filteredCount}</span></div>
+                                <template if:true={filteredLwcList.length}><ul class="metadata-list"><template for:each={filteredLwcList} for:item="cmp"><li key={cmp.index} class="list-item"><span class="status-dot dot-blue"></span><span class="item-index">{cmp.index}.</span><div class="item-detail"><span class="item-name">{cmp.name}</span><span class="item-meta">{cmp.meta}</span></div></li></template></ul></template>
+                                <template if:false={filteredLwcList.length}><p class="empty-state">No components found for namespace: {lwcSummary.namespaceFilterApplied}</p></template>
+                            </div>
+                        </template>
+                        <div class="list-section">
+                            <div class="list-header"><span class="list-title">All LWC Components</span><span class="list-count blue">{lwcSummary.totalCount}</span></div>
+                            <template if:true={allLwcList.length}><ul class="metadata-list"><template for:each={allLwcList} for:item="cmp"><li key={cmp.index} class="list-item"><span class="status-dot dot-blue"></span><span class="item-index">{cmp.index}.</span><div class="item-detail"><span class="item-name">{cmp.name}</span><span class="item-meta">{cmp.meta}</span></div></li></template></ul></template>
+                            <template if:false={allLwcList.length}><p class="empty-state">No LWC components found.</p></template>
+                        </div>
+                    </div>
+                </template>
+            </template>
+
+            <template if:true={showAuraTab}>
+                <template if:false={isLoading}>
+                    <div class="section-fade">
+                        <div class="stats-row">
+                            <div class="stat-card stat-total"><div class="stat-value">{auraSummary.totalCount}</div><div class="stat-label">Total Aura</div></div>
+                            <div class="stat-card"><div class="stat-dot dot-blue"></div><div class="stat-value">{auraSummary.withNamespaceCount}</div><div class="stat-label">With Namespace</div></div>
+                            <div class="stat-card"><div class="stat-dot dot-gray"></div><div class="stat-value">{auraSummary.withoutNamespaceCount}</div><div class="stat-label">No Namespace</div></div>
+                            <template if:true={auraHasFilter}><div class="stat-card stat-active"><div class="stat-dot dot-green"></div><div class="stat-value">{auraSummary.filteredCount}</div><div class="stat-label">Filtered</div></div></template>
+                        </div>
+                        <div class="list-section">
+                            <div class="list-header"><span class="list-title">All Aura Components</span><span class="list-count blue">{auraSummary.totalCount}</span></div>
+                            <template if:true={allAuraList.length}><ul class="metadata-list"><template for:each={allAuraList} for:item="cmp"><li key={cmp.index} class="list-item"><span class="status-dot dot-blue"></span><span class="item-index">{cmp.index}.</span><div class="item-detail"><span class="item-name">{cmp.name}</span><span class="item-meta">{cmp.meta}</span></div></li></template></ul></template>
+                            <template if:false={allAuraList.length}><p class="empty-state">No Aura components found.</p></template>
+                        </div>
+                    </div>
+                </template>
+            </template>
+
+            <template if:true={showProfilesTab}>
+                <template if:false={isLoading}>
+                    <div class="section-fade">
+                        <div class="stats-row">
+                            <div class="stat-card stat-total"><div class="stat-value">{profileSummary.totalCount}</div><div class="stat-label">Total Profiles</div></div>
+                            <div class="stat-card stat-active"><div class="stat-dot dot-green"></div><div class="stat-value">{profileSummary.usedCount}</div><div class="stat-label">Assigned</div></div>
+                            <div class="stat-card stat-inactive"><div class="stat-dot dot-orange"></div><div class="stat-value">{profileSummary.unusedCount}</div><div class="stat-label">Unassigned</div></div>
+                        </div>
+                        <div class="list-section list-section-warn">
+                            <div class="list-header"><span class="list-title">Unassigned Profiles</span><span class="list-count orange">{profileSummary.unusedCount}</span><span class="delete-badge">No active users</span></div>
+                            <template if:true={unusedProfileList.length}><ul class="metadata-list"><template for:each={unusedProfileList} for:item="prof"><li key={prof.index} class="list-item list-item-warn"><span class="status-dot dot-orange"></span><span class="item-index">{prof.index}.</span><div class="item-detail"><span class="item-name">{prof.name}</span><span class="item-meta">{prof.meta}</span></div></li></template></ul></template>
+                            <template if:false={unusedProfileList.length}><p class="empty-state">All profiles are assigned to active users.</p></template>
+                        </div>
+                        <div class="list-section">
+                            <div class="list-header"><span class="list-title">Assigned Profiles</span><span class="list-count green">{profileSummary.usedCount}</span></div>
+                            <template if:true={usedProfileList.length}><ul class="metadata-list"><template for:each={usedProfileList} for:item="prof"><li key={prof.index} class="list-item"><span class="status-dot dot-green"></span><span class="item-index">{prof.index}.</span><div class="item-detail"><span class="item-name">{prof.name}</span><span class="item-meta">{prof.meta}</span></div></li></template></ul></template>
+                            <template if:false={usedProfileList.length}><p class="empty-state">No assigned profiles found.</p></template>
+                        </div>
+                    </div>
+                </template>
+            </template>
+
+            <template if:true={showPermSetsTab}>
+                <template if:false={isLoading}>
+                    <div class="section-fade">
+                        <div class="stats-row">
+                            <div class="stat-card stat-total"><div class="stat-value">{permSetSummary.totalCount}</div><div class="stat-label">Total Perm Sets</div></div>
+                            <div class="stat-card stat-active"><div class="stat-dot dot-green"></div><div class="stat-value">{permSetSummary.usedCount}</div><div class="stat-label">Assigned</div></div>
+                            <div class="stat-card stat-inactive"><div class="stat-dot dot-orange"></div><div class="stat-value">{permSetSummary.unusedCount}</div><div class="stat-label">Unassigned</div></div>
+                        </div>
+                        <div class="list-section list-section-warn">
+                            <div class="list-header"><span class="list-title">Unassigned Permission Sets</span><span class="list-count orange">{permSetSummary.unusedCount}</span><span class="delete-badge">No assignments</span></div>
+                            <template if:true={unusedPermSetList.length}><ul class="metadata-list"><template for:each={unusedPermSetList} for:item="ps"><li key={ps.index} class="list-item list-item-warn"><span class="status-dot dot-orange"></span><span class="item-index">{ps.index}.</span><div class="item-detail"><span class="item-name">{ps.name}</span><span class="item-meta">{ps.meta}</span></div></li></template></ul></template>
+                            <template if:false={unusedPermSetList.length}><p class="empty-state">All permission sets have active assignments.</p></template>
+                        </div>
+                        <div class="list-section">
+                            <div class="list-header"><span class="list-title">Assigned Permission Sets</span><span class="list-count green">{permSetSummary.usedCount}</span></div>
+                            <template if:true={usedPermSetList.length}><ul class="metadata-list"><template for:each={usedPermSetList} for:item="ps"><li key={ps.index} class="list-item"><span class="status-dot dot-green"></span><span class="item-index">{ps.index}.</span><div class="item-detail"><span class="item-name">{ps.name}</span><span class="item-meta">{ps.meta}</span></div></li></template></ul></template>
+                            <template if:false={usedPermSetList.length}><p class="empty-state">No assigned permission sets found.</p></template>
+                        </div>
+                    </div>
+                </template>
+            </template>
+
+            <template if:true={showFieldsTab}>
+                <template if:false={isLoading}>
+                    <div class="section-fade">
+                        <div class="stats-row">
+                            <div class="stat-card stat-total"><div class="stat-value">{fieldSummary.totalCount}</div><div class="stat-label">Total Fields</div></div>
+                            <div class="stat-card"><div class="stat-dot dot-blue"></div><div class="stat-value">{fieldSummary.withNamespaceCount}</div><div class="stat-label">With Namespace</div></div>
+                            <div class="stat-card"><div class="stat-dot dot-gray"></div><div class="stat-value">{fieldSummary.withoutNamespaceCount}</div><div class="stat-label">No Namespace</div></div>
+                            <template if:true={fieldHasFilter}><div class="stat-card stat-active"><div class="stat-dot dot-green"></div><div class="stat-value">{fieldSummary.filteredCount}</div><div class="stat-label">Filtered</div></div></template>
+                        </div>
+                        <template if:true={fieldHasFilter}>
+                            <div class="list-section list-section-highlight">
+                                <div class="list-header"><span class="list-title">Namespace: {fieldSummary.namespaceFilterApplied}</span><span class="list-count blue">{fieldSummary.filteredCount}</span></div>
+                                <template if:true={filteredFieldList.length}><ul class="metadata-list"><template for:each={filteredFieldList} for:item="fld"><li key={fld.index} class="list-item"><span class="status-dot dot-blue"></span><span class="item-index">{fld.index}.</span><div class="item-detail"><span class="item-name">{fld.name}</span><span class="item-meta">{fld.meta}</span></div></li></template></ul></template>
+                                <template if:false={filteredFieldList.length}><p class="empty-state">No fields found for namespace: {fieldSummary.namespaceFilterApplied}</p></template>
+                            </div>
+                        </template>
+                        <div class="list-section">
+                            <div class="list-header"><span class="list-title">All Custom Fields</span><span class="list-count blue">{fieldSummary.totalCount}</span></div>
+                            <template if:true={allFieldList.length}><ul class="metadata-list"><template for:each={allFieldList} for:item="fld"><li key={fld.index} class="list-item"><span class="status-dot dot-blue"></span><span class="item-index">{fld.index}.</span><div class="item-detail"><span class="item-name">{fld.name}</span><span class="item-meta">{fld.meta}</span></div></li></template></ul></template>
+                            <template if:false={allFieldList.length}><p class="empty-state">No custom fields found.</p></template>
+                        </div>
+                    </div>
+                </template>
+            </template>
+
+            <template if:true={showObjectsTab}>
+                <template if:false={isLoading}>
+                    <div class="section-fade">
+                        <div class="stats-row">
+                            <div class="stat-card stat-total"><div class="stat-value">{objectSummary.totalCount}</div><div class="stat-label">Total Objects</div></div>
+                            <div class="stat-card"><div class="stat-dot dot-blue"></div><div class="stat-value">{objectSummary.withNamespaceCount}</div><div class="stat-label">With Namespace</div></div>
+                            <div class="stat-card"><div class="stat-dot dot-gray"></div><div class="stat-value">{objectSummary.withoutNamespaceCount}</div><div class="stat-label">No Namespace</div></div>
+                            <template if:true={objectHasFilter}><div class="stat-card stat-active"><div class="stat-dot dot-green"></div><div class="stat-value">{objectSummary.filteredCount}</div><div class="stat-label">Filtered</div></div></template>
+                        </div>
+                        <div class="list-section">
+                            <div class="list-header"><span class="list-title">All Custom Objects</span><span class="list-count blue">{objectSummary.totalCount}</span></div>
+                            <template if:true={allObjectList.length}><ul class="metadata-list"><template for:each={allObjectList} for:item="obj"><li key={obj.index} class="list-item"><span class="status-dot dot-blue"></span><span class="item-index">{obj.index}.</span><div class="item-detail"><span class="item-name">{obj.name}</span><span class="item-meta">{obj.meta}</span></div></li></template></ul></template>
+                            <template if:false={allObjectList.length}><p class="empty-state">No custom objects found.</p></template>
+                        </div>
+                    </div>
+                </template>
+            </template>
+
+            <template if:true={showVrTab}>
+                <template if:false={isLoading}>
+                    <div class="section-fade">
+                        <div class="stats-row">
+                            <div class="stat-card stat-total"><div class="stat-value">{vrSummary.totalCount}</div><div class="stat-label">Total Rules</div></div>
+                            <div class="stat-card stat-active"><div class="stat-dot dot-green"></div><div class="stat-value">{vrSummary.activeCount}</div><div class="stat-label">Active</div></div>
+                            <div class="stat-card stat-inactive"><div class="stat-dot dot-orange"></div><div class="stat-value">{vrSummary.inactiveCount}</div><div class="stat-label">Inactive</div></div>
+                            <template if:true={vrHasFilter}><div class="stat-card"><div class="stat-dot dot-blue"></div><div class="stat-value">{vrSummary.filteredCount}</div><div class="stat-label">Filtered</div></div></template>
+                        </div>
+                        <div class="list-section">
+                            <div class="list-header"><span class="list-title">Active Validation Rules</span><span class="list-count green">{vrSummary.activeCount}</span></div>
+                            <template if:true={activeVrList.length}><ul class="metadata-list"><template for:each={activeVrList} for:item="rule"><li key={rule.index} class="list-item"><span class="status-dot dot-green"></span><span class="item-index">{rule.index}.</span><div class="item-detail"><span class="item-name">{rule.name}</span><span class="item-meta">{rule.meta}</span></div></li></template></ul></template>
+                            <template if:false={activeVrList.length}><p class="empty-state">No active validation rules found.</p></template>
+                        </div>
+                        <div class="list-section list-section-warn">
+                            <div class="list-header"><span class="list-title">Inactive Validation Rules</span><span class="list-count orange">{vrSummary.inactiveCount}</span><span class="delete-badge">Safe to review</span></div>
+                            <template if:true={inactiveVrList.length}><ul class="metadata-list"><template for:each={inactiveVrList} for:item="rule"><li key={rule.index} class="list-item list-item-warn"><span class="status-dot dot-orange"></span><span class="item-index">{rule.index}.</span><div class="item-detail"><span class="item-name">{rule.name}</span><span class="item-meta">{rule.meta}</span></div></li></template></ul></template>
+                            <template if:false={inactiveVrList.length}><p class="empty-state">No inactive validation rules found.</p></template>
+                        </div>
+                    </div>
+                </template>
+            </template>
+
+        </div><!-- end .dashboard -->
+
+        <!-- ═══════════════════════════════════════════════════ -->
+        <!-- RIGHT PANEL — Org Cleanup Agent                     -->
+        <!-- ═══════════════════════════════════════════════════ -->
+        <div class="agent-panel">
+
+            <!-- Agent Header -->
+            <div class="agent-header">
+                <div class="agent-avatar">
+                    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                        <circle cx="10" cy="7" r="3.5" stroke="#0070D2" stroke-width="1.5"/>
+                        <path d="M3 18c0-3.866 3.134-6 7-6s7 2.134 7 6" stroke="#0070D2" stroke-width="1.5" stroke-linecap="round"/>
+                    </svg>
+                </div>
+                <div class="agent-header-info">
+                    <span class="agent-name">Org Cleanup Agent</span>
+                    <span class="agent-status">
+                        <span class="status-pulse"></span>
+                        Online
+                    </span>
+                </div>
+            </div>
+
+            <!-- Chat Messages -->
+            <div class="agent-messages" lwc:ref="messagesContainer">
+                <template for:each={agentMessages} for:item="msg">
+                    <div key={msg.id} class={msg.cssClass}>
+                        <template if:true={msg.isAgent}>
+                            <div class="msg-avatar-sm">
+                                <svg width="12" height="12" viewBox="0 0 20 20" fill="none">
+                                    <circle cx="10" cy="7" r="3.5" stroke="#0070D2" stroke-width="1.5"/>
+                                    <path d="M3 18c0-3.866 3.134-6 7-6s7 2.134 7 6" stroke="#0070D2" stroke-width="1.5" stroke-linecap="round"/>
+                                </svg>
+                            </div>
+                        </template>
+                        <div class="msg-bubble">
+                            <template if:true={msg.isTyping}>
+                                <div class="typing-dots">
+                                    <span></span><span></span><span></span>
+                                </div>
+                            </template>
+                            <template if:false={msg.isTyping}>
+                                <p class="msg-text">{msg.text}</p>
+                                <template if:true={msg.isSuccess}>
+                                    <div class="msg-success-tag">
+                                        <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
+                                            <path d="M2 6l3 3 5-5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                                        </svg>
+                                        Action completed
+                                    </div>
+                                </template>
+                                <template if:true={msg.isError}>
+                                    <div class="msg-error-tag">
+                                        <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
+                                            <circle cx="6" cy="6" r="5" stroke="currentColor" stroke-width="1.2"/>
+                                            <path d="M6 4v3M6 8.5v.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+                                        </svg>
+                                        Failed
+                                    </div>
+                                </template>
+                            </template>
+                        </div>
+                    </div>
+                </template>
+            </div>
+
+            <!-- Quick Action Chips -->
+            <div class="agent-chips">
+                <button class="chip" data-query="Show inactive flows" onclick={handleChipClick}>Inactive flows</button>
+                <button class="chip" data-query="Show unused Apex classes" onclick={handleChipClick}>Unused Apex</button>
+                <button class="chip" data-query="Delete trigger" onclick={handleChipClick}>Delete trigger</button>
+                <button class="chip" data-query="Show unused triggers" onclick={handleChipClick}>Unused triggers</button>
+                <button class="chip" data-query="Show unassigned Profiles" onclick={handleChipClick}>Unused Profiles</button>
+                <button class="chip" data-query="Show unused Permission Sets" onclick={handleChipClick}>Unused Perm Sets</button>
+            </div>
+
+            <!-- Input Row -->
+            <div class="agent-input-row">
+                <input
+                    class="agent-input"
+                    type="text"
+                    placeholder="Ask the agent..."
+                    value={agentInput}
+                    onchange={handleAgentInputChange}
+                    onkeydown={handleAgentInputKeydown}
+                    disabled={agentIsProcessing}
+                />
+                <button class="agent-send-btn" onclick={handleAgentSend} disabled={agentSendDisabled}>
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                        <path d="M14 8L2 2l3 6-3 6 12-6z" fill="currentColor"/>
+                    </svg>
+                </button>
+            </div>
+
+        </div><!-- end .agent-panel -->
+
+    </div><!-- end .dashboard-shell -->
+</template>
