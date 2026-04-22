@@ -1,3 +1,4 @@
+@SuppressWarnings('PMD.CognitiveComplexity')
 public without sharing class AuraAgentAction {
 
     public class AuraRequest {
