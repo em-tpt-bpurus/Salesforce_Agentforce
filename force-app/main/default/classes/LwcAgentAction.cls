@@ -1,3 +1,4 @@
+@SuppressWarnings('PMD.CognitiveComplexity')
 public without sharing class LwcAgentAction {
 
     public class LwcRequest {
