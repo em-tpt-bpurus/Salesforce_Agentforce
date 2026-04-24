@@ -1,6 +1,6 @@
 <!-- Profiles are complex metadata and org-specific.
      The MetadataDashboard reads profiles at runtime via REST API.
      To deploy profile changes, retrieve your specific profiles using:
-     sf project retrieve start --metadata "Profile:Standard User" --target-org <alias>
+     sf project retrieve start metadata Profile:Standard User targetorg alias
      Then include them here.
 -->

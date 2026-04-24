@@ -1,25 +1,70 @@
 public without sharing class DeleteCustomObjectAction {
+
     public class DeleteObjectRequest {
-        @InvocableVariable(label='Object Developer Name' description='DeveloperName of the custom object (without __c)')
+        @InvocableVariable(label='Object Developer Name' description='DeveloperName of the custom object (without __c, e.g. MyObject)')
         public String objectName;
     }
+
     public class DeleteObjectOutput {
-        @InvocableVariable(label='Success') public Boolean success;
-        @InvocableVariable(label='Message') public String  message;
+        @AuraEnabled @InvocableVariable(label='Success')
+        public Boolean success;
+
+        @AuraEnabled @InvocableVariable(label='Message')
+        public String message;
     }
-    @InvocableMethod(label='Delete Custom Object' description='Permanently deletes a custom object and all its data. Use with extreme caution.')
+
+    // ── Called by Agentforce via @InvocableMethod ──────────────
+    @InvocableMethod(label='Delete Custom Object' description='Deletes a custom object by its DeveloperName')
     public static List<DeleteObjectOutput> deleteObject(List<DeleteObjectRequest> requests) {
         List<DeleteObjectOutput> outputs = new List<DeleteObjectOutput>();
+
         for (DeleteObjectRequest req : requests) {
             DeleteObjectOutput out = new DeleteObjectOutput();
+
             if (String.isBlank(req.objectName)) {
-                out.success = false; out.message = 'Object name was not provided.';
+                out.success = false;
+                out.message = 'Object Developer Name must be provided.';
             } else {
-                MetadataEngine.DeleteResult r = MetadataEngine.deleteCustomObjectByName(req.objectName.trim());
-                out.success = r.success; out.message = r.message;
+                try {
+                    MetadataEngine.DeleteResult r = MetadataEngine.deleteCustomObjectByName(
+                        req.objectName.trim().replace(' ', '_') // ← space to underscore
+                    );
+                    out.success = r.success;
+                    out.message = r.message;
+                } catch (Exception e) {
+                    out.success = false;
+                    out.message = 'Unexpected error: ' + e.getMessage();
+                }
             }
+
             outputs.add(out);
         }
         return outputs;
+    }
+    
+
+    // ── Called by LWC via @AuraEnabled ─────────────────────────
+    @AuraEnabled(cacheable=false)
+    public static DeleteObjectOutput deleteObjectFromLWC(String objectName) {
+        DeleteObjectOutput out = new DeleteObjectOutput();
+
+        if (String.isBlank(objectName)) {
+            out.success = false;
+            out.message = 'Object Developer Name must be provided.';
+            return out;
+        }
+
+        try {
+            MetadataEngine.DeleteResult r = MetadataEngine.deleteCustomObjectByName(
+                objectName.trim().replace(' ', '_') // ← space to underscore
+            );
+            out.success = r.success;
+            out.message = r.message;
+        } catch (Exception e) {
+            out.success = false;
+            out.message = 'Unexpected error: ' + e.getMessage();
+        }
+
+        return out;
     }
 }
