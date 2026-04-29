@@ -1,22 +1,28 @@
-
-
-
-@SuppressWarnings('PMD.ExcessiveClassLength,PMD.NcssMethodCount,PMD.AvoidDeeplyNestedIfStmts,PMD.CognitiveComplexity,PMD.NcssTypeCount,PMD.EmptyStatementBlock,PMD.IfStmtsMustUseBraces,PMD.IfElseStmtsMustUseBraces')
+@SuppressWarnings('PMD.ExcessiveClassLength,PMD.NcssMethodCount,PMD.AvoidDeeplyNestedIfStmts,PMD.CognitiveComplexity,PMD.NcssTypeCount,PMD.EmptyStatementBlock,PMD.IfStmtsMustUseBraces,PMD.IfElseStmtsMustUseBraces,PMD.ApexCRUDViolation')
 public without sharing class MetadataEngine {
 
     // ===============================
     // WRAPPERS — FLOWS
     // ===============================
+    public class FlowInfo {
+        @AuraEnabled public String  apiName;
+        @AuraEnabled public String  label;
+        @AuraEnabled public String  processType;
+        @AuraEnabled public Boolean isActive;
+        @AuraEnabled public String  namespacePrefix;
+    }
+
     public class FlowSummary {
-        public Integer      total;
-        public Integer      active;
-        public Integer      inactive;
-        public List<String> activeFlows;
-        public List<String> inactiveFlows;
-        public Integer      filteredTotal;
-        public List<String> filteredActiveFlows;
-        public List<String> filteredInactiveFlows;
-        public String       namespaceFilter;
+        public Integer        total;
+        public Integer        active;
+        public Integer        inactive;
+        public List<String>   activeFlows;
+        public List<String>   inactiveFlows;
+        public Integer        filteredTotal;
+        public List<String>   filteredActiveFlows;
+        public List<String>   filteredInactiveFlows;
+        public String         namespaceFilter;
+        public List<FlowInfo> allFlowObjects;
     }
 
     // ===============================
@@ -28,6 +34,7 @@ public without sharing class MetadataEngine {
         public String  status;
         public Integer linesOfCode;
         public String  lastModifiedDate;
+        public String  namespacePrefix;
     }
 
     public class ApexSummary {
@@ -49,8 +56,8 @@ public without sharing class MetadataEngine {
     // SHARED WRAPPER
     // ===============================
     public class DeleteResult {
-        public Boolean success;
-        public String  message;
+        @AuraEnabled public Boolean success;
+        @AuraEnabled public String  message;
     }
 
     // ===============================
@@ -101,14 +108,19 @@ public without sharing class MetadataEngine {
         public String  name;
         public String  userLicenseName;
         public Integer assignedUserCount;
+        public Boolean isCustom;
     }
 
     public class ProfileSummary {
         public Integer           total;
         public Integer           unused;
         public Integer           used;
+        public Integer           customCount;
+        public Integer           standardCount;
         public List<ProfileInfo> unusedProfiles;
         public List<ProfileInfo> usedProfiles;
+        public List<ProfileInfo> customProfiles;
+        public List<ProfileInfo> standardProfiles;
     }
 
     // ===============================
@@ -127,8 +139,13 @@ public without sharing class MetadataEngine {
         public Integer                 total;
         public Integer                 unused;
         public Integer                 used;
+        public Integer                 withNamespace;
+        public Integer                 withoutNamespace;
+        public Integer                 filteredTotal;
+        public String                  namespaceFilterApplied;
         public List<PermissionSetInfo> unusedPermSets;
         public List<PermissionSetInfo> usedPermSets;
+        public List<PermissionSetInfo> filteredPermSets;
     }
 
     // ===============================
@@ -229,10 +246,11 @@ public without sharing class MetadataEngine {
     public static FlowSummary getFlows(String namespaceFilter) {
 
         Http         http               = new Http();
-        List<String> activeFlows        = new List<String>();
-        List<String> inactiveFlows      = new List<String>();
-        List<String> filteredActiveFlows   = new List<String>();
-        List<String> filteredInactiveFlows = new List<String>();
+        List<String>             activeFlows           = new List<String>();
+        List<String>             inactiveFlows         = new List<String>();
+        List<String>             filteredActiveFlows   = new List<String>();
+        List<String>             filteredInactiveFlows = new List<String>();
+        List<MetadataEngine.FlowInfo> allFlowObjects   = new List<MetadataEngine.FlowInfo>();
 
         String soql = 'SELECT Label, ApiName, IsActive, ProcessType, NamespacePrefix ' +
                       'FROM FlowDefinitionView ' +
@@ -262,6 +280,15 @@ public without sharing class MetadataEngine {
 
                     String flowLabel = label + ' [' + procType + '] (' + apiName + ')' +
                                        (String.isNotBlank(nsPrefix) ? ' [ns:' + nsPrefix + ']' : '');
+
+                    // Populate rich FlowInfo object for export
+                    MetadataEngine.FlowInfo fi = new MetadataEngine.FlowInfo();
+                    fi.apiName        = apiName;
+                    fi.label          = label;
+                    fi.processType    = procType;
+                    fi.isActive       = isActive;
+                    fi.namespacePrefix = nsPrefix;
+                    allFlowObjects.add(fi);
 
                     if (isActive) {
                         activeFlows.add(flowLabel);
@@ -293,6 +320,7 @@ public without sharing class MetadataEngine {
         summary.filteredInactiveFlows = filteredInactiveFlows;
         summary.filteredTotal         = filteredActiveFlows.size() + filteredInactiveFlows.size();
         summary.namespaceFilter       = namespaceFilter;
+        summary.allFlowObjects        = allFlowObjects;
 
         return summary;
     }
@@ -440,7 +468,7 @@ public without sharing class MetadataEngine {
             }
         }
 
-        String      stdSoql = 'SELECT Id, Name, Status, LengthWithoutComments, LastModifiedDate ' +
+        String      stdSoql = 'SELECT Id, Name, Status, LengthWithoutComments, LastModifiedDate, NamespacePrefix ' +
                               'FROM ApexClass WHERE NamespacePrefix != null ORDER BY Name ASC';
         HttpRequest stdReq  = new HttpRequest();
         stdReq.setEndpoint('callout:Metadata_API/services/data/v60.0/tooling/query?q=' +
@@ -448,8 +476,9 @@ public without sharing class MetadataEngine {
         stdReq.setMethod('GET');
         stdReq.setHeader('Content-Type', 'application/json');
 
-        HttpResponse stdRes             = http.send(stdReq);
-        List<String> standardClassNames = new List<String>();
+        HttpResponse                stdRes             = http.send(stdReq);
+        List<String>                standardClassNames = new List<String>();
+        Map<String, ApexClassInfo>  standardClassMap   = new Map<String, ApexClassInfo>();
 
         if (stdRes.getStatusCode() >= 200 && stdRes.getStatusCode() < 300) {
             Map<String, Object> stdResponse =
@@ -459,8 +488,18 @@ public without sharing class MetadataEngine {
                 for (Object obj : stdRecords) {
                     Map<String, Object> rec     = (Map<String, Object>) obj;
                     String              stdName = (String) rec.get('Name');
+                    String              stdNs   = (String) rec.get('NamespacePrefix');
                     if (String.isNotBlank(stdName)) {
                         standardClassNames.add(stdName);
+                        ApexClassInfo stdInfo    = new ApexClassInfo();
+                        stdInfo.name             = stdName;
+                        stdInfo.namespacePrefix  = stdNs;
+                        stdInfo.status           = (String) rec.get('Status');
+                        stdInfo.linesOfCode      = rec.get('LengthWithoutComments') != null
+                                                     ? Integer.valueOf(String.valueOf(rec.get('LengthWithoutComments')))
+                                                     : 0;
+                        stdInfo.lastModifiedDate = (String) rec.get('LastModifiedDate');
+                        standardClassMap.put(stdName, stdInfo);
                     }
                 }
             }
@@ -629,12 +668,38 @@ public without sharing class MetadataEngine {
         }
 
         if (String.isNotBlank(namespaceFilter)) {
+            String nsLower  = namespaceFilter.toLowerCase();
+            // Match standard/package classes whose NamespacePrefix equals the filter
             for (String stdName : standardClassNames) {
-                ApexClassInfo info = new ApexClassInfo();
-                info.name        = stdName;
-                info.status      = 'Active';
-                info.linesOfCode = 0;
-                filteredClasses.add(info);
+                ApexClassInfo stdInfo = standardClassMap.get(stdName);
+                String        stdNs   = stdInfo != null && stdInfo.namespacePrefix != null
+                                          ? stdInfo.namespacePrefix.toLowerCase() : '';
+                if (stdNs.equals(nsLower)) {
+                    filteredClasses.add(stdInfo);
+                }
+            }
+            // Match custom classes whose name starts with the namespace.
+            // Handles all conventions:
+            //   NS_ClassName   (underscore separator)
+            //   NSClassName    (camelCase, no separator)
+            // A match requires the class name to start with the filter AND the very next
+            // character (if any) is either '_' or an uppercase letter — this prevents
+            // "EM" matching "EMployee" only when the developer actually used "EM" as a prefix.
+            for (String className : allClassMap.keySet()) {
+                String classLower = className.toLowerCase();
+                if (classLower.startsWith(nsLower)) {
+                    Integer nextIdx = nsLower.length();
+                    if (nextIdx >= className.length()) {
+                        // Exact name match — include it
+                        filteredClasses.add(allClassMap.get(className));
+                    } else {
+                        String nextChar = className.substring(nextIdx, nextIdx + 1);
+                        // Include if followed by underscore (NS_Class) or uppercase (NSClass)
+                        if (nextChar.equals('_') || nextChar.equals(nextChar.toUpperCase())) {
+                            filteredClasses.add(allClassMap.get(className));
+                        }
+                    }
+                }
             }
         } else {
             filteredClasses.addAll(unusedClasses);
@@ -841,8 +906,12 @@ public without sharing class MetadataEngine {
             }
         }
         for (TriggerInfo t : allTriggers) {
-            Boolean matchesFilter = String.isBlank(namespaceFilter) ||
-                namespaceFilter.equalsIgnoreCase(t.namespacePrefix == null ? '' : t.namespacePrefix);
+            String  tNs    = t.namespacePrefix == null ? '' : t.namespacePrefix;
+            String  tName  = t.name == null ? '' : t.name.toLowerCase();
+            String  nsL    = namespaceFilter == null ? '' : namespaceFilter.toLowerCase();
+            Boolean matchesFilter = String.isBlank(namespaceFilter) || nsL.equals(tNs.toLowerCase()) ||
+                tName.startsWith(nsL + '_') || (tName.startsWith(nsL) && tName.length() > nsL.length() &&
+                tName.substring(nsL.length(), nsL.length()+1) != tName.substring(nsL.length(), nsL.length()+1).toLowerCase());
             if (matchesFilter) {
                 filteredTriggers.add(t);
             }
@@ -972,8 +1041,12 @@ public without sharing class MetadataEngine {
                         withoutNamespace++;
                     }
 
-                    Boolean matchesFilter = String.isBlank(namespaceFilter) ||
-                        namespaceFilter.equalsIgnoreCase(info.namespacePrefix == null ? '' : info.namespacePrefix);
+                    String  lwcNs = info.namespacePrefix == null ? '' : info.namespacePrefix;
+                    String  lwcNm = info.name == null ? '' : info.name.toLowerCase();
+                    String  nsL   = namespaceFilter == null ? '' : namespaceFilter.toLowerCase();
+                    Boolean matchesFilter = String.isBlank(namespaceFilter) || nsL.equals(lwcNs.toLowerCase()) ||
+                        lwcNm.startsWith(nsL + '_') || (lwcNm.startsWith(nsL) && lwcNm.length() > nsL.length() &&
+                        lwcNm.substring(nsL.length(), nsL.length()+1) != lwcNm.substring(nsL.length(), nsL.length()+1).toLowerCase());
 
                     if (matchesFilter) {
                         filteredComponents.add(info);
@@ -1040,8 +1113,12 @@ public without sharing class MetadataEngine {
                         withoutNamespace++;
                     }
 
-                    Boolean matchesFilter = String.isBlank(namespaceFilter) ||
-                        namespaceFilter.equalsIgnoreCase(info.namespacePrefix == null ? '' : info.namespacePrefix);
+                    String  auraNs = info.namespacePrefix == null ? '' : info.namespacePrefix;
+                    String  auraNm = info.name == null ? '' : info.name.toLowerCase();
+                    String  nsL    = namespaceFilter == null ? '' : namespaceFilter.toLowerCase();
+                    Boolean matchesFilter = String.isBlank(namespaceFilter) || nsL.equals(auraNs.toLowerCase()) ||
+                        auraNm.startsWith(nsL + '_') || (auraNm.startsWith(nsL) && auraNm.length() > nsL.length() &&
+                        auraNm.substring(nsL.length(), nsL.length()+1) != auraNm.substring(nsL.length(), nsL.length()+1).toLowerCase());
 
                     if (matchesFilter) {
                         filteredComponents.add(info);
@@ -1068,7 +1145,7 @@ public without sharing class MetadataEngine {
 
         Http http = new Http();
 
-        String      profileSoql = 'SELECT Id, Name, UserLicenseId, UserLicense.Name FROM Profile ORDER BY Name ASC';
+        String      profileSoql = 'SELECT Id, Name, UserLicenseId, UserLicense.Name, UserType FROM Profile ORDER BY Name ASC';
         HttpRequest profileReq  = new HttpRequest();
         profileReq.setEndpoint('callout:Metadata_API/services/data/v60.0/query?q=' +
             EncodingUtil.urlEncode(profileSoql, 'UTF-8'));
@@ -1091,6 +1168,8 @@ public without sharing class MetadataEngine {
                     info.id                = (String) rec.get('Id');
                     info.name              = (String) rec.get('Name');
                     info.assignedUserCount = 0;
+                    String userType        = (String) rec.get('UserType');
+                    info.isCustom          = (userType == null || userType == 'Standard');
 
                     Map<String, Object> licMap = (Map<String, Object>) rec.get('UserLicense');
                     info.userLicenseName = licMap != null ? (String) licMap.get('Name') : 'Unknown';
@@ -1127,8 +1206,10 @@ public without sharing class MetadataEngine {
             }
         }
 
-        List<ProfileInfo> unusedProfiles = new List<ProfileInfo>();
-        List<ProfileInfo> usedProfiles   = new List<ProfileInfo>();
+        List<ProfileInfo> unusedProfiles   = new List<ProfileInfo>();
+        List<ProfileInfo> usedProfiles     = new List<ProfileInfo>();
+        List<ProfileInfo> customProfiles   = new List<ProfileInfo>();
+        List<ProfileInfo> standardProfiles = new List<ProfileInfo>();
 
         for (ProfileInfo info : profileMap.values()) {
             if (info.assignedUserCount == 0) {
@@ -1136,14 +1217,23 @@ public without sharing class MetadataEngine {
             } else {
                 usedProfiles.add(info);
             }
+            if (info.isCustom == true) {
+                customProfiles.add(info);
+            } else {
+                standardProfiles.add(info);
+            }
         }
 
-        ProfileSummary summary = new ProfileSummary();
-        summary.total          = profileMap.size();
-        summary.unused         = unusedProfiles.size();
-        summary.used           = usedProfiles.size();
-        summary.unusedProfiles = unusedProfiles;
-        summary.usedProfiles   = usedProfiles;
+        ProfileSummary summary    = new ProfileSummary();
+        summary.total             = profileMap.size();
+        summary.unused            = unusedProfiles.size();
+        summary.used              = usedProfiles.size();
+        summary.customCount       = customProfiles.size();
+        summary.standardCount     = standardProfiles.size();
+        summary.unusedProfiles    = unusedProfiles;
+        summary.usedProfiles      = usedProfiles;
+        summary.customProfiles    = customProfiles;
+        summary.standardProfiles  = standardProfiles;
 
         return summary;
     }
@@ -1152,6 +1242,10 @@ public without sharing class MetadataEngine {
     // GET PERMISSION SETS + DETECT UNUSED
     // ===============================
     public static PermissionSetSummary getPermissionSets() {
+        return getPermissionSets(null);
+    }
+
+    public static PermissionSetSummary getPermissionSets(String namespaceFilter) {
 
         Http http = new Http();
 
@@ -1215,23 +1309,42 @@ public without sharing class MetadataEngine {
             }
         }
 
-        List<PermissionSetInfo> unusedPermSets = new List<PermissionSetInfo>();
-        List<PermissionSetInfo> usedPermSets   = new List<PermissionSetInfo>();
+        List<PermissionSetInfo> unusedPermSets   = new List<PermissionSetInfo>();
+        List<PermissionSetInfo> usedPermSets     = new List<PermissionSetInfo>();
+        List<PermissionSetInfo> filteredPermSets = new List<PermissionSetInfo>();
+        Integer withNs    = 0;
+        Integer withoutNs = 0;
+
+        String nsLower = String.isNotBlank(namespaceFilter) ? namespaceFilter.toLowerCase() : null;
 
         for (PermissionSetInfo info : permSetMap.values()) {
+            if (String.isNotBlank(info.namespacePrefix)) {
+                withNs++;
+            } else {
+                withoutNs++;
+            }
             if (info.assignmentCount == 0) {
                 unusedPermSets.add(info);
             } else {
                 usedPermSets.add(info);
             }
+            if (nsLower != null && String.isNotBlank(info.namespacePrefix) &&
+                info.namespacePrefix.toLowerCase().contains(nsLower)) {
+                filteredPermSets.add(info);
+            }
         }
 
-        PermissionSetSummary summary = new PermissionSetSummary();
-        summary.total                = permSetMap.size();
-        summary.unused               = unusedPermSets.size();
-        summary.used                 = usedPermSets.size();
-        summary.unusedPermSets       = unusedPermSets;
-        summary.usedPermSets         = usedPermSets;
+        PermissionSetSummary summary    = new PermissionSetSummary();
+        summary.total                   = permSetMap.size();
+        summary.unused                  = unusedPermSets.size();
+        summary.used                    = usedPermSets.size();
+        summary.withNamespace           = withNs;
+        summary.withoutNamespace        = withoutNs;
+        summary.filteredTotal           = filteredPermSets.size();
+        summary.namespaceFilterApplied  = String.isNotBlank(namespaceFilter) ? namespaceFilter : 'None (showing all)';
+        summary.unusedPermSets          = unusedPermSets;
+        summary.usedPermSets            = usedPermSets;
+        summary.filteredPermSets        = filteredPermSets;
 
         return summary;
     }
@@ -1302,8 +1415,12 @@ public without sharing class MetadataEngine {
                             withoutNamespace++;
                         }
 
-                        Boolean matchesFilter = String.isBlank(namespaceFilter) ||
-                            namespaceFilter.equalsIgnoreCase(info.namespacePrefix == null ? '' : info.namespacePrefix);
+                        String  objNs = info.namespacePrefix == null ? '' : info.namespacePrefix;
+                        String  objNm = info.name == null ? '' : info.name.toLowerCase();
+                        String  nsL   = namespaceFilter == null ? '' : namespaceFilter.toLowerCase();
+                        Boolean matchesFilter = String.isBlank(namespaceFilter) || nsL.equals(objNs.toLowerCase()) ||
+                            objNm.startsWith(nsL + '_') || (objNm.startsWith(nsL) && objNm.length() > nsL.length() &&
+                            objNm.substring(nsL.length(), nsL.length()+1) != objNm.substring(nsL.length(), nsL.length()+1).toLowerCase());
 
                         if (matchesFilter) {
                             filteredObjects.add(info);
@@ -1480,10 +1597,12 @@ public without sharing class MetadataEngine {
                             withoutNamespace++;
                         }
 
-                        Boolean matchesFilter = String.isBlank(namespaceFilter) ||
-                            namespaceFilter.equalsIgnoreCase(
-                                info.namespacePrefix == null ? '' : info.namespacePrefix
-                            );
+                        String  fldNs = info.namespacePrefix == null ? '' : info.namespacePrefix;
+                        String  fldNm = info.name == null ? '' : info.name.toLowerCase();
+                        String  nsL   = namespaceFilter == null ? '' : namespaceFilter.toLowerCase();
+                        Boolean matchesFilter = String.isBlank(namespaceFilter) || nsL.equals(fldNs.toLowerCase()) ||
+                            fldNm.startsWith(nsL + '_') || (fldNm.startsWith(nsL) && fldNm.length() > nsL.length() &&
+                            fldNm.substring(nsL.length(), nsL.length()+1) != fldNm.substring(nsL.length(), nsL.length()+1).toLowerCase());
 
                         if (matchesFilter) {
                             filteredFields.add(info);
@@ -1553,8 +1672,12 @@ public without sharing class MetadataEngine {
                         inactiveRules.add(info);
                     }
 
-                    Boolean matchesFilter = String.isBlank(namespaceFilter) ||
-                        namespaceFilter.equalsIgnoreCase(info.namespacePrefix == null ? '' : info.namespacePrefix);
+                    String  vrNs = info.namespacePrefix == null ? '' : info.namespacePrefix;
+                    String  vrNm = info.name == null ? '' : info.name.toLowerCase();
+                    String  nsL  = namespaceFilter == null ? '' : namespaceFilter.toLowerCase();
+                    Boolean matchesFilter = String.isBlank(namespaceFilter) || nsL.equals(vrNs.toLowerCase()) ||
+                        vrNm.startsWith(nsL + '_') || (vrNm.startsWith(nsL) && vrNm.length() > nsL.length() &&
+                        vrNm.substring(nsL.length(), nsL.length()+1) != vrNm.substring(nsL.length(), nsL.length()+1).toLowerCase());
 
                     if (matchesFilter) {
                         filteredRules.add(info);
@@ -2259,6 +2382,7 @@ public without sharing class MetadataEngine {
         Http         http   = new Http();
         DeleteResult result = new DeleteResult();
 
+        // ── Step 1: Look up profile by Name ──────────────────────
         String      pSoql = 'SELECT Id FROM Profile WHERE Name = \'' +
                             String.escapeSingleQuotes(profileName) + '\' LIMIT 1';
         HttpRequest pReq  = new HttpRequest();
@@ -2283,28 +2407,10 @@ public without sharing class MetadataEngine {
             return result;
         }
 
+        // ── Step 2: Check for assigned users ─────────────────────
         String profileId = (String)((Map<String, Object>) pRecs[0]).get('Id');
 
-        String      fSoql = 'SELECT Id FROM Profile WHERE Name = \'' +
-                            String.escapeSingleQuotes(fallbackProfileName) + '\' LIMIT 1';
-        HttpRequest fReq  = new HttpRequest();
-        fReq.setEndpoint('callout:Metadata_API/services/data/v60.0/query?q=' +
-            EncodingUtil.urlEncode(fSoql, 'UTF-8'));
-        fReq.setMethod('GET');
-        fReq.setHeader('Content-Type', 'application/json');
-
-        HttpResponse fRes  = http.send(fReq);
-        List<Object> fRecs = (List<Object>)((Map<String, Object>) JSON.deserializeUntyped(fRes.getBody())).get('records');
-
-        if (fRecs == null || fRecs.isEmpty()) {
-            result.success = false;
-            result.message = 'Fallback Profile not found: ' + fallbackProfileName;
-            return result;
-        }
-
-        String fallbackId = (String)((Map<String, Object>) fRecs[0]).get('Id');
-
-        String      uSoql = 'SELECT Id FROM User WHERE ProfileId = \'' + profileId + '\' AND IsActive = true';
+        String      uSoql = 'SELECT Id FROM User WHERE ProfileId = \'' + profileId + '\' AND IsActive = true LIMIT 1';
         HttpRequest uReq  = new HttpRequest();
         uReq.setEndpoint('callout:Metadata_API/services/data/v60.0/query?q=' +
             EncodingUtil.urlEncode(uSoql, 'UTF-8'));
@@ -2316,27 +2422,180 @@ public without sharing class MetadataEngine {
 
         if (uRes.getStatusCode() >= 200 && uRes.getStatusCode() < 300) {
             List<Object> uRecs = (List<Object>)((Map<String, Object>) JSON.deserializeUntyped(uRes.getBody())).get('records');
-            if (uRecs != null) {
-                for (Object o : uRecs) {
-                    String      uid      = (String)((Map<String, Object>) o).get('Id');
-                    HttpRequest patchReq = new HttpRequest();
-                    patchReq.setEndpoint('callout:Metadata_API/services/data/v60.0/sobjects/User/' + uid);
-                    patchReq.setMethod('PATCH');
-                    patchReq.setHeader('Content-Type', 'application/json');
-                    patchReq.setBody('{"ProfileId":"' + fallbackId + '"}');
 
-                    HttpResponse patchRes = http.send(patchReq);
-                    if (patchRes.getStatusCode() == 204 || patchRes.getStatusCode() == 200) {
-                        moved++;
+            if (uRecs != null && !uRecs.isEmpty()) {
+                if (String.isBlank(fallbackProfileName)) {
+                    result.success = false;
+                    result.message = 'Profile "' + profileName + '" has active users. ' +
+                                     'Please provide a fallback profile.\n' +
+                                     'Example: deactivate profile ' + profileName + ' fallback StandardUser';
+                    return result;
+                }
+
+                String      fSoql = 'SELECT Id FROM Profile WHERE Name = \'' +
+                                    String.escapeSingleQuotes(fallbackProfileName) + '\' LIMIT 1';
+                HttpRequest fReq  = new HttpRequest();
+                fReq.setEndpoint('callout:Metadata_API/services/data/v60.0/query?q=' +
+                    EncodingUtil.urlEncode(fSoql, 'UTF-8'));
+                fReq.setMethod('GET');
+                fReq.setHeader('Content-Type', 'application/json');
+
+                HttpResponse fRes  = http.send(fReq);
+                List<Object> fRecs = (List<Object>)((Map<String, Object>) JSON.deserializeUntyped(fRes.getBody())).get('records');
+
+                if (fRecs == null || fRecs.isEmpty()) {
+                    result.success = false;
+                    result.message = 'Fallback Profile not found: ' + fallbackProfileName;
+                    return result;
+                }
+
+                String fallbackId = (String)((Map<String, Object>) fRecs[0]).get('Id');
+
+                String      allUSoql = 'SELECT Id FROM User WHERE ProfileId = \'' + profileId + '\' AND IsActive = true';
+                HttpRequest allUReq  = new HttpRequest();
+                allUReq.setEndpoint('callout:Metadata_API/services/data/v60.0/query?q=' +
+                    EncodingUtil.urlEncode(allUSoql, 'UTF-8'));
+                allUReq.setMethod('GET');
+                allUReq.setHeader('Content-Type', 'application/json');
+
+                HttpResponse allURes = http.send(allUReq);
+                if (allURes.getStatusCode() >= 200 && allURes.getStatusCode() < 300) {
+                    List<Object> allURecs = (List<Object>)((Map<String, Object>) JSON.deserializeUntyped(allURes.getBody())).get('records');
+                    if (allURecs != null) {
+                        for (Object o : allURecs) {
+                            String      uid      = (String)((Map<String, Object>) o).get('Id');
+                            HttpRequest patchReq = new HttpRequest();
+                            patchReq.setEndpoint('callout:Metadata_API/services/data/v60.0/sobjects/User/' + uid);
+                            patchReq.setMethod('PATCH');
+                            patchReq.setHeader('Content-Type', 'application/json');
+                            patchReq.setBody('{"ProfileId":"' + fallbackId + '"}');
+                            HttpResponse patchRes = http.send(patchReq);
+                            if (patchRes.getStatusCode() == 204 || patchRes.getStatusCode() == 200) moved++;
+                        }
                     }
                 }
             }
         }
 
-        result.success = true;
-        result.message = 'Profile "' + profileName + '" is now empty. ' + moved +
-                         ' user(s) moved to "' + fallbackProfileName +
-                         '". Manually delete the profile in Setup → Profiles.';
+        // ── Step 3: Get Session ID via JWT Bearer OAuth ───────────
+        String sessionId         = null;
+        String metadataServerUrl = null;
+
+        try {
+            SF_Credential__mdt cred = [
+                SELECT Username__c, ConsumerKey__c, Certificate__c
+                FROM SF_Credential__mdt
+                WHERE DeveloperName = 'MetadataAdmin'
+                LIMIT 1
+            ];
+
+            String header = EncodingUtil.base64Encode(Blob.valueOf('{"alg":"RS256","typ":"JWT"}'))
+                .replace('+', '-').replace('/', '_').replace('=', '');
+
+            Long   expTime = DateTime.now().addMinutes(5).getTime() / 1000;
+            String payload = EncodingUtil.base64Encode(Blob.valueOf(
+                '{"iss":"' + cred.ConsumerKey__c + '",' +
+                '"sub":"' + cred.Username__c + '",' +
+                '"aud":"https://login.salesforce.com",' +
+                '"exp":' + expTime + '}'
+            )).replace('+', '-').replace('/', '_').replace('=', '');
+
+            String signingInput   = header + '.' + payload;
+            Blob   privateKeyBlob = EncodingUtil.base64Decode(cred.Certificate__c);
+            Blob   signature      = Crypto.sign('RSA-SHA256', Blob.valueOf(signingInput), privateKeyBlob);
+
+            String jwt = signingInput + '.' + EncodingUtil.base64Encode(signature)
+                .replace('+', '-').replace('/', '_').replace('=', '');
+
+            HttpRequest jwtReq = new HttpRequest();
+            jwtReq.setEndpoint('https://login.salesforce.com/services/oauth2/token');
+            jwtReq.setMethod('POST');
+            jwtReq.setHeader('Content-Type', 'application/x-www-form-urlencoded');
+            jwtReq.setTimeout(30000);
+            jwtReq.setBody(
+                'grant_type=' + EncodingUtil.urlEncode('urn:ietf:params:oauth:grant-type:jwt-bearer', 'UTF-8') +
+                '&assertion='  + EncodingUtil.urlEncode(jwt, 'UTF-8')
+            );
+
+            HttpResponse jwtRes = http.send(jwtReq);
+            if (jwtRes.getStatusCode() == 200) {
+                Map<String, Object> tokenMap = (Map<String, Object>) JSON.deserializeUntyped(jwtRes.getBody());
+                sessionId         = (String) tokenMap.get('access_token');
+                metadataServerUrl = (String) tokenMap.get('instance_url') + '/services/Soap/m/60.0';
+            }
+        } catch (Exception ex) {
+            System.debug('JWT Exception: ' + ex.getMessage());
+        }
+
+        // ── Step 4: Fallback to UserInfo session ──────────────────
+        if (String.isBlank(sessionId)) {
+            try {
+                sessionId         = UserInfo.getSessionId();
+                metadataServerUrl = URL.getOrgDomainUrl().toExternalForm() + '/services/Soap/m/60.0';
+            } catch (Exception ex) {
+                System.debug('UserInfo fallback failed: ' + ex.getMessage());
+            }
+        }
+
+        if (String.isBlank(sessionId) || String.isBlank(metadataServerUrl)) {
+            result.success = false;
+            result.message = 'Could not retrieve session ID or metadata URL.';
+            return result;
+        }
+
+        // ── Step 5: Delete via Metadata SOAP deleteMetadata ───────
+        String soapBody =
+            '<?xml version="1.0" encoding="UTF-8"?>' +
+            '<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" ' +
+            '                  xmlns:met="http://soap.sforce.com/2006/04/metadata">' +
+            '  <soapenv:Header>' +
+            '    <met:CallOptions><met:client>ApexDeletion</met:client></met:CallOptions>' +
+            '    <met:SessionHeader>' +
+            '      <met:sessionId>' + sessionId + '</met:sessionId>' +
+            '    </met:SessionHeader>' +
+            '  </soapenv:Header>' +
+            '  <soapenv:Body>' +
+            '    <met:deleteMetadata>' +
+            '      <met:type>Profile</met:type>' +
+            '      <met:fullNames>' + profileName + '</met:fullNames>' +
+            '    </met:deleteMetadata>' +
+            '  </soapenv:Body>' +
+            '</soapenv:Envelope>';
+
+        HttpRequest delReq = new HttpRequest();
+        delReq.setEndpoint(metadataServerUrl);
+        delReq.setMethod('POST');
+        delReq.setHeader('Content-Type', 'text/xml; charset=UTF-8');
+        delReq.setHeader('SOAPAction', '""');
+        delReq.setTimeout(120000);
+        delReq.setBody(soapBody);
+
+        HttpResponse delRes = http.send(delReq);
+
+        if (delRes.getStatusCode() < 200 || delRes.getStatusCode() >= 300) {
+            result.success = false;
+            result.message = 'SOAP call failed. HTTP ' + delRes.getStatusCode() + ': ' + delRes.getBody();
+            return result;
+        }
+
+        String body = delRes.getBody();
+
+        if (body.contains('<success>true</success>')) {
+            result.success = true;
+            result.message = 'Profile "' + profileName + '" has been successfully deleted.' +
+                             (moved > 0 ? ' ' + moved + ' user(s) moved to "' + fallbackProfileName + '".' : '');
+        } else {
+            String errorMsg = '';
+            if (body.contains('<message>')) {
+                errorMsg = body.substringBetween('<message>', '</message>');
+            } else if (body.contains('<faultstring>')) {
+                errorMsg = body.substringBetween('<faultstring>', '</faultstring>');
+            } else {
+                errorMsg = body;
+            }
+            result.success = false;
+            result.message = 'Failed to delete profile "' + profileName + '": ' + errorMsg;
+        }
 
         return result;
     }

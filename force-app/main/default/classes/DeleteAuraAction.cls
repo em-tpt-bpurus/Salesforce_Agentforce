@@ -4,8 +4,8 @@ public without sharing class DeleteAuraAction {
         public String componentName;
     }
     public class DeleteAuraOutput {
-        @InvocableVariable(label='Success') public Boolean success;
-        @InvocableVariable(label='Message') public String  message;
+        @InvocableVariable(label='Success') @AuraEnabled public Boolean success;
+        @InvocableVariable(label='Message') @AuraEnabled public String  message;
     }
     @InvocableMethod(label='Delete Aura Component' description='Deletes an Aura (Lightning) component by its DeveloperName')
     public static List<DeleteAuraOutput> deleteAura(List<DeleteAuraRequest> requests) {
@@ -21,5 +21,17 @@ public without sharing class DeleteAuraAction {
             outputs.add(out);
         }
         return outputs;
+    }
+
+    @AuraEnabled(cacheable=false)
+    public static DeleteAuraOutput deleteAuraFromLWC(String componentName) {
+        DeleteAuraOutput out = new DeleteAuraOutput();
+        if (String.isBlank(componentName)) {
+            out.success = false; out.message = 'Aura component name was not provided.';
+            return out;
+        }
+        MetadataEngine.DeleteResult r = MetadataEngine.deleteAuraByName(componentName.trim());
+        out.success = r.success; out.message = r.message;
+        return out;
     }
 }

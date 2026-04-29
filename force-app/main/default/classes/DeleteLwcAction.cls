@@ -4,8 +4,8 @@ public without sharing class DeleteLwcAction {
         public String componentName;
     }
     public class DeleteLwcOutput {
-        @InvocableVariable(label='Success') public Boolean success;
-        @InvocableVariable(label='Message') public String  message;
+        @InvocableVariable(label='Success') @AuraEnabled public Boolean success;
+        @InvocableVariable(label='Message') @AuraEnabled public String  message;
     }
     @InvocableMethod(label='Delete LWC Component' description='Deletes a Lightning Web Component by its DeveloperName')
     public static List<DeleteLwcOutput> deleteLwc(List<DeleteLwcRequest> requests) {
@@ -21,5 +21,17 @@ public without sharing class DeleteLwcAction {
             outputs.add(out);
         }
         return outputs;
+    }
+
+    @AuraEnabled(cacheable=false)
+    public static DeleteLwcOutput deleteLwcFromLWC(String componentName) {
+        DeleteLwcOutput out = new DeleteLwcOutput();
+        if (String.isBlank(componentName)) {
+            out.success = false; out.message = 'LWC component name was not provided.';
+            return out;
+        }
+        MetadataEngine.DeleteResult r = MetadataEngine.deleteLwcByName(componentName.trim());
+        out.success = r.success; out.message = r.message;
+        return out;
     }
 }

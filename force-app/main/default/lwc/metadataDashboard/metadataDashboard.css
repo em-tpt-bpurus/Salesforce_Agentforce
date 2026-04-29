@@ -657,3 +657,249 @@
     .ns-filter-input  { max-width: 100%; }
     .agent-panel      { height: 380px; }
 }
+
+/* ── Clickable Stat Cards ──────────────────────────────────────── */
+.stat-card--clickable {
+    cursor: pointer;
+    user-select: none;
+    transition: transform 0.12s, box-shadow 0.12s, outline 0.12s;
+    position: relative;
+}
+
+.stat-card--clickable:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.13);
+}
+
+.stat-card--clickable:active {
+    transform: scale(0.96);
+}
+
+.stat-card--clickable::after {
+    content: '▼';
+    position: absolute;
+    bottom: 4px;
+    right: 6px;
+    font-size: 7px;
+    opacity: 0.35;
+    letter-spacing: 0;
+}
+
+/* Active/selected state — highlighted ring */
+.stat-card--clickable.stat-card--active {
+    outline: 2.5px solid #0070d2;
+    outline-offset: -2px;
+    box-shadow: 0 0 0 4px rgba(0, 112, 210, 0.15);
+    transform: translateY(-1px);
+}
+
+.stat-card--clickable.stat-card--active::after {
+    content: '▲';
+    opacity: 0.65;
+}
+
+/* Hint tooltip text shown below filter when active */
+.stat-card-filter-hint {
+    text-align: center;
+    font-size: 0.72rem;
+    color: #0070d2;
+    margin: -0.25rem 0 0.5rem;
+    font-style: italic;
+}
+
+/* ── Export Button ───────────────────────────────────────── */
+.export-wrapper {
+    position: relative;
+}
+.export-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    background: #12B76A;
+    border: 1px solid #32D583;
+    color: #ffffff;
+    font-size: 0.8rem;
+    font-weight: 600;
+    padding: 0.45rem 0.875rem;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.2s, transform 0.1s;
+    white-space: nowrap;
+    box-shadow: 0 0 0 0 rgba(18,183,106,0);
+}
+.export-btn:hover:not(:disabled) { background: #0EA25F; border-color: #12B76A; }
+.export-btn:active:not(:disabled) { transform: scale(0.97); }
+.export-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.export-dropdown {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    background: #ffffff;
+    border: 0.5px solid #D0D5DD;
+    border-radius: 8px;
+    width: 220px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+    overflow: hidden;
+    z-index: 999;
+}
+.export-dropdown-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 11px 14px;
+    width: 100%;
+    background: none;
+    border: none;
+    border-bottom: 0.5px solid #F2F4F7;
+    cursor: pointer;
+    text-align: left;
+    transition: background 0.15s;
+}
+.export-dropdown-item:last-child { border-bottom: none; }
+.export-dropdown-item:hover { background: #F9FAFB; }
+.export-dropdown-icon {
+    width: 30px;
+    height: 30px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+.icon-csv   { background: #EAF3DE; }
+.icon-files { background: #E6F1FB; }
+.export-dropdown-label {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+}
+.export-dropdown-label strong {
+    font-size: 13px;
+    font-weight: 500;
+    color: #1D2939;
+}
+.export-dropdown-label span {
+    font-size: 11px;
+    color: #667085;
+    margin-top: 1px;
+}
+.export-badge-new {
+    background: #EAF3DE;
+    color: #3B6D11;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 7px;
+    border-radius: 4px;
+    flex-shrink: 0;
+}
+.export-toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #1D2939;
+    color: white;
+    padding: 10px 20px;
+    border-radius: 8px;
+    font-size: 13px;
+    z-index: 9999;
+    animation: fadeInUp 0.2s ease;
+}
+@keyframes fadeInUp {
+    from { opacity: 0; transform: translateX(-50%) translateY(8px); }
+    to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+/* ── Export button inside chips row ─────────────────────── */
+.agent-chips .export-wrapper {
+    display: inline-flex;
+    align-items: center;
+}
+.agent-chips .export-btn {
+    padding: 0.3rem 0.75rem;
+    font-size: 0.75rem;
+    border-radius: 20px;
+    gap: 0.3rem;
+}
+.agent-chips .export-dropdown {
+    bottom: calc(100% + 6px);
+    top: auto;
+    right: 0;
+}
+/* ── Export Modal ────────────────────────────────────────── */
+.export-modal-overlay {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.45);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 9999;
+}
+.export-modal {
+    background: #fff;
+    border-radius: 14px;
+    width: 420px; max-width: 92vw;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+    overflow: hidden;
+}
+.export-modal-header {
+    display: flex; align-items: center; justify-content: space-between;
+    background: #1A56DB;
+    padding: 18px 20px;
+    color: #fff;
+}
+.export-modal-title {
+    display: flex; align-items: center; gap: 10px;
+    font-size: 16px; font-weight: 600;
+}
+.export-modal-close {
+    background: rgba(255,255,255,0.15);
+    border: none; border-radius: 50%;
+    width: 28px; height: 28px;
+    color: #fff; font-size: 14px;
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+}
+.export-modal-close:hover { background: rgba(255,255,255,0.3); }
+.export-modal-body { padding: 22px 22px 10px; }
+.export-modal-section-label {
+    font-size: 11px; font-weight: 600; letter-spacing: 0.06em;
+    color: #6B7280; margin-bottom: 10px;
+}
+.export-fmt-row {
+    display: flex; gap: 10px;
+}
+.export-fmt-btn {
+    flex: 1; padding: 10px 0;
+    border: 1.5px solid #D1D5DB;
+    border-radius: 8px;
+    background: #fff; font-size: 13px; font-weight: 600;
+    color: #374151; cursor: pointer;
+    transition: all 0.15s;
+}
+.export-fmt-btn:hover { border-color: #1A56DB; color: #1A56DB; }
+.export-fmt-btn--active {
+    background: #1A56DB; border-color: #1A56DB;
+    color: #fff;
+}
+.export-modal-hint {
+    font-size: 11px; color: #9CA3AF; margin: 10px 0 0;
+}
+.export-modal-footer {
+    display: flex; gap: 12px;
+    padding: 16px 22px 22px;
+}
+.export-action-btn {
+    flex: 1; display: flex; align-items: center; justify-content: center;
+    gap: 7px; padding: 11px 0;
+    border-radius: 8px; font-size: 14px; font-weight: 600;
+    cursor: pointer; border: 1.5px solid;
+    transition: all 0.15s;
+}
+.export-action-btn--download {
+    background: #F9FAFB; border-color: #D1D5DB; color: #374151;
+}
+.export-action-btn--download:hover { background: #F3F4F6; }
+.export-action-btn--save {
+    background: #12B76A; border-color: #12B76A; color: #fff;
+}
+.export-action-btn--save:hover { background: #0EA25F; }
+.export-action-btn:disabled { opacity: 0.55; cursor: not-allowed; }

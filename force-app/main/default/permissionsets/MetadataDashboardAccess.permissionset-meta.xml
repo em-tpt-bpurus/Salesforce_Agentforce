@@ -87,4 +87,12 @@
         <apexClass>DeactivateProfileAction</apexClass>
         <enabled>true</enabled>
     </classAccesses>
+    <classAccesses>
+        <apexClass>ExportMetadataAction</apexClass>
+        <enabled>true</enabled>
+    </classAccesses>
+    <classAccesses>
+        <apexClass>OrgCleanupAgentAction</apexClass>
+        <enabled>true</enabled>
+    </classAccesses>
 </PermissionSet>

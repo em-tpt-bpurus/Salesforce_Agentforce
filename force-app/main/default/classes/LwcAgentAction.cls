@@ -30,6 +30,9 @@ public without sharing class LwcAgentAction {
 
         @AuraEnabled @InvocableVariable(label='Filtered Components' description='Numbered list of namespace-filtered LWC components')
         public String filteredComponents;
+
+        @AuraEnabled
+        public List<MetadataEngine.LwcComponentInfo> allLwcObjects;
     }
 
     // ── Called by Agentforce via @InvocableMethod ──────────────
@@ -101,6 +104,7 @@ public without sharing class LwcAgentAction {
                 ? '--- FILTERED BY NAMESPACE: ' + namespaceFilter + ' (' + output.filteredCount + ') ---\n' + filteredList
                 : '');
 
+        output.allLwcObjects = summary.allComponents;
         System.debug('LWC SUMMARY: ' + output.summary);
         return output;
     }

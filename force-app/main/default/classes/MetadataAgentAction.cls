@@ -38,6 +38,9 @@ public without sharing class MetadataAgentAction {
 
         @AuraEnabled @InvocableVariable(label='Filtered Inactive Flows' description='Numbered list of namespace-filtered inactive flows')
         public String filteredInactiveFlows;
+
+        @AuraEnabled
+        public List<MetadataEngine.FlowInfo> allFlowObjects;
     }
 
     // ── Called by Agentforce via @InvocableMethod ──────────────
@@ -77,6 +80,7 @@ public without sharing class MetadataAgentAction {
         output.namespaceFilterApplied = nsDisplay;
         output.filteredActiveFlows    = filteredActiveList;
         output.filteredInactiveFlows  = filteredInactiveList;
+        output.allFlowObjects         = summary.allFlowObjects;
         output.summary =
             'This org has ' + summary.total + ' flows in total. ' +
             summary.active + ' are active and ' + summary.inactive + ' are inactive.\n\n' +
@@ -93,7 +97,9 @@ public without sharing class MetadataAgentAction {
     }
 
     private static String buildNumberedList(List<String> items) {
-        if (items == null || items.isEmpty()) return 'None';
+        if (items == null || items.isEmpty()) {
+            return 'None';
+        }
         String result = '';
         for (Integer i = 0; i < items.size(); i++) {
             result += (i + 1) + '. ' + items[i] + '\n';

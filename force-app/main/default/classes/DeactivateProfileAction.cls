@@ -6,8 +6,8 @@ public without sharing class DeactivateProfileAction {
         public String fallbackProfileName;
     }
     public class DeactivateProfileOutput {
-        @InvocableVariable(label='Success') public Boolean success;
-        @InvocableVariable(label='Message') public String  message;
+        @InvocableVariable(label='Success') @AuraEnabled public Boolean success;
+        @InvocableVariable(label='Message') @AuraEnabled public String  message;
     }
     @InvocableMethod(label='Deactivate Profile' description='Reassigns all users from a Profile to a fallback Profile so it can be deleted in Setup')
     public static List<DeactivateProfileOutput> deactivateProfile(List<DeactivateProfileRequest> requests) {
@@ -23,5 +23,20 @@ public without sharing class DeactivateProfileAction {
             outputs.add(out);
         }
         return outputs;
+    }
+
+    @AuraEnabled(cacheable=false)
+    public static DeactivateProfileOutput deactivateProfileFromLWC(String profileName, String fallbackProfileName) {
+        DeactivateProfileOutput out = new DeactivateProfileOutput();
+        if (String.isBlank(profileName)) {
+            out.success = false;
+            out.message = 'Profile name must be provided.';
+            return out;
+        }
+        String fallback = String.isBlank(fallbackProfileName) ? 'Standard User' : fallbackProfileName;
+        MetadataEngine.DeleteResult r = MetadataEngine.deactivateProfileByName(profileName.trim(), fallback.trim());
+        out.success = r.success;
+        out.message  = r.message;
+        return out;
     }
 }

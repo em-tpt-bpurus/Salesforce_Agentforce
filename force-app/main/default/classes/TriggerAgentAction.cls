@@ -48,6 +48,15 @@ public without sharing class TriggerAgentAction {
 
         @AuraEnabled @InvocableVariable(label='Filtered Triggers' description='Numbered list of triggers matching the namespace filter')
         public String filteredTriggers;
+
+        @AuraEnabled
+        public List<MetadataEngine.TriggerInfo> allTriggerObjects;
+        @AuraEnabled
+        public List<MetadataEngine.TriggerInfo> unusedTriggerObjects;
+        @AuraEnabled
+        public List<MetadataEngine.TriggerInfo> activeTriggerObjects;
+        @AuraEnabled
+        public List<MetadataEngine.TriggerInfo> inactiveTriggerObjects;
     }
 
     // ── Called by Agentforce via @InvocableMethod ──────────────
@@ -163,6 +172,10 @@ public without sharing class TriggerAgentAction {
                 ? '\n\n--- FILTERED BY NAMESPACE: ' + namespaceFilter + ' (' + filteredTotal + ') ---\n' + filteredList
                 : '');
 
+        output.allTriggerObjects      = summary.activeTriggers;
+        output.unusedTriggerObjects    = summary.unusedTriggers;
+        output.activeTriggerObjects    = summary.activeTriggers;
+        output.inactiveTriggerObjects  = summary.inactiveTriggers;
         return output;
     }
 }
