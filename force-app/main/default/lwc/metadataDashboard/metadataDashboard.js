@@ -51,7 +51,9 @@ export default class MetadataDashboard extends LightningElement {
     @track exportModalOpen   = false;
     @track exportFormat      = 'csv'; // 'csv' | 'json' | 'txt'
     @track _toastMessage     = '';
+    @track _toastLink        = '';  // optional URL shown in toast
     @track _exportFormatKey  = 0; // force getter re-evaluation on format change
+    @track isSaving          = false;
     @track hasError     = false;
     @track errorMessage = '';
     @track namespaceInput = '';
@@ -282,8 +284,9 @@ export default class MetadataDashboard extends LightningElement {
                 this._removeMessage(typingId);
                 const msg = result || 'No results returned.';
                 this._addAgentMsg(msg);
-                // Store as last data response for export (only real data, not short messages)
-                if (msg.length > 100) this._lastDataResponse = msg;
+                // Store as last data response for export — store whenever it contains metadata content
+                const hasMetadata = msg.length > 50 || /flow|apex|trigger|lwc|aura|profile|permission|field|object|validation/i.test(msg);
+                if (hasMetadata) this._lastDataResponse = msg;
                 this._refreshTabForIntent(intent);
             })
             .catch(err => {
@@ -441,7 +444,8 @@ export default class MetadataDashboard extends LightningElement {
             .then(result => {
                 this._removeMessage(typingId);
                 if (result && result.success) {
-                    this._addAgentMsg(`${name} has been successfully deleted.`, true, false);
+                    const successMsg = (result.message && result.message.trim()) ? result.message : `${name} has been successfully deleted.`;
+                    this._addAgentMsg(successMsg, true, false);
                     // Refresh relevant tab
                     this._refreshAfterDelete(type);
                 } else {
@@ -468,7 +472,7 @@ export default class MetadataDashboard extends LightningElement {
         if (type === 'field')   { this._fieldsLoaded   = false; if (this.activeTab === 'fields')   this._loadFields();   }
         if (type === 'object')  { this._objectsLoaded  = false; if (this.activeTab === 'objects')  this._loadObjects();  }
         if (type === 'permset') { this._permSetsLoaded = false; if (this.activeTab === 'permsets') this._loadPermSets(); }
-        if (type === 'profile') { this._profilesLoaded = false; if (this.activeTab === 'profiles') this._loadProfiles(); }
+        if (type === 'profile') { this._profilesLoaded = false; this._loadProfiles(); }
         if (type === 'vr')      { this._vrLoaded       = false; if (this.activeTab === 'vr')       this._loadVr();       }
     }
 
@@ -653,11 +657,20 @@ export default class MetadataDashboard extends LightningElement {
     get showExportModal() { return this.exportModalOpen; }
 
     get exportTabLabel() {
-        // If the last agent response was about unused apex classes, label it clearly
-        if (this._lastDataResponse && /unused.*apex|apex.*unused/i.test(this._lastDataResponse)) {
-            return 'Unused Apex Classes';
-        }
-        if (this._lastDataResponse) return 'Agent Response';
+        const t = this._lastDataResponse || '';
+        if (/unused.*flow|inactive.*flow|flow.*unused|flow.*inactive/i.test(t)) return 'Unused Flows';
+        if (/\bflow/i.test(t))                                                  return 'Flows';
+        if (/unused.*apex|apex.*unused/i.test(t))                               return 'Unused Apex Classes';
+        if (/\bapex\b|apex.*class/i.test(t))                                   return 'Apex Classes';
+        if (/\btrigger/i.test(t))                                               return 'Triggers';
+        if (/\blwc\b|lightning.*web/i.test(t))                                 return 'LWC Components';
+        if (/\baura\b/i.test(t))                                               return 'Aura Components';
+        if (/\bprofile/i.test(t))                                               return 'Profiles';
+        if (/permission.*set|permset/i.test(t))                                 return 'Permission Sets';
+        if (/custom.*field/i.test(t))                                           return 'Custom Fields';
+        if (/custom.*object/i.test(t))                                          return 'Custom Objects';
+        if (/validation.*rule/i.test(t))                                        return 'Validation Rules';
+        if (t)                                                                  return 'Agent Response';
         const labels = { flows:'Flows', apex:'Apex Classes', triggers:'Triggers', lwc:'LWC',
                          aura:'Aura', profiles:'Profiles', permsets:'Perm Sets',
                          fields:'Fields', objects:'Objects', vr:'Validation Rules' };
@@ -668,8 +681,8 @@ export default class MetadataDashboard extends LightningElement {
     get exportJsonClass() { return 'export-fmt-btn' + (this._exportFormatKey >= 0 && this.exportFormat === 'json' ? ' export-fmt-btn--active' : ''); }
     get exportTxtClass()  { return 'export-fmt-btn' + (this._exportFormatKey >= 0 && this.exportFormat === 'txt'  ? ' export-fmt-btn--active' : ''); }
 
-    get exportSaveDisabled()  { return false; }
-    get exportSaveBtnLabel()  { return 'Save to Org Files'; }
+    get exportSaveDisabled()  { return this.isSaving; }
+    get exportSaveBtnLabel()  { return this.isSaving ? 'Saving…' : 'Save to Org Files'; }
 
     get showToast()    { return !!this._toastMessage; }
     get toastMessage() { return this._toastMessage || ''; }
@@ -690,10 +703,10 @@ export default class MetadataDashboard extends LightningElement {
     // ── Download button in modal ──────────────────────────────
     handleDownload() {
         this.exportModalOpen = false;
-        const date    = new Date().toISOString().slice(0, 10);
+        const d = new Date(); const date = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
         const content = this._buildExportContent(this._lastDataResponse);
         if (!content) {
-            this._showToast('No data to export. Open the Apex tab or ask the agent about unused apex classes first.');
+            this._showToast('No data to export. Ask the agent a question first or open a dashboard tab.');
             return;
         }
         const ext      = this.exportFormat;
@@ -713,25 +726,44 @@ export default class MetadataDashboard extends LightningElement {
 
     // ── Save to Org Files button in modal ─────────────────────
     handleSaveToFiles() {
-        this.exportModalOpen = false;
-        const date    = new Date().toISOString().slice(0, 10);
-        const content = this._buildExportContent(this._lastDataResponse);
+        const d = new Date(); const date = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+
+        // Build content from tab data first, fall back to last chat response
+        // Passing null makes _buildExportContent use activeTab + loaded list getters
+        let content = this._buildExportContent(this._lastDataResponse);
+
         if (!content) {
-            this._showToast('No data to export. Open the Apex tab or ask the agent about unused apex classes first.');
+            this.exportModalOpen = false;
+            this._showToast('No data to export. Load a tab or ask the agent first.');
             return;
         }
+
         const ext      = this.exportFormat;
         const tag      = this._getExportTag();
         const fileName = `org-${tag}-${date}.${ext}`;
+
+        // Show spinner, keep modal open while Apex runs
+        this.isSaving = true;
+
         saveToOrgFiles({ fileName, fileContent: content, fileType: ext })
             .then(result => {
+                this.isSaving        = false;
+                this.exportModalOpen = false;
                 if (result && result.success) {
                     this._showToast(`✅ "${fileName}" saved to Org Files!`);
                 } else {
-                    this._showToast('Error saving: ' + (result ? result.message : 'Unknown error'));
+                    const msg = (result && result.message) ? result.message : 'Unknown error';
+                    this._showToast('❌ Save failed: ' + msg);
                 }
             })
-            .catch(err => this._showToast('Error saving: ' + (err.body?.message || err.message || err)));
+            .catch(err => {
+                this.isSaving        = false;
+                this.exportModalOpen = false;
+                const errMsg = err && err.body && err.body.message
+                    ? err.body.message
+                    : (err && err.message ? err.message : JSON.stringify(err));
+                this._showToast('❌ Save failed: ' + errMsg);
+            });
     }
 
     // Returns a short tag for the filename based on context
@@ -758,24 +790,34 @@ export default class MetadataDashboard extends LightningElement {
     _buildExportContent(chatText) {
         const e = v => (v || '').toString().replace(/"/g, '""');
 
-        // ── Detect which type the chat response is about ───────
+        // ── Detect subset shown in chat (unused/inactive/active/all) ────
+        // chatText holds exactly what the agent displayed — parse it first.
+        // Only fall back to full tab-loaded data if chat parsing yields nothing.
+
         const chatType = (() => {
             if (!chatText) return null;
             if (/unused.*apex|apex.*unused/i.test(chatText))           return 'unusedApex';
-            if (/apex\s*class|all.*apex|\bapex\b/i.test(chatText))     return 'apex';
-            if (/\bflow/i.test(chatText))                              return 'flows';
+            if (/unused.*trigger|trigger.*unused/i.test(chatText))     return 'unusedTriggers';
+            if (/inactive.*trigger|trigger.*inactive/i.test(chatText)) return 'inactiveTriggers';
+            if (/active.*trigger|trigger.*active/i.test(chatText))     return 'activeTriggers';
             if (/\btrigger/i.test(chatText))                           return 'triggers';
-            if (/\blwc\b|lightning\s*web\s*component/i.test(chatText)) return 'lwc';
-            if (/\baura\b/i.test(chatText))                            return 'aura';
+            if (/unused.*flow|inactive.*flow|flow.*unused|flow.*inactive/i.test(chatText)) return 'unusedFlows';
+            if (/\bflow/i.test(chatText))                              return 'flows';
+            if (/\bapex\b|apex.*class/i.test(chatText))               return 'apex';
+            if (/\blwc\b|lightning.*web/i.test(chatText))             return 'lwc';
+            if (/\baura\b/i.test(chatText))                           return 'aura';
+            if (/unassigned.*profile|unused.*profile/i.test(chatText)) return 'unusedProfiles';
             if (/\bprofile/i.test(chatText))                           return 'profiles';
-            if (/permission\s*set|\bpermset\b/i.test(chatText))        return 'permsets';
-            if (/custom\s*field/i.test(chatText))                      return 'fields';
-            if (/custom\s*object/i.test(chatText))                     return 'objects';
-            if (/validation\s*rule/i.test(chatText))                   return 'vr';
+            if (/unassigned.*perm|unused.*perm/i.test(chatText))       return 'unusedPermSets';
+            if (/permission.*set|\bpermset\b/i.test(chatText))        return 'permsets';
+            if (/custom.*field/i.test(chatText))                       return 'fields';
+            if (/custom.*object/i.test(chatText))                      return 'objects';
+            if (/inactive.*validation|unused.*validation/i.test(chatText)) return 'inactiveVr';
+            if (/validation.*rule/i.test(chatText))                    return 'vr';
             return 'generic';
         })();
 
-        // ── CSV builder helpers ────────────────────────────────
+        // ── CSV / JSON / TXT helpers ───────────────────────────
         const toCsv = (headers, dataRows) => {
             const hRow = headers.map(h => `"${e(h)}"`).join(',');
             const lines = dataRows.map(r => headers.map(h => `"${e(r[h] || '')}"`).join(','));
@@ -784,139 +826,89 @@ export default class MetadataDashboard extends LightningElement {
         const toJson = obj => JSON.stringify(obj, null, 2);
         const toTxt  = (title, lines) => [title, '='.repeat(40), '', ...lines].join('\n');
 
-        // ── Unused Apex (chat) ─────────────────────────────────
-        if (chatType === 'unusedApex') {
-            if (this.exportFormat === 'csv')  return this._unusedApexToCSV(chatText);
-            if (this.exportFormat === 'json') return this._unusedApexToJSON(chatText);
-            if (this.exportFormat === 'txt')  return this._unusedApexToTXT(chatText);
-        }
+        // ── Helper: parse numbered/block list from chat text ──
+        // Returns [{name, meta}] — works for any metadata type the agent formats
+        const parseChatList = (text) => {
+            if (!text) return [];
+            const items = [];
+            const lines = text.split('\n');
+            let pendingLabel = '', pendingApi = '', pendingMeta = '';
+            const flush = () => {
+                const name = pendingApi || pendingLabel;
+                if (name) items.push({ name, meta: pendingMeta });
+                pendingLabel = ''; pendingApi = ''; pendingMeta = '';
+            };
+            for (const line of lines) {
+                const t = line.trim();
+                if (!t) continue;
+                const lblM  = t.match(/^Label\s*:\s*(.+)/i);
+                const apiM  = t.match(/^API\s*Name\s*:\s*(.+)/i);
+                const typeM = t.match(/^Type\s*:\s*(.+)/i);
+                const metaM = t.match(/^(?:Status|Object|Meta|Namespace)\s*:\s*(.+)/i);
+                const numM  = t.match(/^\d+\.\s+(.+)/);
+                if (lblM)  { pendingLabel = lblM[1].trim(); continue; }
+                if (apiM)  { pendingApi   = apiM[1].trim(); continue; }
+                if (typeM) { flush(); continue; }
+                if (metaM) { pendingMeta  = metaM[1].trim(); continue; }
+                if (numM)  {
+                    flush();
+                    const body  = numM[1].trim();
+                    const parts = body.split('|').map(p => p.trim());
+                    if (parts[0]) items.push({ name: parts[0], meta: parts.slice(1).join(' | ') });
+                }
+            }
+            flush();
+            return items;
+        };
 
-        // ── All other types: use loaded summary data ───────────
-        // For each type, if the summary data is loaded use it directly (most accurate).
-        // If not loaded yet, fall back to parsing the chat text generically.
-
-        // FLOWS
-        if (chatType === 'flows' && this._flowsLoaded && this.flowSummary?.allFlowObjects?.length) {
-            const data = this.flowSummary.allFlowObjects.map(f => ({
-                'API Name': f.apiName, 'Label': f.label, 'Type': f.processType || 'Flow',
-                'Status': f.isActive ? 'Active' : 'Inactive', 'Namespace': f.namespacePrefix || ''
-            }));
-            if (this.exportFormat === 'csv')  return toCsv(['API Name','Label','Type','Status','Namespace'], data);
-            if (this.exportFormat === 'json') return toJson(data);
-            if (this.exportFormat === 'txt')  return toTxt('Flows', data.map((r,i) => `${i+1}. ${r['API Name']} | ${r['Status']} | ${r['Type']}`));
-        }
-
-        // APEX (all classes)
-        if (chatType === 'apex' && this._apexLoaded && this.apexSummary) {
-            const s = this.apexSummary;
-            const data = [];
-            (s.unusedApexObjects  || []).forEach(c => data.push({ 'API Name': c.name, 'Label': c.name, 'Status': 'Unused',            'Lines': c.linesOfCode || '', 'Last Modified': (c.lastModifiedDate || '').slice(0,10) }));
-            (s.usedClassNames     || []).forEach(n => data.push({ 'API Name': n,      'Label': n,      'Status': 'Used',              'Lines': '', 'Last Modified': '' }));
-            (s.testClasses        ? s.testClasses.split('\n').filter(Boolean)    : []).forEach(n => { const nm = n.replace(/^\d+\.\s*/,'').trim(); if (nm) data.push({ 'API Name': nm, 'Label': nm, 'Status': 'Test',             'Lines': '', 'Last Modified': '' }); });
-            (s.standardClasses    ? s.standardClasses.split('\n').filter(Boolean): []).forEach(n => { const nm = n.replace(/^\d+\.\s*/,'').trim(); if (nm) data.push({ 'API Name': nm, 'Label': nm, 'Status': 'Standard/Package', 'Lines': '', 'Last Modified': '' }); });
-            if (data.length) {
-                if (this.exportFormat === 'csv')  return toCsv(['API Name','Label','Status','Lines','Last Modified'], data);
+        // ── If chat has data, export ONLY what the chat showed ─
+        if (chatText && chatType !== 'generic' && chatType !== null) {
+            const chatItems = parseChatList(chatText);
+            if (chatItems.length) {
+                const label = {
+                    unusedApex      : 'Unused Apex Classes',
+                    apex            : 'Apex Classes',
+                    unusedTriggers  : 'Unused Triggers',
+                    inactiveTriggers: 'Inactive Triggers',
+                    activeTriggers  : 'Active Triggers',
+                    triggers        : 'Triggers',
+                    unusedFlows     : 'Unused Flows',
+                    flows           : 'Flows',
+                    lwc             : 'LWC Components',
+                    aura            : 'Aura Components',
+                    unusedProfiles  : 'Unused Profiles',
+                    profiles        : 'Profiles',
+                    unusedPermSets  : 'Unused Permission Sets',
+                    permsets        : 'Permission Sets',
+                    fields          : 'Custom Fields',
+                    objects         : 'Custom Objects',
+                    inactiveVr      : 'Inactive Validation Rules',
+                    vr              : 'Validation Rules',
+                }[chatType] || 'Metadata';
+                const data = chatItems.map(i => ({ 'API Name': i.name, 'Label': i.name, 'Type': label, 'Meta': i.meta }));
+                if (this.exportFormat === 'csv')  return toCsv(['API Name', 'Label', 'Type', 'Meta'], data);
                 if (this.exportFormat === 'json') return toJson(data);
-                if (this.exportFormat === 'txt')  return toTxt('Apex Classes', data.map((r,i) => `${i+1}. ${r['API Name']} | ${r['Status']}${r['Lines'] ? ' | Lines: '+r['Lines'] : ''}`));
+                if (this.exportFormat === 'txt')  return toTxt(label, data.map((r, i) => `${i+1}.\n   Label    : ${r['Label']}\n   API Name : ${r['API Name']}\n   Type     : ${r['Type']}\n`));
             }
         }
 
-        // TRIGGERS
-        if (chatType === 'triggers' && this._triggersLoaded && this.triggerSummary) {
-            const s = this.triggerSummary;
-            const data = [];
-            const addTriggers = (list, status) => (list || []).forEach(t => data.push({ 'API Name': t.name, 'Label': t.name, 'Object': t.objectName, 'Status': status, 'Lines': t.linesOfCode || '' }));
-            addTriggers(s.unusedTriggerObjects,  'Unused');
-            addTriggers(s.activeTriggerObjects,  'Active');
-            addTriggers(s.inactiveTriggerObjects,'Inactive');
-            if (data.length) {
-                if (this.exportFormat === 'csv')  return toCsv(['API Name','Label','Object','Status','Lines'], data);
-                if (this.exportFormat === 'json') return toJson(data);
-                if (this.exportFormat === 'txt')  return toTxt('Triggers', data.map((r,i) => `${i+1}. ${r['API Name']} | ${r['Object']} | ${r['Status']}`));
-            }
-        }
+        // ── No chat data (or chat parse yielded nothing) ───────
+        // Export full tab data from loaded summary via parsed list getters
+        const resolvedType = (() => {
+            if (this.activeTab === 'flows')    return 'flows';
+            if (this.activeTab === 'apex')     return 'apex';
+            if (this.activeTab === 'triggers') return 'triggers';
+            if (this.activeTab === 'lwc')      return 'lwc';
+            if (this.activeTab === 'aura')     return 'aura';
+            if (this.activeTab === 'profiles') return 'profiles';
+            if (this.activeTab === 'permsets') return 'permsets';
+            if (this.activeTab === 'fields')   return 'fields';
+            if (this.activeTab === 'objects')  return 'objects';
+            if (this.activeTab === 'vr')       return 'vr';
+            return chatType;
+        })();
 
-        // LWC
-        if (chatType === 'lwc' && this._lwcLoaded && this.lwcSummary?.allLwcObjects?.length) {
-            const data = this.lwcSummary.allLwcObjects.map(c => ({
-                'API Name': c.name, 'Label': c.name, 'API Version': c.apiVersion || '', 'Namespace': c.namespacePrefix || ''
-            }));
-            if (this.exportFormat === 'csv')  return toCsv(['API Name','Label','API Version','Namespace'], data);
-            if (this.exportFormat === 'json') return toJson(data);
-            if (this.exportFormat === 'txt')  return toTxt('LWC Components', data.map((r,i) => `${i+1}. ${r['API Name']}${r['Namespace'] ? ' | '+r['Namespace'] : ''}`));
-        }
-
-        // AURA
-        if (chatType === 'aura' && this._auraLoaded && this.auraSummary?.allAuraObjects?.length) {
-            const data = this.auraSummary.allAuraObjects.map(c => ({
-                'API Name': c.name, 'Label': c.name, 'API Version': c.apiVersion || '', 'Namespace': c.namespacePrefix || ''
-            }));
-            if (this.exportFormat === 'csv')  return toCsv(['API Name','Label','API Version','Namespace'], data);
-            if (this.exportFormat === 'json') return toJson(data);
-            if (this.exportFormat === 'txt')  return toTxt('Aura Components', data.map((r,i) => `${i+1}. ${r['API Name']}${r['Namespace'] ? ' | '+r['Namespace'] : ''}`));
-        }
-
-        // PROFILES
-        if (chatType === 'profiles' && this._profilesLoaded && this.profileSummary) {
-            const s = this.profileSummary;
-            const data = [];
-            (s.usedProfileObjects   || []).forEach(p => data.push({ 'API Name': p.name, 'Label': p.name, 'Status': 'Assigned',   'User Count': p.assignedUserCount || '', 'License': p.userLicenseName || '' }));
-            (s.unusedProfileObjects || []).forEach(p => data.push({ 'API Name': p.name, 'Label': p.name, 'Status': 'Unassigned', 'User Count': 0,                         'License': p.userLicenseName || '' }));
-            if (data.length) {
-                if (this.exportFormat === 'csv')  return toCsv(['API Name','Label','Status','User Count','License'], data);
-                if (this.exportFormat === 'json') return toJson(data);
-                if (this.exportFormat === 'txt')  return toTxt('Profiles', data.map((r,i) => `${i+1}. ${r['API Name']} | ${r['Status']} | Users: ${r['User Count']}`));
-            }
-        }
-
-        // PERMISSION SETS
-        if (chatType === 'permsets' && this._permSetsLoaded && this.permSetSummary) {
-            const s = this.permSetSummary;
-            const data = [];
-            (s.usedPermSetObjects   || []).forEach(p => data.push({ 'API Name': p.name, 'Label': p.label || p.name, 'Status': 'Assigned',   'Assignments': p.assignmentCount || '', 'Namespace': p.namespacePrefix || '' }));
-            (s.unusedPermSetObjects || []).forEach(p => data.push({ 'API Name': p.name, 'Label': p.label || p.name, 'Status': 'Unassigned', 'Assignments': 0,                       'Namespace': p.namespacePrefix || '' }));
-            if (data.length) {
-                if (this.exportFormat === 'csv')  return toCsv(['API Name','Label','Status','Assignments','Namespace'], data);
-                if (this.exportFormat === 'json') return toJson(data);
-                if (this.exportFormat === 'txt')  return toTxt('Permission Sets', data.map((r,i) => `${i+1}. ${r['API Name']} | ${r['Status']} | Assignments: ${r['Assignments']}`));
-            }
-        }
-
-        // CUSTOM FIELDS
-        if (chatType === 'fields' && this._fieldsLoaded && this.fieldSummary?.allFieldObjects?.length) {
-            const data = this.fieldSummary.allFieldObjects.map(f => ({
-                'API Name': f.objectName + '.' + f.name + '__c', 'Label': f.name,
-                'Object': f.objectName, 'Data Type': f.dataType || ''
-            }));
-            if (this.exportFormat === 'csv')  return toCsv(['API Name','Label','Object','Data Type'], data);
-            if (this.exportFormat === 'json') return toJson(data);
-            if (this.exportFormat === 'txt')  return toTxt('Custom Fields', data.map((r,i) => `${i+1}. ${r['API Name']} | ${r['Data Type']}`));
-        }
-
-        // CUSTOM OBJECTS
-        if (chatType === 'objects' && this._objectsLoaded && this.objectSummary?.allObjectObjects?.length) {
-            const data = this.objectSummary.allObjectObjects.map(o => ({
-                'API Name': o.name + '__c', 'Label': o.label || o.name, 'Namespace': o.namespacePrefix || ''
-            }));
-            if (this.exportFormat === 'csv')  return toCsv(['API Name','Label','Namespace'], data);
-            if (this.exportFormat === 'json') return toJson(data);
-            if (this.exportFormat === 'txt')  return toTxt('Custom Objects', data.map((r,i) => `${i+1}. ${r['API Name']}${r['Namespace'] ? ' | '+r['Namespace'] : ''}`));
-        }
-
-        // VALIDATION RULES
-        if (chatType === 'vr' && this._vrLoaded && this.vrSummary) {
-            const s = this.vrSummary;
-            const data = [];
-            (s.activeRuleObjects   || []).forEach(v => data.push({ 'API Name': v.objectName+'.'+v.name, 'Label': v.name, 'Object': v.objectName, 'Status': 'Active',   'Namespace': v.namespacePrefix || '' }));
-            (s.inactiveRuleObjects || []).forEach(v => data.push({ 'API Name': v.objectName+'.'+v.name, 'Label': v.name, 'Object': v.objectName, 'Status': 'Inactive', 'Namespace': v.namespacePrefix || '' }));
-            if (data.length) {
-                if (this.exportFormat === 'csv')  return toCsv(['API Name','Label','Object','Status','Namespace'], data);
-                if (this.exportFormat === 'json') return toJson(data);
-                if (this.exportFormat === 'txt')  return toTxt('Validation Rules', data.map((r,i) => `${i+1}. ${r['API Name']} | ${r['Object']} | ${r['Status']}`));
-            }
-        }
-
-        // ── Fallback: generic chat text parser ─────────────────
+                // ── Fallback: generic chat text parser ─────────────────
         if (this.exportFormat === 'json') {
             if (chatText) {
                 const parsed = this._parseChatTextToObjects(chatText);
@@ -1037,6 +1029,56 @@ export default class MetadataDashboard extends LightningElement {
         }
         flushRow(); // flush any trailing block row
         return rows;
+    }
+
+    // Parse flows from chatbot response text — respects whatever subset was shown
+    // (inactive only, active only, or all). Handles the block-style format:
+    //   Label    : My Flow
+    //   API Name : MyFlow
+    //   Type     : AutoLaunchedFlow
+    _parseFlowsFromChat(text) {
+        const flows = [];
+        const lines = text.split('\n');
+        let pendingLabel = '';
+        let pendingApi   = '';
+        let pendingType  = '';
+
+        const flush = () => {
+            if (pendingApi || pendingLabel) {
+                flows.push({
+                    label:  pendingLabel || pendingApi,
+                    apiName: pendingApi  || pendingLabel,
+                    type:   pendingType  || 'Flow'
+                });
+            }
+            pendingLabel = ''; pendingApi = ''; pendingType = '';
+        };
+
+        for (const line of lines) {
+            const t = line.trim();
+            // Skip header / stats / footer lines
+            if (!t || /^(🔀|FLOWS|Total:|Active:|Inactive:|To delete:|──)/i.test(t)) continue;
+            if (/^---/.test(t)) { flush(); continue; }
+
+            const lblMatch  = t.match(/^Label\s*:\s*(.+)/i);
+            const apiMatch  = t.match(/^API\s*Name\s*:\s*(.+)/i);
+            const typeMatch = t.match(/^Type\s*:\s*(.+)/i);
+
+            if (lblMatch)  { pendingLabel = lblMatch[1].trim();  continue; }
+            if (apiMatch)  { pendingApi   = apiMatch[1].trim();  continue; }
+            if (typeMatch) { pendingType  = typeMatch[1].trim(); flush(); continue; }
+
+            // Numbered list style: "1.    Label    : ..."  already handled above
+            // Plain numbered: "1. ApiName | Type"
+            const numMatch = t.match(/^\d+\.\s+(.+)/);
+            if (numMatch) {
+                flush();
+                const parts = numMatch[1].split('|').map(p => p.trim());
+                if (parts[0]) flows.push({ label: parts[0], apiName: parts[0], type: parts[1] || 'Flow' });
+            }
+        }
+        flush();
+        return flows;
     }
 
     // Parse agent chat text into structured objects for JSON export
@@ -1393,7 +1435,7 @@ export default class MetadataDashboard extends LightningElement {
     _showToast(message) {
         this._toastMessage = message;
         // eslint-disable-next-line @lwc/lwc/no-async-operation
-        setTimeout(() => { this._toastMessage = ''; }, 3500);
+        setTimeout(() => { this._toastMessage = ''; }, 4500);
     }
 
     handleNamespaceApply() {

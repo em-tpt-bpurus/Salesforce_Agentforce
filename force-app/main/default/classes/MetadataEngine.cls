@@ -5,11 +5,11 @@ public without sharing class MetadataEngine {
     // WRAPPERS — FLOWS
     // ===============================
     public class FlowInfo {
-        public String  apiName;
-        public String  label;
-        public String  processType;
-        public Boolean isActive;
-        public String  namespacePrefix;
+        @AuraEnabled public String  apiName;
+        @AuraEnabled public String  label;
+        @AuraEnabled public String  processType;
+        @AuraEnabled public Boolean isActive;
+        @AuraEnabled public String  namespacePrefix;
     }
 
     public class FlowSummary {

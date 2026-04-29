@@ -13,7 +13,6 @@ public without sharing class ExportMetadataAction {
     public class SaveResult {
         @AuraEnabled public Boolean success;
         @AuraEnabled public String  message;
-        @AuraEnabled public String  fileUrl;
     }
 
     @AuraEnabled
@@ -27,36 +26,39 @@ public without sharing class ExportMetadataAction {
         }
         if (String.isBlank(fileContent)) {
             res.success = false;
-            res.message = 'No data to export.';
+            res.message = 'No content to save. Please load data in a tab or ask the agent first.';
             return res;
         }
 
         try {
-            String ext      = String.isBlank(fileType) ? 'csv' : fileType.toLowerCase();
-            String fullName = fileName.endsWith('.' + ext) ? fileName : fileName + '.' + ext;
+            // Normalise extension — never double-append
+            String ext      = String.isBlank(fileType) ? 'csv' : fileType.toLowerCase().trim();
+            String baseName = fileName.endsWith('.' + ext)
+                              ? fileName
+                              : (fileName.contains('.') ? fileName.substringBeforeLast('.') : fileName) + '.' + ext;
 
-            ContentVersion cv      = new ContentVersion();
-            cv.Title               = fullName;
-            cv.PathOnClient        = fullName;
-            cv.VersionData         = Blob.valueOf(fileContent);
-            cv.IsMajorVersion      = true;
-            cv.ContentLocation     = 'S';
+            // Determine MIME type for PathOnClient so Salesforce previews it correctly
+            String mime = ext == 'json' ? 'application/json'
+                        : ext == 'txt'  ? 'text/plain'
+                        : 'text/csv';
+
+            ContentVersion cv  = new ContentVersion();
+            cv.Title           = baseName;
+            cv.PathOnClient    = baseName;
+            cv.VersionData     = Blob.valueOf(fileContent);
+            cv.IsMajorVersion  = true;
+            cv.ContentLocation = 'S';          // S = Salesforce storage
             insert cv;
 
-            ContentVersion inserted = [
-                SELECT ContentDocumentId
-                FROM   ContentVersion
-                WHERE  Id = :cv.Id
-                LIMIT  1
-            ];
-
             res.success = true;
-            res.message = 'File saved: ' + fullName;
-            res.fileUrl = '/lightning/r/ContentDocument/' + inserted.ContentDocumentId + '/view';
+            res.message = 'Saved: ' + baseName;
 
+        } catch (DmlException dmlEx) {
+            res.success = false;
+            res.message = 'Save failed (DML): ' + dmlEx.getDmlMessage(0);
         } catch (Exception ex) {
             res.success = false;
-            res.message = 'Failed to save file: ' + ex.getMessage();
+            res.message = 'Save failed: ' + ex.getMessage();
         }
 
         return res;

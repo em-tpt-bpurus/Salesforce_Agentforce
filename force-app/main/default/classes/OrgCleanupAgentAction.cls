@@ -461,76 +461,93 @@ public without sharing class OrgCleanupAgentAction {
         String resp = '🔀 FLOWS\n'
                     + 'Total: ' + s.total + '  |  Active: ' + s.active + '  |  Inactive: ' + s.inactive + '\n\n';
 
+        List<MetadataEngine.FlowInfo> all = s.allFlowObjects != null ? s.allFlowObjects : new List<MetadataEngine.FlowInfo>();
+
         if (String.isNotBlank(ctx.ns)) {
-            resp += 'Namespace filter: ' + ctx.ns + ' (' + s.filteredTotal + ' matching)\n';
-            resp += listItems(s.filteredActiveFlows,   '✅ Active',   '  * ');
-            resp += listItems(s.filteredInactiveFlows, '⬜ Inactive', '  - ');
-            if (s.filteredTotal == 0) resp += '  No flows found for namespace "' + ctx.ns + '".\n';
+            List<MetadataEngine.FlowInfo> filtered = new List<MetadataEngine.FlowInfo>();
+            for (MetadataEngine.FlowInfo f : all) {
+                if (ctx.ns.equalsIgnoreCase(f.namespacePrefix == null ? '' : f.namespacePrefix)) filtered.add(f);
+            }
+            resp += 'Namespace filter: ' + ctx.ns + ' (' + filtered.size() + ' matching)\n\n';
+            if (filtered.isEmpty()) {
+                resp += '  No flows found for namespace "' + ctx.ns + '".\n';
+            } else {
+                Integer i = 1;
+                for (MetadataEngine.FlowInfo f : filtered) {
+                    resp += formatItem(i++, f.label, f.apiName, f.processType != null ? f.processType : 'Flow');
+                }
+            }
             return resp;
         }
 
         if (ctx.intent == INTENT_UNUSED) {
             resp += '🗑️ Inactive flows — safe to review/delete (' + s.inactive + '):\n\n';
-            if (s.inactiveFlows != null && !s.inactiveFlows.isEmpty()) {
-                Integer i = 1;
-                for (String f : s.inactiveFlows) {
-                    resp += formatItem(i++, f, f, 'Flow (Inactive)');
+            Boolean found = false;
+            Integer i = 1;
+            for (MetadataEngine.FlowInfo f : all) {
+                if (!f.isActive) {
+                    resp += formatItem(i++, f.label, f.apiName, f.processType != null ? f.processType : 'Flow');
+                    found = true;
                 }
-            } else {
-                resp += 'None found — all flows are active! ✅\n';
             }
+            if (!found) resp += 'None found — all flows are active! ✅\n';
             resp += '\nTo delete: type "delete flow <ApiName>"';
             return resp;
         }
 
         if (ctx.intent == INTENT_USED) {
             resp += '✅ Active flows (' + s.active + '):\n\n';
-            if (s.activeFlows != null) {
-                Integer i = 1;
-                for (String f : s.activeFlows) {
+            Integer i = 1;
+            for (MetadataEngine.FlowInfo f : all) {
+                if (f.isActive) {
                     if (i > 30) { resp += '  ... and ' + (s.active - 30) + ' more.\n'; break; }
-                    resp += formatItem(i++, f, f, 'Flow (Active)');
+                    resp += formatItem(i++, f.label, f.apiName, f.processType != null ? f.processType : 'Flow');
                 }
             }
             return resp;
         }
 
         if (ctx.intent == INTENT_MANAGED) {
-            List<String> managed = new List<String>();
-            if (s.activeFlows != null)   { for (String f : s.activeFlows)   { if (f.contains('[ns:')) managed.add(f); } }
-            if (s.inactiveFlows != null) { for (String f : s.inactiveFlows) { if (f.contains('[ns:')) managed.add(f); } }
+            List<MetadataEngine.FlowInfo> managed = new List<MetadataEngine.FlowInfo>();
+            for (MetadataEngine.FlowInfo f : all) { if (String.isNotBlank(f.namespacePrefix)) managed.add(f); }
             resp += '📦 Flows from managed packages (' + managed.size() + '):\n\n';
             Integer i = 1;
-            for (String f : managed) { resp += formatItem(i++, f, f, 'Flow'); }
+            for (MetadataEngine.FlowInfo f : managed) { resp += formatItem(i++, f.label, f.apiName, f.processType != null ? f.processType : 'Flow'); }
             if (managed.isEmpty()) resp += 'No managed package flows found.\n';
             return resp;
         }
 
         if (ctx.intent == INTENT_UNMANAGED) {
-            List<String> unmanaged = new List<String>();
-            if (s.activeFlows != null)   { for (String f : s.activeFlows)   { if (!f.contains('[ns:')) unmanaged.add(f); } }
-            if (s.inactiveFlows != null) { for (String f : s.inactiveFlows) { if (!f.contains('[ns:')) unmanaged.add(f); } }
+            List<MetadataEngine.FlowInfo> unmanaged = new List<MetadataEngine.FlowInfo>();
+            for (MetadataEngine.FlowInfo f : all) { if (String.isBlank(f.namespacePrefix)) unmanaged.add(f); }
             resp += '🔧 Custom flows (no namespace) (' + unmanaged.size() + '):\n\n';
             Integer i = 1;
-            for (String f : unmanaged) { resp += formatItem(i++, f, f, 'Flow'); }
+            for (MetadataEngine.FlowInfo f : unmanaged) { resp += formatItem(i++, f.label, f.apiName, f.processType != null ? f.processType : 'Flow'); }
             if (unmanaged.isEmpty()) resp += 'None found.\n';
             return resp;
         }
 
         // Default — show all
-        if (s.activeFlows != null && !s.activeFlows.isEmpty()) {
-            resp += '--- ✅ ACTIVE (' + s.active + ') ---\n\n';
+        List<MetadataEngine.FlowInfo> activeList   = new List<MetadataEngine.FlowInfo>();
+        List<MetadataEngine.FlowInfo> inactiveList = new List<MetadataEngine.FlowInfo>();
+        for (MetadataEngine.FlowInfo f : all) {
+            if (f.isActive) activeList.add(f); else inactiveList.add(f);
+        }
+        if (!activeList.isEmpty()) {
+            resp += '--- ✅ ACTIVE (' + activeList.size() + ') ---\n\n';
             Integer i = 1;
-            for (String f : s.activeFlows) {
-                if (i > 20) { resp += '  ... and ' + (s.active - 20) + ' more.\n'; break; }
-                resp += formatItem(i++, f, f, 'Flow (Active)');
+            for (MetadataEngine.FlowInfo f : activeList) {
+                if (i > 20) { resp += '  ... and ' + (activeList.size() - 20) + ' more.\n'; break; }
+                resp += formatItem(i++, f.label, f.apiName, f.processType != null ? f.processType : 'Flow');
             }
             resp += '\n';
         }
-        if (s.inactiveFlows != null && !s.inactiveFlows.isEmpty()) {
-            resp += '--- ⬜ INACTIVE (' + s.inactive + ') ---\n\n';
+        if (!inactiveList.isEmpty()) {
+            resp += '--- ⬜ INACTIVE (' + inactiveList.size() + ') ---\n\n';
             Integer i = 1;
-            for (String f : s.inactiveFlows) { resp += formatItem(i++, f, f, 'Flow (Inactive)'); }
+            for (MetadataEngine.FlowInfo f : inactiveList) {
+                resp += formatItem(i++, f.label, f.apiName, f.processType != null ? f.processType : 'Flow');
+            }
         }
         return resp;
     }
