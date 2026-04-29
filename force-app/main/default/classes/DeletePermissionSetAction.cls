@@ -4,8 +4,8 @@ public without sharing class DeletePermissionSetAction {
         public String permSetName;
     }
     public class DeletePSOutput {
-        @InvocableVariable(label='Success') public Boolean success;
-        @InvocableVariable(label='Message') public String  message;
+        @InvocableVariable(label='Success') @AuraEnabled public Boolean success;
+        @InvocableVariable(label='Message') @AuraEnabled public String  message;
     }
     @InvocableMethod(label='Delete Permission Set' description='Removes all assignments then deletes a custom Permission Set')
     public static List<DeletePSOutput> deletePS(List<DeletePSRequest> requests) {
@@ -21,5 +21,17 @@ public without sharing class DeletePermissionSetAction {
             outputs.add(out);
         }
         return outputs;
+    }
+
+    @AuraEnabled(cacheable=false)
+    public static DeletePSOutput deletePermSetFromLWC(String permSetName) {
+        DeletePSOutput out = new DeletePSOutput();
+        if (String.isBlank(permSetName)) {
+            out.success = false; out.message = 'Permission Set name was not provided.';
+            return out;
+        }
+        MetadataEngine.DeleteResult r = MetadataEngine.deletePermissionSetByName(permSetName.trim());
+        out.success = r.success; out.message = r.message;
+        return out;
     }
 }

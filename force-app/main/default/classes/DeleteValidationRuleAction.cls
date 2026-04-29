@@ -6,8 +6,8 @@ public without sharing class DeleteValidationRuleAction {
         public String ruleName;
     }
     public class DeleteVROutput {
-        @InvocableVariable(label='Success') public Boolean success;
-        @InvocableVariable(label='Message') public String  message;
+        @InvocableVariable(label='Success') @AuraEnabled public Boolean success;
+        @InvocableVariable(label='Message') @AuraEnabled public String  message;
     }
     @InvocableMethod(label='Delete Validation Rule' description='Deletes a Validation Rule by Object and Rule Name')
     public static List<DeleteVROutput> deleteVR(List<DeleteVRRequest> requests) {
@@ -23,5 +23,17 @@ public without sharing class DeleteValidationRuleAction {
             outputs.add(out);
         }
         return outputs;
+    }
+
+    @AuraEnabled(cacheable=false)
+    public static DeleteVROutput deleteVRFromLWC(String objectName, String ruleName) {
+        DeleteVROutput out = new DeleteVROutput();
+        if (String.isBlank(objectName) || String.isBlank(ruleName)) {
+            out.success = false; out.message = 'Both Object Name and Rule Name must be provided.';
+            return out;
+        }
+        MetadataEngine.DeleteResult r = MetadataEngine.deleteValidationRuleByName(objectName.trim(), ruleName.trim());
+        out.success = r.success; out.message = r.message;
+        return out;
     }
 }

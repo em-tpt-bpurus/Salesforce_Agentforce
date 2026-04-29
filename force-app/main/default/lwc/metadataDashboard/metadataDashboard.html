@@ -28,6 +28,7 @@
                     </svg>
                     <span>{refreshLabel}</span>
                 </button>
+
             </div>
 
             <!-- Tab Nav — Row 1 -->
@@ -151,22 +152,22 @@
                 <template if:false={isLoading}>
                     <div class="section-fade">
                         <div class="stats-row">
-                            <div class="stat-card stat-total">
+                            <div class={cardClassFlowTotal} data-filter="total" onclick={handleStatCardClick} title="Click to filter">
                                 <div class="stat-value">{flowSummary.totalCount}</div>
                                 <div class="stat-label">Total Flows</div>
                             </div>
-                            <div class="stat-card stat-active">
+                            <div class={cardClassActive} data-filter="active" onclick={handleStatCardClick} title="Click to filter">
                                 <div class="stat-dot dot-green"></div>
                                 <div class="stat-value">{flowSummary.activeCount}</div>
                                 <div class="stat-label">Active</div>
                             </div>
-                            <div class="stat-card stat-inactive">
+                            <div class={cardClassInactive} data-filter="inactive" onclick={handleStatCardClick} title="Click to filter">
                                 <div class="stat-dot dot-gray"></div>
                                 <div class="stat-value">{flowSummary.inactiveCount}</div>
                                 <div class="stat-label">Inactive (Unused)</div>
                             </div>
                             <template if:true={flowHasFilter}>
-                                <div class="stat-card">
+                                <div class="stat-card stat-card--clickable" data-filter="total" onclick={handleStatCardClick}>
                                     <div class="stat-dot dot-blue"></div>
                                     <div class="stat-value">{flowSummary.filteredCount}</div>
                                     <div class="stat-label">Filtered</div>
@@ -210,6 +211,7 @@
                                 </template>
                             </div>
                         </template>
+                        <template if:true={showActiveSection}>
                         <div class="list-section">
                             <div class="list-header">
                                 <span class="list-title">Active Flows</span>
@@ -230,6 +232,8 @@
                                 <p class="empty-state">No active flows found.</p>
                             </template>
                         </div>
+                        </template>
+                        <template if:true={showInactiveSection}>
                         <div class="list-section list-section-warn">
                             <div class="list-header">
                                 <span class="list-title">Inactive Flows</span>
@@ -256,6 +260,7 @@
                                 <p class="empty-state">No inactive flows found.</p>
                             </template>
                         </div>
+                        </template>
                     </div>
                 </template>
             </template>
@@ -267,32 +272,32 @@
                 <template if:false={isLoading}>
                     <div class="section-fade">
                         <div class="stats-row">
-                            <div class="stat-card stat-total">
+                            <div class={cardClassTotal} data-filter="total" onclick={handleStatCardClick} title="Click to filter">
                                 <div class="stat-value">{apexSummary.totalCount}</div>
                                 <div class="stat-label">Total</div>
                             </div>
-                            <div class="stat-card">
+                            <div class={cardClassStandard} data-filter="standard" onclick={handleStatCardClick} title="Click to filter">
                                 <div class="stat-dot dot-blue"></div>
                                 <div class="stat-value">{apexSummary.standardCount}</div>
                                 <div class="stat-label">Standard</div>
                             </div>
-                            <div class="stat-card stat-active">
+                            <div class={cardClassUsed} data-filter="used" onclick={handleStatCardClick} title="Click to filter">
                                 <div class="stat-dot dot-green"></div>
                                 <div class="stat-value">{apexSummary.usedCount}</div>
                                 <div class="stat-label">Used</div>
                             </div>
-                            <div class="stat-card stat-inactive">
+                            <div class={cardClassUnused} data-filter="unused" onclick={handleStatCardClick} title="Click to filter">
                                 <div class="stat-dot dot-orange"></div>
                                 <div class="stat-value">{apexSummary.unusedCount}</div>
                                 <div class="stat-label">Unused</div>
                             </div>
-                            <div class="stat-card">
+                            <div class={cardClassTest} data-filter="test" onclick={handleStatCardClick} title="Click to filter">
                                 <div class="stat-dot dot-purple"></div>
                                 <div class="stat-value">{apexSummary.testCount}</div>
                                 <div class="stat-label">Test</div>
                             </div>
                             <template if:true={apexHasFilter}>
-                                <div class="stat-card">
+                                <div class="stat-card stat-card--clickable">
                                     <div class="stat-dot dot-blue"></div>
                                     <div class="stat-value">{apexSummary.filteredCount}</div>
                                     <div class="stat-label">Filtered</div>
@@ -324,6 +329,7 @@
                                 </template>
                             </div>
                         </template>
+                        <template if:true={showStandardSection}>
                         <div class="list-section">
                             <div class="list-header">
                                 <span class="list-title">Standard / Package Classes</span>
@@ -345,6 +351,8 @@
                                 <p class="empty-state">No standard/package classes found.</p>
                             </template>
                         </div>
+                        </template>
+                        <template if:true={showUsedSection}>
                         <div class="list-section">
                             <div class="list-header">
                                 <span class="list-title">Custom Used Classes</span>
@@ -365,6 +373,8 @@
                                 <p class="empty-state">No used classes found.</p>
                             </template>
                         </div>
+                        </template>
+                        <template if:true={showUnusedSection}>
                         <div class="list-section list-section-warn">
                             <div class="list-header">
                                 <span class="list-title">Custom Unused Classes</span>
@@ -394,6 +404,8 @@
                                 <p class="empty-state">No unused classes found.</p>
                             </template>
                         </div>
+                        </template>
+                        <template if:true={showTestSection}>
                         <div class="list-section">
                             <div class="list-header">
                                 <span class="list-title">Test Classes</span>
@@ -415,6 +427,7 @@
                                 <p class="empty-state">No test classes found.</p>
                             </template>
                         </div>
+                        </template>
                     </div>
                 </template>
             </template>
@@ -426,32 +439,32 @@
                 <template if:false={isLoading}>
                     <div class="section-fade">
                         <div class="stats-row">
-                            <div class="stat-card stat-total">
+                            <div class={cardClassTotal} data-filter="total" onclick={handleStatCardClick} title="Click to filter">
                                 <div class="stat-value">{triggerSummary.totalCount}</div>
                                 <div class="stat-label">Total</div>
                             </div>
-                            <div class="stat-card stat-active">
+                            <div class={cardClassActive} data-filter="active" onclick={handleStatCardClick} title="Click to filter">
                                 <div class="stat-dot dot-green"></div>
                                 <div class="stat-value">{triggerSummary.activeCount}</div>
                                 <div class="stat-label">Active</div>
                             </div>
-                            <div class="stat-card stat-inactive">
+                            <div class={cardClassInactive} data-filter="inactive" onclick={handleStatCardClick} title="Click to filter">
                                 <div class="stat-dot dot-gray"></div>
                                 <div class="stat-value">{triggerSummary.inactiveCount}</div>
                                 <div class="stat-label">Inactive</div>
                             </div>
-                            <div class="stat-card">
+                            <div class={cardClassUsed} data-filter="used" onclick={handleStatCardClick} title="Click to filter">
                                 <div class="stat-dot dot-teal"></div>
                                 <div class="stat-value">{triggerSummary.usedCount}</div>
                                 <div class="stat-label">Used</div>
                             </div>
-                            <div class="stat-card">
+                            <div class={cardClassUnused} data-filter="unused" onclick={handleStatCardClick} title="Click to filter">
                                 <div class="stat-dot dot-orange"></div>
                                 <div class="stat-value">{triggerSummary.unusedCount}</div>
                                 <div class="stat-label">Unused</div>
                             </div>
                             <template if:true={triggerHasFilter}>
-                                <div class="stat-card">
+                                <div class="stat-card stat-card--clickable">
                                     <div class="stat-dot dot-blue"></div>
                                     <div class="stat-value">{triggerSummary.filteredCount}</div>
                                     <div class="stat-label">Filtered</div>
@@ -483,6 +496,7 @@
                                 </template>
                             </div>
                         </template>
+                        <template if:true={showUsedSection}>
                         <div class="list-section">
                             <div class="list-header">
                                 <span class="list-title">Used Triggers</span>
@@ -504,6 +518,8 @@
                                 <p class="empty-state">No used triggers found.</p>
                             </template>
                         </div>
+                        </template>
+                        <template if:true={showActiveSection}>
                         <div class="list-section">
                             <div class="list-header">
                                 <span class="list-title">Active Triggers</span>
@@ -527,6 +543,8 @@
                                 <p class="empty-state">No active triggers found.</p>
                             </template>
                         </div>
+                        </template>
+                        <template if:true={showUnusedSection}>
                         <div class="list-section list-section-warn">
                             <div class="list-header">
                                 <span class="list-title">Unused Triggers</span>
@@ -556,6 +574,8 @@
                                 <p class="empty-state">No unused triggers found.</p>
                             </template>
                         </div>
+                        </template>
+                        <template if:true={showInactiveSection}>
                         <div class="list-section">
                             <div class="list-header">
                                 <span class="list-title">Inactive Triggers</span>
@@ -579,6 +599,7 @@
                                 <p class="empty-state">No inactive triggers found.</p>
                             </template>
                         </div>
+                        </template>
                     </div>
                 </template>
             </template>
@@ -588,10 +609,10 @@
                 <template if:false={isLoading}>
                     <div class="section-fade">
                         <div class="stats-row">
-                            <div class="stat-card stat-total"><div class="stat-value">{lwcSummary.totalCount}</div><div class="stat-label">Total LWC</div></div>
-                            <div class="stat-card"><div class="stat-dot dot-blue"></div><div class="stat-value">{lwcSummary.withNamespaceCount}</div><div class="stat-label">With Namespace</div></div>
-                            <div class="stat-card"><div class="stat-dot dot-gray"></div><div class="stat-value">{lwcSummary.withoutNamespaceCount}</div><div class="stat-label">No Namespace</div></div>
-                            <template if:true={lwcHasFilter}><div class="stat-card stat-active"><div class="stat-dot dot-green"></div><div class="stat-value">{lwcSummary.filteredCount}</div><div class="stat-label">Filtered</div></div></template>
+                            <div class={cardClassTotal} data-filter="total" onclick={handleStatCardClick} title="Click to filter"><div class="stat-value">{lwcSummary.totalCount}</div><div class="stat-label">Total LWC</div></div>
+                            <div class={cardClassWithNs} data-filter="withNs" onclick={handleStatCardClick} title="Click to filter"><div class="stat-dot dot-blue"></div><div class="stat-value">{lwcSummary.withNamespaceCount}</div><div class="stat-label">With Namespace</div></div>
+                            <div class={cardClassNoNs} data-filter="noNs" onclick={handleStatCardClick} title="Click to filter"><div class="stat-dot dot-gray"></div><div class="stat-value">{lwcSummary.withoutNamespaceCount}</div><div class="stat-label">No Namespace</div></div>
+                            <template if:true={lwcHasFilter}><div class="stat-card stat-card--clickable"><div class="stat-dot dot-green"></div><div class="stat-value">{lwcSummary.filteredCount}</div><div class="stat-label">Filtered</div></div></template>
                         </div>
                         <template if:true={lwcHasFilter}>
                             <div class="list-section list-section-highlight">
@@ -601,9 +622,9 @@
                             </div>
                         </template>
                         <div class="list-section">
-                            <div class="list-header"><span class="list-title">All LWC Components</span><span class="list-count blue">{lwcSummary.totalCount}</span></div>
-                            <template if:true={allLwcList.length}><ul class="metadata-list"><template for:each={allLwcList} for:item="cmp"><li key={cmp.index} class="list-item"><span class="status-dot dot-blue"></span><span class="item-index">{cmp.index}.</span><div class="item-detail"><span class="item-name">{cmp.name}</span><span class="item-meta">{cmp.meta}</span></div></li></template></ul></template>
-                            <template if:false={allLwcList.length}><p class="empty-state">No LWC components found.</p></template>
+                            <div class="list-header"><span class="list-title">LWC Components — {nsFilterLabel}</span><span class="list-count blue">{lwcDisplayList.length}</span></div>
+                            <template if:true={lwcDisplayList.length}><ul class="metadata-list"><template for:each={lwcDisplayList} for:item="cmp"><li key={cmp.index} class="list-item"><span class="status-dot dot-blue"></span><span class="item-index">{cmp.index}.</span><div class="item-detail"><span class="item-name">{cmp.name}</span><span class="item-meta">{cmp.meta}</span></div></li></template></ul></template>
+                            <template if:false={lwcDisplayList.length}><p class="empty-state">No LWC components found.</p></template>
                         </div>
                     </div>
                 </template>
@@ -613,15 +634,15 @@
                 <template if:false={isLoading}>
                     <div class="section-fade">
                         <div class="stats-row">
-                            <div class="stat-card stat-total"><div class="stat-value">{auraSummary.totalCount}</div><div class="stat-label">Total Aura</div></div>
-                            <div class="stat-card"><div class="stat-dot dot-blue"></div><div class="stat-value">{auraSummary.withNamespaceCount}</div><div class="stat-label">With Namespace</div></div>
-                            <div class="stat-card"><div class="stat-dot dot-gray"></div><div class="stat-value">{auraSummary.withoutNamespaceCount}</div><div class="stat-label">No Namespace</div></div>
-                            <template if:true={auraHasFilter}><div class="stat-card stat-active"><div class="stat-dot dot-green"></div><div class="stat-value">{auraSummary.filteredCount}</div><div class="stat-label">Filtered</div></div></template>
+                            <div class={cardClassTotal} data-filter="total" onclick={handleStatCardClick} title="Click to filter"><div class="stat-value">{auraSummary.totalCount}</div><div class="stat-label">Total Aura</div></div>
+                            <div class={cardClassWithNs} data-filter="withNs" onclick={handleStatCardClick} title="Click to filter"><div class="stat-dot dot-blue"></div><div class="stat-value">{auraSummary.withNamespaceCount}</div><div class="stat-label">With Namespace</div></div>
+                            <div class={cardClassNoNs} data-filter="noNs" onclick={handleStatCardClick} title="Click to filter"><div class="stat-dot dot-gray"></div><div class="stat-value">{auraSummary.withoutNamespaceCount}</div><div class="stat-label">No Namespace</div></div>
+                            <template if:true={auraHasFilter}><div class="stat-card stat-card--clickable"><div class="stat-dot dot-green"></div><div class="stat-value">{auraSummary.filteredCount}</div><div class="stat-label">Filtered</div></div></template>
                         </div>
                         <div class="list-section">
-                            <div class="list-header"><span class="list-title">All Aura Components</span><span class="list-count blue">{auraSummary.totalCount}</span></div>
-                            <template if:true={allAuraList.length}><ul class="metadata-list"><template for:each={allAuraList} for:item="cmp"><li key={cmp.index} class="list-item"><span class="status-dot dot-blue"></span><span class="item-index">{cmp.index}.</span><div class="item-detail"><span class="item-name">{cmp.name}</span><span class="item-meta">{cmp.meta}</span></div></li></template></ul></template>
-                            <template if:false={allAuraList.length}><p class="empty-state">No Aura components found.</p></template>
+                            <div class="list-header"><span class="list-title">Aura Components — {nsFilterLabel}</span><span class="list-count blue">{auraDisplayList.length}</span></div>
+                            <template if:true={auraDisplayList.length}><ul class="metadata-list"><template for:each={auraDisplayList} for:item="cmp"><li key={cmp.index} class="list-item"><span class="status-dot dot-blue"></span><span class="item-index">{cmp.index}.</span><div class="item-detail"><span class="item-name">{cmp.name}</span><span class="item-meta">{cmp.meta}</span></div></li></template></ul></template>
+                            <template if:false={auraDisplayList.length}><p class="empty-state">No Aura components found.</p></template>
                         </div>
                     </div>
                 </template>
@@ -631,20 +652,24 @@
                 <template if:false={isLoading}>
                     <div class="section-fade">
                         <div class="stats-row">
-                            <div class="stat-card stat-total"><div class="stat-value">{profileSummary.totalCount}</div><div class="stat-label">Total Profiles</div></div>
-                            <div class="stat-card stat-active"><div class="stat-dot dot-green"></div><div class="stat-value">{profileSummary.usedCount}</div><div class="stat-label">Assigned</div></div>
-                            <div class="stat-card stat-inactive"><div class="stat-dot dot-orange"></div><div class="stat-value">{profileSummary.unusedCount}</div><div class="stat-label">Unassigned</div></div>
+                            <div class={cardClassTotal} data-filter="total" onclick={handleStatCardClick} title="Click to filter"><div class="stat-value">{profileSummary.totalCount}</div><div class="stat-label">Total Profiles</div></div>
+                            <div class={cardClassUsed} data-filter="used" onclick={handleStatCardClick} title="Click to filter"><div class="stat-dot dot-green"></div><div class="stat-value">{profileSummary.usedCount}</div><div class="stat-label">Assigned</div></div>
+                            <div class={cardClassUnused} data-filter="unused" onclick={handleStatCardClick} title="Click to filter"><div class="stat-dot dot-orange"></div><div class="stat-value">{profileSummary.unusedCount}</div><div class="stat-label">Unassigned</div></div>
                         </div>
+                        <template if:true={showUnassignedSection}>
                         <div class="list-section list-section-warn">
                             <div class="list-header"><span class="list-title">Unassigned Profiles</span><span class="list-count orange">{profileSummary.unusedCount}</span><span class="delete-badge">No active users</span></div>
                             <template if:true={unusedProfileList.length}><ul class="metadata-list"><template for:each={unusedProfileList} for:item="prof"><li key={prof.index} class="list-item list-item-warn"><span class="status-dot dot-orange"></span><span class="item-index">{prof.index}.</span><div class="item-detail"><span class="item-name">{prof.name}</span><span class="item-meta">{prof.meta}</span></div></li></template></ul></template>
                             <template if:false={unusedProfileList.length}><p class="empty-state">All profiles are assigned to active users.</p></template>
                         </div>
+                        </template>
+                        <template if:true={showAssignedSection}>
                         <div class="list-section">
                             <div class="list-header"><span class="list-title">Assigned Profiles</span><span class="list-count green">{profileSummary.usedCount}</span></div>
                             <template if:true={usedProfileList.length}><ul class="metadata-list"><template for:each={usedProfileList} for:item="prof"><li key={prof.index} class="list-item"><span class="status-dot dot-green"></span><span class="item-index">{prof.index}.</span><div class="item-detail"><span class="item-name">{prof.name}</span><span class="item-meta">{prof.meta}</span></div></li></template></ul></template>
                             <template if:false={usedProfileList.length}><p class="empty-state">No assigned profiles found.</p></template>
                         </div>
+                        </template>
                     </div>
                 </template>
             </template>
@@ -653,20 +678,24 @@
                 <template if:false={isLoading}>
                     <div class="section-fade">
                         <div class="stats-row">
-                            <div class="stat-card stat-total"><div class="stat-value">{permSetSummary.totalCount}</div><div class="stat-label">Total Perm Sets</div></div>
-                            <div class="stat-card stat-active"><div class="stat-dot dot-green"></div><div class="stat-value">{permSetSummary.usedCount}</div><div class="stat-label">Assigned</div></div>
-                            <div class="stat-card stat-inactive"><div class="stat-dot dot-orange"></div><div class="stat-value">{permSetSummary.unusedCount}</div><div class="stat-label">Unassigned</div></div>
+                            <div class={cardClassTotal} data-filter="total" onclick={handleStatCardClick} title="Click to filter"><div class="stat-value">{permSetSummary.totalCount}</div><div class="stat-label">Total Perm Sets</div></div>
+                            <div class={cardClassUsed} data-filter="used" onclick={handleStatCardClick} title="Click to filter"><div class="stat-dot dot-green"></div><div class="stat-value">{permSetSummary.usedCount}</div><div class="stat-label">Assigned</div></div>
+                            <div class={cardClassUnused} data-filter="unused" onclick={handleStatCardClick} title="Click to filter"><div class="stat-dot dot-orange"></div><div class="stat-value">{permSetSummary.unusedCount}</div><div class="stat-label">Unassigned</div></div>
                         </div>
+                        <template if:true={showUnassignedSection}>
                         <div class="list-section list-section-warn">
                             <div class="list-header"><span class="list-title">Unassigned Permission Sets</span><span class="list-count orange">{permSetSummary.unusedCount}</span><span class="delete-badge">No assignments</span></div>
                             <template if:true={unusedPermSetList.length}><ul class="metadata-list"><template for:each={unusedPermSetList} for:item="ps"><li key={ps.index} class="list-item list-item-warn"><span class="status-dot dot-orange"></span><span class="item-index">{ps.index}.</span><div class="item-detail"><span class="item-name">{ps.name}</span><span class="item-meta">{ps.meta}</span></div></li></template></ul></template>
                             <template if:false={unusedPermSetList.length}><p class="empty-state">All permission sets have active assignments.</p></template>
                         </div>
+                        </template>
+                        <template if:true={showAssignedSection}>
                         <div class="list-section">
                             <div class="list-header"><span class="list-title">Assigned Permission Sets</span><span class="list-count green">{permSetSummary.usedCount}</span></div>
                             <template if:true={usedPermSetList.length}><ul class="metadata-list"><template for:each={usedPermSetList} for:item="ps"><li key={ps.index} class="list-item"><span class="status-dot dot-green"></span><span class="item-index">{ps.index}.</span><div class="item-detail"><span class="item-name">{ps.name}</span><span class="item-meta">{ps.meta}</span></div></li></template></ul></template>
                             <template if:false={usedPermSetList.length}><p class="empty-state">No assigned permission sets found.</p></template>
                         </div>
+                        </template>
                     </div>
                 </template>
             </template>
@@ -675,10 +704,10 @@
                 <template if:false={isLoading}>
                     <div class="section-fade">
                         <div class="stats-row">
-                            <div class="stat-card stat-total"><div class="stat-value">{fieldSummary.totalCount}</div><div class="stat-label">Total Fields</div></div>
-                            <div class="stat-card"><div class="stat-dot dot-blue"></div><div class="stat-value">{fieldSummary.withNamespaceCount}</div><div class="stat-label">With Namespace</div></div>
-                            <div class="stat-card"><div class="stat-dot dot-gray"></div><div class="stat-value">{fieldSummary.withoutNamespaceCount}</div><div class="stat-label">No Namespace</div></div>
-                            <template if:true={fieldHasFilter}><div class="stat-card stat-active"><div class="stat-dot dot-green"></div><div class="stat-value">{fieldSummary.filteredCount}</div><div class="stat-label">Filtered</div></div></template>
+                            <div class={cardClassTotal} data-filter="total" onclick={handleStatCardClick} title="Click to filter"><div class="stat-value">{fieldSummary.totalCount}</div><div class="stat-label">Total Fields</div></div>
+                            <div class={cardClassWithNs} data-filter="withNs" onclick={handleStatCardClick} title="Click to filter"><div class="stat-dot dot-blue"></div><div class="stat-value">{fieldSummary.withNamespaceCount}</div><div class="stat-label">With Namespace</div></div>
+                            <div class={cardClassNoNs} data-filter="noNs" onclick={handleStatCardClick} title="Click to filter"><div class="stat-dot dot-gray"></div><div class="stat-value">{fieldSummary.withoutNamespaceCount}</div><div class="stat-label">No Namespace</div></div>
+                            <template if:true={fieldHasFilter}><div class="stat-card stat-card--clickable"><div class="stat-dot dot-green"></div><div class="stat-value">{fieldSummary.filteredCount}</div><div class="stat-label">Filtered</div></div></template>
                         </div>
                         <template if:true={fieldHasFilter}>
                             <div class="list-section list-section-highlight">
@@ -688,9 +717,9 @@
                             </div>
                         </template>
                         <div class="list-section">
-                            <div class="list-header"><span class="list-title">All Custom Fields</span><span class="list-count blue">{fieldSummary.totalCount}</span></div>
-                            <template if:true={allFieldList.length}><ul class="metadata-list"><template for:each={allFieldList} for:item="fld"><li key={fld.index} class="list-item"><span class="status-dot dot-blue"></span><span class="item-index">{fld.index}.</span><div class="item-detail"><span class="item-name">{fld.name}</span><span class="item-meta">{fld.meta}</span></div></li></template></ul></template>
-                            <template if:false={allFieldList.length}><p class="empty-state">No custom fields found.</p></template>
+                            <div class="list-header"><span class="list-title">Custom Fields — {nsFilterLabel}</span><span class="list-count blue">{fieldDisplayList.length}</span></div>
+                            <template if:true={fieldDisplayList.length}><ul class="metadata-list"><template for:each={fieldDisplayList} for:item="fld"><li key={fld.index} class="list-item"><span class="status-dot dot-blue"></span><span class="item-index">{fld.index}.</span><div class="item-detail"><span class="item-name">{fld.name}</span><span class="item-meta">{fld.meta}</span></div></li></template></ul></template>
+                            <template if:false={fieldDisplayList.length}><p class="empty-state">No custom fields found.</p></template>
                         </div>
                     </div>
                 </template>
@@ -700,15 +729,15 @@
                 <template if:false={isLoading}>
                     <div class="section-fade">
                         <div class="stats-row">
-                            <div class="stat-card stat-total"><div class="stat-value">{objectSummary.totalCount}</div><div class="stat-label">Total Objects</div></div>
-                            <div class="stat-card"><div class="stat-dot dot-blue"></div><div class="stat-value">{objectSummary.withNamespaceCount}</div><div class="stat-label">With Namespace</div></div>
-                            <div class="stat-card"><div class="stat-dot dot-gray"></div><div class="stat-value">{objectSummary.withoutNamespaceCount}</div><div class="stat-label">No Namespace</div></div>
-                            <template if:true={objectHasFilter}><div class="stat-card stat-active"><div class="stat-dot dot-green"></div><div class="stat-value">{objectSummary.filteredCount}</div><div class="stat-label">Filtered</div></div></template>
+                            <div class={cardClassTotal} data-filter="total" onclick={handleStatCardClick} title="Click to filter"><div class="stat-value">{objectSummary.totalCount}</div><div class="stat-label">Total Objects</div></div>
+                            <div class={cardClassWithNs} data-filter="withNs" onclick={handleStatCardClick} title="Click to filter"><div class="stat-dot dot-blue"></div><div class="stat-value">{objectSummary.withNamespaceCount}</div><div class="stat-label">With Namespace</div></div>
+                            <div class={cardClassNoNs} data-filter="noNs" onclick={handleStatCardClick} title="Click to filter"><div class="stat-dot dot-gray"></div><div class="stat-value">{objectSummary.withoutNamespaceCount}</div><div class="stat-label">No Namespace</div></div>
+                            <template if:true={objectHasFilter}><div class="stat-card stat-card--clickable"><div class="stat-dot dot-green"></div><div class="stat-value">{objectSummary.filteredCount}</div><div class="stat-label">Filtered</div></div></template>
                         </div>
                         <div class="list-section">
-                            <div class="list-header"><span class="list-title">All Custom Objects</span><span class="list-count blue">{objectSummary.totalCount}</span></div>
-                            <template if:true={allObjectList.length}><ul class="metadata-list"><template for:each={allObjectList} for:item="obj"><li key={obj.index} class="list-item"><span class="status-dot dot-blue"></span><span class="item-index">{obj.index}.</span><div class="item-detail"><span class="item-name">{obj.name}</span><span class="item-meta">{obj.meta}</span></div></li></template></ul></template>
-                            <template if:false={allObjectList.length}><p class="empty-state">No custom objects found.</p></template>
+                            <div class="list-header"><span class="list-title">Custom Objects — {nsFilterLabel}</span><span class="list-count blue">{objectDisplayList.length}</span></div>
+                            <template if:true={objectDisplayList.length}><ul class="metadata-list"><template for:each={objectDisplayList} for:item="obj"><li key={obj.index} class="list-item"><span class="status-dot dot-blue"></span><span class="item-index">{obj.index}.</span><div class="item-detail"><span class="item-name">{obj.name}</span><span class="item-meta">{obj.meta}</span></div></li></template></ul></template>
+                            <template if:false={objectDisplayList.length}><p class="empty-state">No custom objects found.</p></template>
                         </div>
                     </div>
                 </template>
@@ -718,21 +747,25 @@
                 <template if:false={isLoading}>
                     <div class="section-fade">
                         <div class="stats-row">
-                            <div class="stat-card stat-total"><div class="stat-value">{vrSummary.totalCount}</div><div class="stat-label">Total Rules</div></div>
-                            <div class="stat-card stat-active"><div class="stat-dot dot-green"></div><div class="stat-value">{vrSummary.activeCount}</div><div class="stat-label">Active</div></div>
-                            <div class="stat-card stat-inactive"><div class="stat-dot dot-orange"></div><div class="stat-value">{vrSummary.inactiveCount}</div><div class="stat-label">Inactive</div></div>
-                            <template if:true={vrHasFilter}><div class="stat-card"><div class="stat-dot dot-blue"></div><div class="stat-value">{vrSummary.filteredCount}</div><div class="stat-label">Filtered</div></div></template>
+                            <div class={cardClassTotal} data-filter="total" onclick={handleStatCardClick} title="Click to filter"><div class="stat-value">{vrSummary.totalCount}</div><div class="stat-label">Total Rules</div></div>
+                            <div class={cardClassActive} data-filter="active" onclick={handleStatCardClick} title="Click to filter"><div class="stat-dot dot-green"></div><div class="stat-value">{vrSummary.activeCount}</div><div class="stat-label">Active</div></div>
+                            <div class={cardClassInactive} data-filter="inactive" onclick={handleStatCardClick} title="Click to filter"><div class="stat-dot dot-orange"></div><div class="stat-value">{vrSummary.inactiveCount}</div><div class="stat-label">Inactive</div></div>
+                            <template if:true={vrHasFilter}><div class="stat-card stat-card--clickable"><div class="stat-dot dot-blue"></div><div class="stat-value">{vrSummary.filteredCount}</div><div class="stat-label">Filtered</div></div></template>
                         </div>
+                        <template if:true={showActiveSection}>
                         <div class="list-section">
                             <div class="list-header"><span class="list-title">Active Validation Rules</span><span class="list-count green">{vrSummary.activeCount}</span></div>
                             <template if:true={activeVrList.length}><ul class="metadata-list"><template for:each={activeVrList} for:item="rule"><li key={rule.index} class="list-item"><span class="status-dot dot-green"></span><span class="item-index">{rule.index}.</span><div class="item-detail"><span class="item-name">{rule.name}</span><span class="item-meta">{rule.meta}</span></div></li></template></ul></template>
                             <template if:false={activeVrList.length}><p class="empty-state">No active validation rules found.</p></template>
                         </div>
+                        </template>
+                        <template if:true={showInactiveSection}>
                         <div class="list-section list-section-warn">
                             <div class="list-header"><span class="list-title">Inactive Validation Rules</span><span class="list-count orange">{vrSummary.inactiveCount}</span><span class="delete-badge">Safe to review</span></div>
                             <template if:true={inactiveVrList.length}><ul class="metadata-list"><template for:each={inactiveVrList} for:item="rule"><li key={rule.index} class="list-item list-item-warn"><span class="status-dot dot-orange"></span><span class="item-index">{rule.index}.</span><div class="item-detail"><span class="item-name">{rule.name}</span><span class="item-meta">{rule.meta}</span></div></li></template></ul></template>
                             <template if:false={inactiveVrList.length}><p class="empty-state">No inactive validation rules found.</p></template>
                         </div>
+                        </template>
                     </div>
                 </template>
             </template>
@@ -753,13 +786,14 @@
                     </svg>
                 </div>
                 <div class="agent-header-info">
-                    <span class="agent-name">Org Cleanup Agent</span>
+                    <span class="agent-name">{agentHeaderName}</span>
                     <span class="agent-status">
                         <span class="status-pulse"></span>
-                        Online
+                        {agentHeaderStatus}
                     </span>
                 </div>
             </div>
+
 
             <!-- Chat Messages -->
             <div class="agent-messages" lwc:ref="messagesContainer">
@@ -812,6 +846,15 @@
                 <button class="chip" data-query="Show unused triggers" onclick={handleChipClick}>Unused triggers</button>
                 <button class="chip" data-query="Show unassigned Profiles" onclick={handleChipClick}>Unused Profiles</button>
                 <button class="chip" data-query="Show unused Permission Sets" onclick={handleChipClick}>Unused Perm Sets</button>
+                <!-- Export Button — opens modal -->
+                <button class="export-btn" onclick={toggleExportDropdown}>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+                        <polyline points="7 10 12 15 17 10"/>
+                        <line x1="12" y1="15" x2="12" y2="3"/>
+                    </svg>
+                    <span>Export</span>
+                </button>
             </div>
 
             <!-- Input Row -->
@@ -821,7 +864,7 @@
                     type="text"
                     placeholder="Ask the agent..."
                     value={agentInput}
-                    onchange={handleAgentInputChange}
+                    oninput={handleAgentInputChange}
                     onkeydown={handleAgentInputKeydown}
                     disabled={agentIsProcessing}
                 />
@@ -833,6 +876,66 @@
             </div>
 
         </div><!-- end .agent-panel -->
+
+        <!-- Hidden download anchor for CSV export (LWC-safe) -->
+        <a class="export-download-link" style="display:none;" href="#" download="export.csv"></a>
+
+        <!-- Toast notification -->
+        <template if:true={showToast}>
+            <div class="export-toast">{toastMessage}</div>
+        </template>
+
+        <!-- Hidden download anchor — LWC-safe -->
+        <a class="export-download-link" style="display:none;" href="#" download="export.csv"></a>
+
+        <!-- Toast -->
+        <template if:true={showToast}>
+            <div class="export-toast">{toastMessage}</div>
+        </template>
+
+        <!-- Export Modal -->
+        <template if:true={showExportModal}>
+            <div class="export-modal-overlay" onclick={handleCloseExport}>
+                <div class="export-modal" onclick={_stopProp}>
+                    <div class="export-modal-header">
+                        <div class="export-modal-title">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+                                <polyline points="7 10 12 15 17 10"/>
+                                <line x1="12" y1="15" x2="12" y2="3"/>
+                            </svg>
+                            Export — {exportTabLabel}
+                        </div>
+                        <button class="export-modal-close" onclick={handleCloseExport}>✕</button>
+                    </div>
+                    <div class="export-modal-body">
+                        <div class="export-modal-section-label">FORMAT</div>
+                        <div class="export-fmt-row">
+                            <button class={exportCsvClass}  data-format="csv"  onclick={handleExportFormatChange}>CSV</button>
+                            <button class={exportJsonClass} data-format="json" onclick={handleExportFormatChange}>JSON</button>
+                            <button class={exportTxtClass}  data-format="txt"  onclick={handleExportFormatChange}>TXT</button>
+                        </div>
+                        <p class="export-modal-hint">JSON / TXT for developer use.</p>
+                    </div>
+                    <div class="export-modal-footer">
+                        <button class="export-action-btn export-action-btn--download" onclick={handleDownload}>
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+                                <polyline points="7 10 12 15 17 10"/>
+                                <line x1="12" y1="15" x2="12" y2="3"/>
+                            </svg>
+                            Download
+                        </button>
+                        <button class="export-action-btn export-action-btn--save" onclick={handleSaveToFiles} disabled={exportSaveDisabled}>
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
+                            </svg>
+                            {exportSaveBtnLabel}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </template>
 
     </div><!-- end .dashboard-shell -->
 </template>

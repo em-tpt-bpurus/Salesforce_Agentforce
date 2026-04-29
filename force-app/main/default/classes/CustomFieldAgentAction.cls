@@ -47,34 +47,31 @@ public without sharing class CustomFieldAgentAction {
     }
 
     // ── Shared logic ──────────────────────────────────────────
+    private static String buildFieldLine(Integer idx, MetadataEngine.CustomFieldInfo info) {
+        return (idx + 1) + '. ' + info.objectName + '.' + info.name +
+               (String.isNotBlank(info.namespacePrefix) ? ' [' + info.namespacePrefix + ']' : '') +
+               ' | Type: ' + (String.isNotBlank(info.dataType) ? info.dataType : 'N/A') + '\n';
+    }
+
+    private static String buildFieldList(List<MetadataEngine.CustomFieldInfo> fields, String namespaceFilter, Boolean isFiltered) {
+        if (fields == null || fields.isEmpty()) {
+            if (isFiltered && String.isNotBlank(namespaceFilter)) {
+                return 'No custom fields found with namespace: ' + namespaceFilter;
+            }
+            return 'None';
+        }
+        String result = '';
+        for (Integer i = 0; i < fields.size(); i++) {
+            result += buildFieldLine(i, fields[i]);
+        }
+        return result;
+    }
+
     private static FieldOutput buildOutput(String namespaceFilter) {
         MetadataEngine.CustomFieldSummary summary = MetadataEngine.getCustomFields(namespaceFilter);
 
-        String allList = '';
-        if (summary.allFields == null || summary.allFields.isEmpty()) {
-            allList = 'None';
-        } else {
-            for (Integer i = 0; i < summary.allFields.size(); i++) {
-                MetadataEngine.CustomFieldInfo info = summary.allFields[i];
-                allList += (i + 1) + '. ' + info.objectName + '.' + info.name +
-                           (String.isNotBlank(info.namespacePrefix) ? ' [' + info.namespacePrefix + ']' : '') +
-                           ' | Type: ' + (String.isNotBlank(info.dataType) ? info.dataType : 'N/A') + '\n';
-            }
-        }
-
-        String filteredList = '';
-        if (summary.filteredFields == null || summary.filteredFields.isEmpty()) {
-            filteredList = String.isNotBlank(namespaceFilter)
-                ? 'No custom fields found with namespace: ' + namespaceFilter
-                : 'None';
-        } else {
-            for (Integer i = 0; i < summary.filteredFields.size(); i++) {
-                MetadataEngine.CustomFieldInfo info = summary.filteredFields[i];
-                filteredList += (i + 1) + '. ' + info.objectName + '.' + info.name +
-                                (String.isNotBlank(info.namespacePrefix) ? ' [' + info.namespacePrefix + ']' : '') +
-                                ' | Type: ' + (String.isNotBlank(info.dataType) ? info.dataType : 'N/A') + '\n';
-            }
-        }
+        String allList      = buildFieldList(summary.allFields,      namespaceFilter, false);
+        String filteredList = buildFieldList(summary.filteredFields,  namespaceFilter, true);
 
         String nsDisplay = String.isNotBlank(namespaceFilter) ? namespaceFilter : 'None (showing all)';
 

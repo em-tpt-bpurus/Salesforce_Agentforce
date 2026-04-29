@@ -29,6 +29,9 @@ public without sharing class CustomObjectAgentAction {
 
         @AuraEnabled @InvocableVariable(label='Filtered Objects' description='Numbered list of namespace-filtered custom objects')
         public String filteredObjects;
+
+        @AuraEnabled
+        public List<MetadataEngine.CustomObjectInfo> allObjectObjects;
     }
 
     // ── Called by Agentforce via @InvocableMethod ──────────────
@@ -47,34 +50,31 @@ public without sharing class CustomObjectAgentAction {
     }
 
     // ── Shared logic ──────────────────────────────────────────
+    private static String buildObjectLine(Integer idx, MetadataEngine.CustomObjectInfo info) {
+        return (idx + 1) + '. ' + info.name +
+               (String.isNotBlank(info.namespacePrefix) ? ' [' + info.namespacePrefix + ']' : '') +
+               ' | Label: ' + (String.isNotBlank(info.label) ? info.label : 'N/A') + '\n';
+    }
+
+    private static String buildObjectList(List<MetadataEngine.CustomObjectInfo> objects, String namespaceFilter, Boolean isFiltered) {
+        if (objects == null || objects.isEmpty()) {
+            if (isFiltered && String.isNotBlank(namespaceFilter)) {
+                return 'No custom objects found with namespace: ' + namespaceFilter;
+            }
+            return 'None';
+        }
+        String result = '';
+        for (Integer i = 0; i < objects.size(); i++) {
+            result += buildObjectLine(i, objects[i]);
+        }
+        return result;
+    }
+
     private static ObjectOutput buildOutput(String namespaceFilter) {
         MetadataEngine.CustomObjectSummary summary = MetadataEngine.getCustomObjects(namespaceFilter);
 
-        String allList = '';
-        if (summary.allObjects == null || summary.allObjects.isEmpty()) {
-            allList = 'None';
-        } else {
-            for (Integer i = 0; i < summary.allObjects.size(); i++) {
-                MetadataEngine.CustomObjectInfo info = summary.allObjects[i];
-                allList += (i + 1) + '. ' + info.name +
-                           (String.isNotBlank(info.namespacePrefix) ? ' [' + info.namespacePrefix + ']' : '') +
-                           ' | Label: ' + (String.isNotBlank(info.label) ? info.label : 'N/A') + '\n';
-            }
-        }
-
-        String filteredList = '';
-        if (summary.filteredObjects == null || summary.filteredObjects.isEmpty()) {
-            filteredList = String.isNotBlank(namespaceFilter)
-                ? 'No custom objects found with namespace: ' + namespaceFilter
-                : 'None';
-        } else {
-            for (Integer i = 0; i < summary.filteredObjects.size(); i++) {
-                MetadataEngine.CustomObjectInfo info = summary.filteredObjects[i];
-                filteredList += (i + 1) + '. ' + info.name +
-                                (String.isNotBlank(info.namespacePrefix) ? ' [' + info.namespacePrefix + ']' : '') +
-                                ' | Label: ' + (String.isNotBlank(info.label) ? info.label : 'N/A') + '\n';
-            }
-        }
+        String allList      = buildObjectList(summary.allObjects,      namespaceFilter, false);
+        String filteredList = buildObjectList(summary.filteredObjects,  namespaceFilter, true);
 
         String nsDisplay = String.isNotBlank(namespaceFilter) ? namespaceFilter : 'None (showing all)';
 
@@ -98,6 +98,7 @@ public without sharing class CustomObjectAgentAction {
                 ? '--- FILTERED BY NAMESPACE: ' + namespaceFilter + ' (' + output.filteredCount + ') ---\n' + filteredList
                 : '');
 
+        output.allObjectObjects = summary.allObjects;
         System.debug('CUSTOM OBJECT SUMMARY: ' + output.summary);
         return output;
     }

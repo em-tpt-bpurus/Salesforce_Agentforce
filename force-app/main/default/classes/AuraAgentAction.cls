@@ -30,6 +30,9 @@ public without sharing class AuraAgentAction {
 
         @AuraEnabled @InvocableVariable(label='Filtered Components' description='Numbered list of namespace-filtered Aura components')
         public String filteredComponents;
+
+        @AuraEnabled
+        public List<MetadataEngine.AuraComponentInfo> allAuraObjects;
     }
 
     // ── Called by Agentforce via @InvocableMethod ──────────────
@@ -101,6 +104,7 @@ public without sharing class AuraAgentAction {
                 ? '--- FILTERED BY NAMESPACE: ' + namespaceFilter + ' (' + output.filteredCount + ') ---\n' + filteredList
                 : '');
 
+        output.allAuraObjects = summary.allComponents;
         System.debug('AURA SUMMARY: ' + output.summary);
         return output;
     }

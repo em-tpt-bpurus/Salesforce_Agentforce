@@ -48,6 +48,11 @@ public without sharing class ApexClassAgentAction {
 
         @AuraEnabled @InvocableVariable(label='Filtered Classes' description='Numbered list of Apex classes matching the namespace filter')
         public String filteredClasses;
+
+        @AuraEnabled
+        public List<MetadataEngine.ApexClassInfo> allApexObjects;
+        @AuraEnabled
+        public List<MetadataEngine.ApexClassInfo> unusedApexObjects;
     }
 
     // ── Called by Agentforce via @InvocableMethod ──────────────
@@ -154,6 +159,8 @@ public without sharing class ApexClassAgentAction {
                 ? '\n\n--- FILTERED BY NAMESPACE: ' + namespaceFilter + ' (' + filteredTotal + ') ---\n' + filteredList
                 : '');
 
+        output.allApexObjects    = summary.filteredClasses;
+        output.unusedApexObjects = summary.unusedClasses;
         System.debug('APEX SUMMARY : ' + output.summary);
         return output;
     }
