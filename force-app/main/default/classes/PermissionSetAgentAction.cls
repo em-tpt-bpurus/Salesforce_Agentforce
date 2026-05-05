@@ -65,7 +65,7 @@ public without sharing class PermissionSetAgentAction {
     // ── Shared logic ──────────────────────────────────────────
     private static String buildUsedPermSetList(MetadataEngine.PermissionSetSummary summary) {
         if (summary.usedPermSets == null || summary.usedPermSets.isEmpty()) {
-            return 'None';
+            return MetadataConstants.NONE;
         }
         String result = '';
         for (Integer i = 0; i < summary.usedPermSets.size(); i++) {
@@ -73,14 +73,14 @@ public without sharing class PermissionSetAgentAction {
             result += (i + 1) + '. ' + info.label +
                         ' (' + info.name + ')' +
                         (String.isNotBlank(info.namespacePrefix) ? ' [' + info.namespacePrefix + ']' : '') +
-                        ' | Assignments: ' + info.assignmentCount + '\n';
+                        MetadataConstants.COL_ASSIGNMENTS + info.assignmentCount + '\n';
         }
         return result;
     }
 
     private static String buildUnusedPermSetList(MetadataEngine.PermissionSetSummary summary) {
         if (summary.unusedPermSets == null || summary.unusedPermSets.isEmpty()) {
-            return 'None';
+            return MetadataConstants.NONE;
         }
         String result = '';
         for (Integer i = 0; i < summary.unusedPermSets.size(); i++) {
@@ -94,14 +94,14 @@ public without sharing class PermissionSetAgentAction {
     }
 
     private static String buildFilteredPermSetList(List<MetadataEngine.PermissionSetInfo> permSets) {
-       if (permSets == null || permSets.isEmpty()) { return 'None'; }
+       if (permSets == null || permSets.isEmpty()) { return MetadataConstants.NONE; }
         String result = '';
         for (Integer i = 0; i < permSets.size(); i++) {
             MetadataEngine.PermissionSetInfo info = permSets[i];
             result += (i + 1) + '. ' + info.label +
                       ' (' + info.name + ')' +
                       (String.isNotBlank(info.namespacePrefix) ? ' [' + info.namespacePrefix + ']' : '') +
-                      ' | Assignments: ' + info.assignmentCount + '\n';
+                      MetadataConstants.COL_ASSIGNMENTS + info.assignmentCount + '\n';
         }
         return result;
     }
@@ -112,7 +112,7 @@ public without sharing class PermissionSetAgentAction {
         String usedList      = buildUsedPermSetList(summary);
         String unusedList    = buildUnusedPermSetList(summary);
         String filteredList  = buildFilteredPermSetList(summary.filteredPermSets);
-        String nsDisplay     = String.isNotBlank(namespaceFilter) ? namespaceFilter : 'None (showing all)';
+        String nsDisplay     = String.isNotBlank(namespaceFilter) ? namespaceFilter : MetadataConstants.NS_ALL;
         Integer withNs       = summary.withNamespace    != null ? summary.withNamespace    : 0;
         Integer withoutNs    = summary.withoutNamespace != null ? summary.withoutNamespace : 0;
         Integer filteredCnt  = summary.filteredTotal    != null ? summary.filteredTotal    : 0;
@@ -134,8 +134,8 @@ public without sharing class PermissionSetAgentAction {
             summary.unused + ' have no assignments.\n' +
             withNs + ' have a namespace prefix, ' + withoutNs + ' do not.\n\n' +
             'Namespace Filter: ' + nsDisplay + '\n\n' +
-            '--- USED PERMISSION SETS (' + summary.used + ') — Have active assignments ---\n' + usedList + '\n' +
-            '--- UNUSED PERMISSION SETS (' + summary.unused + ') — No assignments — Safe to review ---\n' + unusedList +
+            MetadataConstants.SEC_USED_PERMSETS + ' (' + summary.used + MetadataConstants.SEC_HINT_ACTIVE_ASSIGN + usedList + '\n' +
+            MetadataConstants.SEC_UNUSED_PERMSETS + ' (' + summary.unused + MetadataConstants.SEC_HINT_NO_ASSIGN + unusedList +
             (String.isNotBlank(namespaceFilter)
                 ? '\n\n--- FILTERED BY NAMESPACE: ' + namespaceFilter + ' (' + filteredCnt + ') ---\n' + filteredList
                 : '');

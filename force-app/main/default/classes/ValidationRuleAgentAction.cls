@@ -58,12 +58,12 @@ public without sharing class ValidationRuleAgentAction {
     private static String formatVrEntry(Integer index, MetadataEngine.ValidationRuleInfo info, String activeLabel) {
         return (index + 1) + '. ' + info.objectName + '.' + info.name +
                (String.isNotBlank(info.namespacePrefix) ? ' [' + info.namespacePrefix + ']' : '') +
-               ' | Active: ' + activeLabel + '\n';
+               MetadataConstants.COL_ACTIVE + activeLabel + '\n';
     }
 
     private static String buildActiveRuleList(MetadataEngine.ValidationRuleSummary summary) {
         if (summary.activeRules == null || summary.activeRules.isEmpty()) {
-            return 'None';
+            return MetadataConstants.NONE;
         }
         String result = '';
         for (Integer i = 0; i < summary.activeRules.size(); i++) {
@@ -74,7 +74,7 @@ public without sharing class ValidationRuleAgentAction {
 
     private static String buildInactiveRuleList(MetadataEngine.ValidationRuleSummary summary) {
         if (summary.inactiveRules == null || summary.inactiveRules.isEmpty()) {
-            return 'None';
+            return MetadataConstants.NONE;
         }
         String result = '';
         for (Integer i = 0; i < summary.inactiveRules.size(); i++) {
@@ -87,7 +87,7 @@ public without sharing class ValidationRuleAgentAction {
         if (summary.filteredRules == null || summary.filteredRules.isEmpty()) {
             return String.isNotBlank(namespaceFilter)
                 ? 'No Validation Rules found with namespace: ' + namespaceFilter
-                : 'None';
+                : MetadataConstants.NONE;
         }
         String result = '';
         for (Integer i = 0; i < summary.filteredRules.size(); i++) {
@@ -103,7 +103,7 @@ public without sharing class ValidationRuleAgentAction {
         String activeList   = buildActiveRuleList(summary);
         String inactiveList = buildInactiveRuleList(summary);
         String filteredList = buildFilteredRuleList(summary, namespaceFilter);
-        String nsDisplay    = String.isNotBlank(namespaceFilter) ? namespaceFilter : 'None (showing all)';
+        String nsDisplay    = String.isNotBlank(namespaceFilter) ? namespaceFilter : MetadataConstants.NS_ALL;
 
         VROutput output               = new VROutput();
         output.totalCount             = String.valueOf(summary.total);
@@ -125,23 +125,45 @@ public without sharing class ValidationRuleAgentAction {
 
     private static String assembleSummaryHeader(MetadataEngine.ValidationRuleSummary s,
                                                String nsDisplay, String filteredCount) {
+        // Build combined ALL rules list (active first, then inactive)
+        String allRulesList = '';
+        Integer idx = 1;
+        if (s.activeRules != null) {
+            for (MetadataEngine.ValidationRuleInfo info : s.activeRules) {
+                allRulesList += idx++ + '. ' + info.objectName + '.' + info.name +
+                    (String.isNotBlank(info.namespacePrefix) ? ' [' + info.namespacePrefix + ']' : '') +
+                    ' [ACTIVE]\n';
+            }
+        }
+        if (s.inactiveRules != null) {
+            for (MetadataEngine.ValidationRuleInfo info : s.inactiveRules) {
+                allRulesList += idx++ + '. ' + info.objectName + '.' + info.name +
+                    (String.isNotBlank(info.namespacePrefix) ? ' [' + info.namespacePrefix + ']' : '') +
+                    ' [INACTIVE]\n';
+            }
+        }
+        if (String.isBlank(allRulesList)) {
+            allRulesList = MetadataConstants.NONE;
+        }
+
         return 'This org has ' + s.total + ' Validation Rules in total. ' +
                s.active + ' are active and ' +
                s.inactive + ' are inactive.\n\n' +
                'Namespace Filter: ' + nsDisplay + '\n' +
-               'Matching Rules: ' + filteredCount + '\n\n';
+               'Matching Rules: ' + filteredCount + '\n\n' +
+               '--- ALL VALIDATION RULES (' + s.total + ') ---\n' + allRulesList + '\n';
     }
 
     private static String assembleSummaryBody(MetadataEngine.ValidationRuleSummary s,
                                               String activeList, String inactiveList) {
-        return '--- ACTIVE VALIDATION RULES (' + s.active + ') ---\n' + activeList + '\n' +
-               '--- INACTIVE VALIDATION RULES (' + s.inactive + ') — Safe to review ---\n' + inactiveList + '\n';
+        return MetadataConstants.SEC_ACTIVE_VR + ' (' + s.active + ') ---\n' + activeList + '\n' +
+               MetadataConstants.SEC_INACTIVE_VR + ' (' + s.inactive + MetadataConstants.SEC_HINT_SAFE_REVIEW + inactiveList + '\n';
     }
 
     private static String buildFilteredSection(String namespaceFilter, String filteredCount, String filteredList) {
         if (!String.isNotBlank(namespaceFilter)) {
             return '';
         }
-        return '--- FILTERED BY NAMESPACE: ' + namespaceFilter + ' (' + filteredCount + ') ---\n' + filteredList;
+        return MetadataConstants.SEC_FILTERED_NS + namespaceFilter + ' (' + filteredCount + ') ---\n' + filteredList;
     }
 }

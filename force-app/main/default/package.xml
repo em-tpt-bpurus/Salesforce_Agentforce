@@ -22,6 +22,8 @@
         <members>DeleteValidationRuleAction</members>
         <members>DeletePermissionSetAction</members>
         <members>DeactivateProfileAction</members>
+        <members>MetadataConstants</members>
+        <members>OrgCleanupAgentAction</members>
         <name>ApexClass</name>
     </types>
     <types>

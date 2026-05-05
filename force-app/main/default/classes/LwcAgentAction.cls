@@ -56,14 +56,14 @@ public without sharing class LwcAgentAction {
 
         String allList = '';
         if (summary.allComponents == null || summary.allComponents.isEmpty()) {
-            allList = 'None';
+            allList = MetadataConstants.NONE;
         } else {
             for (Integer i = 0; i < summary.allComponents.size(); i++) {
                 MetadataEngine.LwcComponentInfo info = summary.allComponents[i];
                 allList += (i + 1) + '. ' + info.name +
                            (String.isNotBlank(info.namespacePrefix) ? ' [' + info.namespacePrefix + ']' : '') +
-                           ' | API: ' + (String.isNotBlank(info.apiVersion) ? info.apiVersion : 'N/A') +
-                           ' | Modified: ' + (String.isNotBlank(info.lastModifiedDate) ? info.lastModifiedDate : 'N/A') + '\n';
+                           MetadataConstants.COL_API + (String.isNotBlank(info.apiVersion) ? info.apiVersion : MetadataConstants.NA) +
+                           MetadataConstants.COL_MODIFIED + (String.isNotBlank(info.lastModifiedDate) ? info.lastModifiedDate : MetadataConstants.NA) + '\n';
             }
         }
 
@@ -71,18 +71,18 @@ public without sharing class LwcAgentAction {
         if (summary.filteredComponents == null || summary.filteredComponents.isEmpty()) {
             filteredList = String.isNotBlank(namespaceFilter)
                 ? 'No LWC components found with namespace: ' + namespaceFilter
-                : 'None';
+                : MetadataConstants.NONE;
         } else {
             for (Integer i = 0; i < summary.filteredComponents.size(); i++) {
                 MetadataEngine.LwcComponentInfo info = summary.filteredComponents[i];
                 filteredList += (i + 1) + '. ' + info.name +
                                 (String.isNotBlank(info.namespacePrefix) ? ' [' + info.namespacePrefix + ']' : '') +
-                                ' | API: ' + (String.isNotBlank(info.apiVersion) ? info.apiVersion : 'N/A') +
-                                ' | Modified: ' + (String.isNotBlank(info.lastModifiedDate) ? info.lastModifiedDate : 'N/A') + '\n';
+                                MetadataConstants.COL_API + (String.isNotBlank(info.apiVersion) ? info.apiVersion : MetadataConstants.NA) +
+                                MetadataConstants.COL_MODIFIED + (String.isNotBlank(info.lastModifiedDate) ? info.lastModifiedDate : MetadataConstants.NA) + '\n';
             }
         }
 
-        String nsDisplay = String.isNotBlank(namespaceFilter) ? namespaceFilter : 'None (showing all)';
+        String nsDisplay = String.isNotBlank(namespaceFilter) ? namespaceFilter : MetadataConstants.NS_ALL;
 
         LwcOutput output              = new LwcOutput();
         output.totalCount             = String.valueOf(summary.total);
@@ -99,9 +99,9 @@ public without sharing class LwcAgentAction {
             summary.withoutNamespace + ' do not.\n\n' +
             'Namespace Filter: ' + nsDisplay + '\n' +
             'Matching Components: ' + output.filteredCount + '\n\n' +
-            '--- ALL LWC COMPONENTS (' + summary.total + ') ---\n' + allList + '\n' +
+            MetadataConstants.SEC_ALL_COMPONENTS + ' LWC COMPONENTS (' + summary.total + ') ---\n' + allList + '\n' +
             (String.isNotBlank(namespaceFilter)
-                ? '--- FILTERED BY NAMESPACE: ' + namespaceFilter + ' (' + output.filteredCount + ') ---\n' + filteredList
+                ? MetadataConstants.SEC_FILTERED_NS + namespaceFilter + ' (' + output.filteredCount + ') ---\n' + filteredList
                 : '');
 
         output.allLwcObjects = summary.allComponents;

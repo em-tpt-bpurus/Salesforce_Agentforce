@@ -24,32 +24,109 @@ import deletePermSet            from '@salesforce/apex/DeletePermissionSetAction
 import deactivateProfile        from '@salesforce/apex/DeactivateProfileAction.deactivateProfileFromLWC';
 import deleteValidationRule     from '@salesforce/apex/DeleteValidationRuleAction.deleteVRFromLWC';
 
+// ─────────────────────────────────────────────────────────────
+// CONSTANTS — single source of truth for all magic strings
+// ─────────────────────────────────────────────────────────────
+
+/** Dashboard tab identifiers */
+const TAB = {
+    FLOWS    : 'flows',
+    APEX     : 'apex',
+    TRIGGERS : 'triggers',
+    LWC      : 'lwc',
+    AURA     : 'aura',
+    PROFILES : 'profiles',
+    PERMSETS : 'permsets',
+    FIELDS   : 'fields',
+    OBJECTS  : 'objects',
+    VR       : 'vr'
+};
+
+/** Stat-card filter keys */
+const FILTER = {
+    ALL      : 'all',
+    TOTAL    : 'total',
+    ACTIVE   : 'active',
+    INACTIVE : 'inactive',
+    USED     : 'used',
+    UNUSED   : 'unused',
+    STANDARD : 'standard',
+    TEST     : 'test',
+    WITH_NS  : 'withNs',
+    NO_NS    : 'noNs'
+};
+
+/** Export format keys */
+const FORMAT = {
+    CSV  : 'csv',
+    JSON : 'json',
+    TXT  : 'txt'
+};
+
+/** Metadata type keys used in delete/intent routing */
+const META_TYPE = {
+    APEX    : 'apex',
+    FLOW    : 'flow',
+    TRIGGER : 'trigger',
+    LWC     : 'lwc',
+    AURA    : 'aura',
+    FIELD   : 'field',
+    OBJECT  : 'object',
+    PERMSET : 'permset',
+    PROFILE : 'profile',
+    VR      : 'vr'
+};
+
+/** Agent panel display strings */
+const AGENT = {
+    HEADER_NAME   : 'Org Cleanup Agent',
+    HEADER_STATUS : 'Online',
+    MODE_NAME     : 'Rule-Based (Custom)',
+    WELCOME_MSG   : 'Hi! I can help you audit and clean your Salesforce org. ' +
+                    'Ask me about flows, Apex classes, triggers, profiles, and more — ' +
+                    'or ask me to delete specific unused components.'
+};
+
+/** Confirmation keywords the user can type */
+const CONFIRM_YES = new Set(['yes', 'confirm', 'delete', 'yes, delete it']);
+const CONFIRM_NO  = new Set(['no', 'cancel']);
+
+/** Timing (ms) */
+const TIMING = {
+    SCROLL_DELAY         : 50,
+    TOAST_DISMISS        : 4500,
+    NS_DEBOUNCE          : 300   // debounce delay for client-side namespace filter
+};
+
+// ─────────────────────────────────────────────────────────────
+
 let _msgIdCounter = 0;
 function nextId() { return 'msg_' + (++_msgIdCounter); }
 
 export default class MetadataDashboard extends LightningElement {
 
     // ── Dashboard state (unchanged) ─────────────────────────
-    @track activeTab = 'flows';
-    @track activeCardFilter = 'all'; // 'all' | 'total' | 'standard' | 'used' | 'unused' | 'test' | 'active' | 'inactive'
+    @track activeTab = TAB.FLOWS;
+    @track activeCardFilter = FILTER.ALL; // 'all' | 'total' | 'standard' | 'used' | 'unused' | 'test' | 'active' | 'inactive'
     // Section visibility getters — read directly from @track activeCardFilter.
     // 'all' and 'total' both show every section — Total is a summary card, not a filter.
     // Each specific filter (active/inactive/used/unused/etc.) shows only its own section.
-    get showAllSections()       { return this.activeCardFilter === 'all' || this.activeCardFilter === 'total'; }
-    get showTotalSection()      { return this.activeCardFilter === 'all' || this.activeCardFilter === 'total'; }
-    get showStandardSection()   { return this.activeCardFilter === 'all' || this.activeCardFilter === 'total' || this.activeCardFilter === 'standard'; }
-    get showUsedSection()       { return this.activeCardFilter === 'all' || this.activeCardFilter === 'total' || this.activeCardFilter === 'used';     }
-    get showUnusedSection()     { return this.activeCardFilter === 'all' || this.activeCardFilter === 'total' || this.activeCardFilter === 'unused';   }
-    get showTestSection()       { return this.activeCardFilter === 'all' || this.activeCardFilter === 'total' || this.activeCardFilter === 'test';     }
-    get showActiveSection()     { return this.activeCardFilter === 'all' || this.activeCardFilter === 'total' || this.activeCardFilter === 'active';   }
-    get showInactiveSection()   { return this.activeCardFilter === 'all' || this.activeCardFilter === 'total' || this.activeCardFilter === 'inactive'; }
-    get showAssignedSection()   { return this.activeCardFilter === 'all' || this.activeCardFilter === 'total' || this.activeCardFilter === 'used';     }
-    get showUnassignedSection() { return this.activeCardFilter === 'all' || this.activeCardFilter === 'total' || this.activeCardFilter === 'unused';   }
-    get showWithNsSection()     { return this.activeCardFilter === 'all' || this.activeCardFilter === 'total' || this.activeCardFilter === 'withNs';   }
-    get showNoNsSection()       { return this.activeCardFilter === 'all' || this.activeCardFilter === 'total' || this.activeCardFilter === 'noNs';     }
+    get showAllSections()       { return this.activeCardFilter === FILTER.ALL || this.activeCardFilter === FILTER.TOTAL; }
+    get showTotalSection()      { return this.activeCardFilter === FILTER.ALL || this.activeCardFilter === FILTER.TOTAL; }
+    get showStandardSection()   { return this.activeCardFilter === FILTER.ALL || this.activeCardFilter === FILTER.TOTAL || this.activeCardFilter === FILTER.STANDARD; }
+    get showUsedSection()       { return this.activeCardFilter === FILTER.ALL || this.activeCardFilter === FILTER.TOTAL || this.activeCardFilter === FILTER.USED;     }
+    get showUnusedSection()     { return this.activeCardFilter === FILTER.ALL || this.activeCardFilter === FILTER.TOTAL || this.activeCardFilter === FILTER.UNUSED;   }
+    get showTestSection()       { return this.activeCardFilter === FILTER.ALL || this.activeCardFilter === FILTER.TOTAL || this.activeCardFilter === FILTER.TEST;     }
+    get showActiveSection()     { return this.activeCardFilter === FILTER.ALL || this.activeCardFilter === FILTER.TOTAL || this.activeCardFilter === FILTER.ACTIVE;   }
+    get showInactiveSection()   { return this.activeCardFilter === FILTER.ALL || this.activeCardFilter === FILTER.TOTAL || this.activeCardFilter === FILTER.INACTIVE; }
+    get showAssignedSection()   { return this.activeCardFilter === FILTER.ALL || this.activeCardFilter === FILTER.TOTAL || this.activeCardFilter === FILTER.USED;     }
+    get showUnassignedSection() { return this.activeCardFilter === FILTER.ALL || this.activeCardFilter === FILTER.TOTAL || this.activeCardFilter === FILTER.UNUSED;   }
+    get showWithNsSection()     { return this.activeCardFilter === FILTER.ALL || this.activeCardFilter === FILTER.TOTAL || this.activeCardFilter === FILTER.WITH_NS;   }
+    get showNoNsSection()       { return this.activeCardFilter === FILTER.ALL || this.activeCardFilter === FILTER.TOTAL || this.activeCardFilter === FILTER.NO_NS;     }
     @track isLoading    = false;
     @track exportModalOpen   = false;
-    @track exportFormat      = 'csv'; // 'csv' | 'json' | 'txt'
+    @track exportFormat      = FORMAT.CSV; // 'csv' | 'json' | 'txt'
+    @track _exportTabLabel   = '';
     @track _toastMessage     = '';
     @track _toastLink        = '';  // optional URL shown in toast
     @track _exportFormatKey  = 0; // force getter re-evaluation on format change
@@ -57,6 +134,8 @@ export default class MetadataDashboard extends LightningElement {
     @track hasError     = false;
     @track errorMessage = '';
     @track namespaceInput = '';
+    @track nsFilterInput  = '';   // client-side filter — updates after debounce
+    _nsDebounceTimer      = null; // debounce timer handle
 
     @track flowSummary    = { totalCount: '—', activeCount: '—', inactiveCount: '—', activeFlows: '', inactiveFlows: '',
                                filteredCount: '—', namespaceFilterApplied: '—',
@@ -74,9 +153,11 @@ export default class MetadataDashboard extends LightningElement {
                                filteredCount: '—', namespaceFilterApplied: '—',
                                allComponents: '', filteredComponents: '' };
     @track profileSummary   = { totalCount: '—', usedCount: '—', unusedCount: '—',
-                                 usedProfiles: '', unusedProfiles: '' };
+                                 usedProfiles: '', unusedProfiles: '',
+                                 filteredCount: '—', namespaceFilterApplied: '—', filteredProfiles: '' };
     @track permSetSummary   = { totalCount: '—', usedCount: '—', unusedCount: '—',
-                                 usedPermSets: '', unusedPermSets: '' };
+                                 usedPermSets: '', unusedPermSets: '',
+                                 filteredCount: '—', namespaceFilterApplied: '—', filteredPermSets: '' };
     @track fieldSummary     = { totalCount: '—', withNamespaceCount: '—', withoutNamespaceCount: '—',
                                  filteredCount: '—', namespaceFilterApplied: '—',
                                  allFields: '', filteredFields: '' };
@@ -108,6 +189,7 @@ export default class MetadataDashboard extends LightningElement {
 
     // Pending delete confirmation: { type, name }
     _pendingDelete = null;
+    _pendingTypeSelect = null; // { name, matches: [{type, label}] } — waiting for user to pick a type
 
     connectedCallback() {
         this._loadFlows();
@@ -123,18 +205,18 @@ export default class MetadataDashboard extends LightningElement {
     _handleOutsideClick(event) {
     }
 
-    get agentHeaderName()    { return 'Org Cleanup Agent'; }
-    get agentHeaderStatus()  { return 'Online'; }
-    get agentModeName()      { return 'Rule-Based (Custom)'; }
+    get agentHeaderName()    { return AGENT.HEADER_NAME; }
+    get agentHeaderStatus()  { return AGENT.HEADER_STATUS; }
+    get agentModeName()      { return AGENT.MODE_NAME; }
 
     // ────────────────────────────────────────────────────────
     // AGENT WELCOME
     // ────────────────────────────────────────────────────────
     _agentWelcome() {
         this._addAgentMsg(
-            'Hi! I can help you audit and clean your Salesforce org. ' +
-            'Ask me about flows, Apex classes, triggers, profiles, and more — ' +
-            'or ask me to delete specific unused components.',
+            
+            
+            AGENT.WELCOME_MSG,
             false, false
         );
     }
@@ -193,7 +275,7 @@ export default class MetadataDashboard extends LightningElement {
         setTimeout(() => {
             const container = this.template.querySelector('.agent-messages');
             if (container) container.scrollTop = container.scrollHeight;
-        }, 50);
+        }, TIMING.SCROLL_DELAY);
     }
 
     // ────────────────────────────────────────────────────────
@@ -248,16 +330,57 @@ export default class MetadataDashboard extends LightningElement {
         this.agentIsProcessing = true;
         const typingId = this._addTypingIndicator();
 
+        // ── Check if waiting for type clarification ──────────
+        if (this._pendingTypeSelect) {
+            const lower = query.toLowerCase().trim();
+            if (CONFIRM_NO.has(lower)) {
+                this._pendingTypeSelect = null;
+                this._removeMessage(typingId);
+                this.agentIsProcessing = false;
+                this._addAgentMsg('Deletion cancelled. Let me know if you need anything else.');
+                return;
+            }
+            const { name, matches, replies } = this._pendingTypeSelect;
+            // Match by reply keyword (e.g. "field1", "aura") or label
+            let picked = null;
+            if (replies) {
+                const idx = replies.indexOf(lower);
+                if (idx !== -1) picked = matches[idx];
+            }
+            if (!picked) {
+                picked = matches.find(m =>
+                    lower === m.type ||
+                    lower === m.label.toLowerCase() ||
+                    m.label.toLowerCase().includes(lower)
+                );
+            }
+            if (picked) {
+                this._pendingTypeSelect = null;
+                this._removeMessage(typingId);
+                this.agentIsProcessing = false;
+                // Use apiName override for fields (Object.FieldName format)
+                const resolvedName = picked.apiName || name;
+                this._handleDeleteIntent({ action: 'delete', type: picked.type, name: resolvedName });
+                return;
+            } else {
+                this._removeMessage(typingId);
+                this.agentIsProcessing = false;
+                const options = matches.map((m, i) => `• ${m.label} → reply "${replies ? replies[i] : m.type}"`).join('\n');
+                this._addAgentMsg(`Sorry, I didn't understand. Please reply with the type to delete:\n${options}\n\nOr reply "no" to cancel.`);
+                return;
+            }
+        }
+
         // ── Check if this is a delete confirmation ───────────
         if (this._pendingDelete) {
             const lower = query.toLowerCase();
-            if (lower === 'yes' || lower === 'confirm' || lower === 'delete' || lower === 'yes, delete it') {
+            if (CONFIRM_YES.has(lower)) {
                 const { type, name } = this._pendingDelete;
                 this._pendingDelete = null;
                 this._removeMessage(typingId);
                 this._executeDelete(type, name);
                 return;
-            } else if (lower === 'no' || lower === 'cancel') {
+            } else if (CONFIRM_NO.has(lower)) {
                 this._pendingDelete = null;
                 this._removeMessage(typingId);
                 this.agentIsProcessing = false;
@@ -306,52 +429,66 @@ export default class MetadataDashboard extends LightningElement {
         const deleteMatch = lower.match(/^delete\s+/i);
         if (deleteMatch) {
             // Detect type from keywords
-            let type = 'apex'; // default
-            if      (lower.includes('custom field') || lower.includes('field '))   type = 'field';
-            else if (lower.includes('custom object') || lower.includes('object ')) type = 'object';
-            else if (lower.includes('validation rule') || lower.includes('val rule')) type = 'vr';
-            else if (lower.includes('permission sets') || lower.includes('permission set') || lower.includes('permsets') || lower.includes('permset') || lower.includes('perm sets') || lower.includes('perm set')) type = 'permset';
-            else if (lower.includes('profile'))                                    type = 'profile';
-            else if (lower.includes('flow'))                                       type = 'flow';
-            else if (lower.includes('trigger'))                                    type = 'trigger';
-            else if (lower.includes('lwc') || lower.includes('lightning web'))     type = 'lwc';
-            else if (lower.includes('aura'))                                       type = 'aura';
-            else if (lower.includes('apex'))                                       type = 'apex';
+            let type = META_TYPE.APEX; // default
+            if      (lower.includes('custom field') || lower.includes('field '))              type = META_TYPE.FIELD;
+            else if (lower.includes('custom object') || /\bobject\b/.test(lower))             type = META_TYPE.OBJECT;
+            else if (lower.includes('validation rule') || lower.includes('val rule'))         type = META_TYPE.VR;
+            else if (lower.includes('permission sets') || lower.includes('permission set') || lower.includes('permsets') || lower.includes('permset') || lower.includes('perm sets') || lower.includes('perm set')) type = META_TYPE.PERMSET;
+            else if (lower.includes('profile'))                                    type = META_TYPE.PROFILE;
+            else if (lower.includes('flow'))                                       type = META_TYPE.FLOW;
+            else if (lower.includes('trigger'))                                    type = META_TYPE.TRIGGER;
+            else if (lower.includes('lwc') || lower.includes('lightning web'))     type = META_TYPE.LWC;
+            else if (lower.includes('aura'))                                       type = META_TYPE.AURA;
+            else if (lower.includes('apex'))                                       type = META_TYPE.APEX;
             else {
-                // No explicit type keyword — try to infer from name format
-                // ObjectName.FieldName format → field
+                // No explicit type keyword — check dot notation for field, otherwise mark ambiguous
                 const dotNameMatch = query.match(/delete\s+([A-Za-z0-9_]+\.[A-Za-z0-9_]+)/i);
-                if (dotNameMatch) type = 'field';
+                if (dotNameMatch) type = META_TYPE.FIELD;
+                else type = null; // ambiguous — will be resolved in _handleDeleteIntent
             }
 
-            // Extract name — skip type keyword, supports dotted names like Account.EM_Kishore
+            // Extract name — skip type keyword, supports dotted names and __c suffix
             // Order matters: longer phrases first
             const nameMatch = query.match(
-                /delete\s+(?:custom\s+field|custom\s+object|validation\s+rule|val\s+rule|permission\s+sets|permission\s+set|perm\s+sets|perm\s+set|permsets|permset|apex\s+class|lightning\s+web\s+component|apex|flow|trigger|lwc|aura|field|object|profile|vr)?\s*([A-Za-z0-9_.]+)/i
+                /delete\s+(?:custom\s+field|custom\s+object|validation\s+rule|val\s+rule|permission\s+sets|permission\s+set|perm\s+sets|perm\s+set|permsets|permset|apex\s+class|lightning\s+web\s+component|apex|flow|trigger|lwc|aura|field|object|profile|vr)?\s*([A-Za-z0-9_.\s]+?)(?:\s*$)/i
             );
-            const name = nameMatch ? nameMatch[1].trim() : null;
+            const name = nameMatch ? nameMatch[1].trim().replace(/\s+/g, '_') : null;
+
+            // Auto-detect object type from __c suffix if no explicit type keyword
+            if (type === null && name && name.toLowerCase().endsWith('__c')) {
+                type = META_TYPE.OBJECT;
+            }
+
             return { action: 'delete', type, name };
         }
 
         // ── Multi-tab detection — collect ALL matching tabs ───────────
         const tabs = [];
 
-        if (lower.includes('flow'))                                                         tabs.push('flows');
-        if (lower.includes('apex') || lower.includes('class'))                              tabs.push('apex');
-        if (lower.includes('trigger'))                                                      tabs.push('triggers');
+        if (lower.includes('flow'))                                                         tabs.push(TAB.FLOWS);
+        // Trigger keywords → triggers only
+        if (lower.includes('trigger'))                                                      tabs.push(TAB.TRIGGERS);
+        // 'apex class' or 'class' explicitly → classes only
+        if ((lower.includes('apex') && lower.includes('class')) || 
+            (lower.includes('class') && !lower.includes('trigger')))                        tabs.push(TAB.APEX);
+        // 'apex' alone (no 'class', no 'trigger') → show BOTH apex classes + triggers
+        if (lower.includes('apex') && !lower.includes('class') && !lower.includes('trigger')) {
+            tabs.push(TAB.APEX);
+            tabs.push(TAB.TRIGGERS);
+        }
         if (lower.includes('lwc') || lower.includes('lightning web') ||
-            lower.includes('lightning component'))                                          tabs.push('lwc');
-        if (lower.includes('aura'))                                                         tabs.push('aura');
-        if (lower.includes('profile'))                                                      tabs.push('profiles');
+            lower.includes('lightning component'))                                          tabs.push(TAB.LWC);
+        if (lower.includes('aura'))                                                         tabs.push(TAB.AURA);
+        if (lower.includes('profile'))                                                      tabs.push(TAB.PROFILES);
         if (lower.includes('permission sets') || lower.includes('permission set') ||
             lower.includes('perm sets') || lower.includes('perm set') ||
             lower.includes('permsets') || lower.includes('permset') ||
-            lower.includes('permission'))                                                   tabs.push('permsets');
-        if (lower.includes('field'))                                                        tabs.push('fields');
+            lower.includes('permission'))                                                   tabs.push(TAB.PERMSETS);
+        if (lower.includes('field'))                                                        tabs.push(TAB.FIELDS);
         if (lower.includes('object') || lower.includes('sobject') ||
-            lower.includes('custom object'))                                                tabs.push('objects');
+            lower.includes('custom object'))                                                tabs.push(TAB.OBJECTS);
         if (lower.includes('validation') || lower.includes('val rule') ||
-            lower.includes('validation rule') || lower.includes('rules'))                   tabs.push('vr');
+            lower.includes('validation rule') || lower.includes('rules'))                   tabs.push(TAB.VR);
 
         if (tabs.length > 0) {
             return { action: 'query', tab: tabs[0], tabs };
@@ -363,15 +500,81 @@ export default class MetadataDashboard extends LightningElement {
     // ── Delete intent: show confirmation message ──────────────
     _handleDeleteIntent(intent) {
         if (!intent.name) {
-            this._addAgentMsg('Please specify the name of the component to delete.\nExamples:\n• "delete apex class LeadScoringBatch"\n• "delete flow MyFlow"\n• "delete field Account.EM_Kishore"\n• "delete vr Account.MyRule"\n• "delete object MyObject__c"');
+            this._addAgentMsg('Please specify the name of the component to delete.\nExamples:\n• "delete apex class LeadScoringBatch"\n• "delete flow MyFlow"\n• "delete aura BSR"\n• "delete field Account.EM_Kishore"\n• "delete vr Account.MyRule"\n• "delete object MyObject__c"');
             return;
         }
         // For field/vr without dot, prompt for correct format before confirming
-        if ((intent.type === 'field' || intent.type === 'vr') && !intent.name.includes('.')) {
-            const ex = intent.type === 'field' ? 'Account.EM_Kishore' : 'Account.MyRule';
+        if ((intent.type === META_TYPE.FIELD || intent.type === META_TYPE.VR) && !intent.name.includes('.')) {
+            const ex = intent.type === META_TYPE.FIELD ? 'Account.EM_Kishore' : 'Account.MyRule';
             this._addAgentMsg(`Please include the object name.\nFormat: "delete ${intent.type} ObjectName.ComponentName"\nExample: "delete ${intent.type} ${ex}"`);
             return;
         }
+
+        // ── No explicit type — search all loaded data ─────────
+        if (!intent.type) {
+            const n = intent.name.toLowerCase();
+            const matches = [];
+            const check = (list, type, label) => {
+                if (list && list.some(item => item.name && item.name.toLowerCase() === n)) {
+                    if (!matches.find(m => m.type === type)) matches.push({ type, label });
+                }
+            };
+            // Fields: item.name is label only (e.g. "EM_Mayank"), but delete needs full "Object.Field"
+            // So search by label, but store all matching api names for clarification
+            const checkFields = (list) => {
+                if (!list) return;
+                const hits = list.filter(item => {
+                    const parts = item.name.split('.');
+                    const fieldLabel = (parts[1] || parts[0]).replace(/__c$/i, '').toLowerCase();
+                    return fieldLabel === n || item.name.toLowerCase() === n;
+                });
+                hits.forEach(item => {
+                    if (!matches.find(m => m.type === META_TYPE.FIELD && m.apiName === item.name)) {
+                        matches.push({ type: META_TYPE.FIELD, label: `Custom Field (${item.name})`, apiName: item.name });
+                    }
+                });
+            };
+            check([...(this.activeFlowList || []), ...(this.inactiveFlowList || [])],     META_TYPE.FLOW,    'Flow');
+            check([...(this.unusedClassList || []), ...(this.usedClassList || []), ...(this.testClassList || []), ...(this.standardClassList || [])], META_TYPE.APEX, 'Apex Class');
+            check([...(this.activeTriggerList || []), ...(this.inactiveTriggerList || []), ...(this.unusedTriggerList || [])], META_TYPE.TRIGGER, 'Trigger');
+            check(this.allLwcList,  META_TYPE.LWC,    'LWC Component');
+            check(this.allAuraList, META_TYPE.AURA,   'Aura Component');
+            check([...(this.unusedProfileList || []), ...(this.usedProfileList || [])],   META_TYPE.PROFILE, 'Profile');
+            check([...(this.unusedPermSetList || []), ...(this.usedPermSetList || [])],   META_TYPE.PERMSET, 'Permission Set');
+            check([...(this.activeVrList || []), ...(this.inactiveVrList || [])],         META_TYPE.VR,      'Validation Rule');
+            checkFields(this.allFieldList);
+            // Custom objects: item.name is "EM_Mayank__c" format
+            if (this.allObjectList) {
+                this.allObjectList.forEach(item => {
+                    const objName = (item.name || '').toLowerCase().replace(/__c$/i, '');
+                    if (objName === n || item.name.toLowerCase() === n || item.name.toLowerCase() === n + '__c') {
+                        if (!matches.find(m => m.type === META_TYPE.OBJECT)) {
+                            const apiName = item.name.endsWith('__c') ? item.name : item.name + '__c';
+                            matches.push({ type: META_TYPE.OBJECT, label: `Custom Object (${apiName})`, apiName });
+                        }
+                    }
+                });
+            }
+
+            if (matches.length === 0) {
+                // Nothing found in loaded data — default to Apex and let server decide
+                intent.type = META_TYPE.APEX;
+            } else if (matches.length === 1) {
+                // Exactly one match — proceed directly, use apiName override if present (fields)
+                intent.type = matches[0].type;
+                if (matches[0].apiName) intent.name = matches[0].apiName;
+            } else {
+                // Multiple matches — ask user to clarify
+                // For fields, show numbered options since same label can exist on multiple objects
+                this._pendingTypeSelect = { name: intent.name, matches };
+                const options = matches.map((m, i) => `• ${m.label} → reply "${m.apiName ? 'field' + (i+1) : m.type}"`).join('\n');
+                const replies = matches.map((m, i) => m.apiName ? `field${i+1}` : m.type);
+                this._pendingTypeSelect.replies = replies;
+                this._addAgentMsg(`Found "${intent.name}" in multiple types:\n${options}\n\nWhich one do you want to delete? (or reply "no" to cancel)`);
+                return;
+            }
+        }
+
         const typeLabels = {
             apex: 'Apex Class', flow: 'Flow', trigger: 'Trigger', lwc: 'LWC Component',
             aura: 'Aura Component', field: 'Custom Field', object: 'Custom Object',
@@ -393,17 +596,17 @@ export default class MetadataDashboard extends LightningElement {
 
         let deletePromise;
 
-        if (type === 'apex') {
+        if (type === META_TYPE.APEX) {
             deletePromise = deleteApexClass({ apexClassName: name });
-        } else if (type === 'flow') {
+        } else if (type === META_TYPE.FLOW) {
             deletePromise = deleteFlow({ flowApiName: name });
-        } else if (type === 'trigger') {
+        } else if (type === META_TYPE.TRIGGER) {
             deletePromise = deleteTrigger({ triggerName: name });
-        } else if (type === 'lwc') {
+        } else if (type === META_TYPE.LWC) {
             deletePromise = deleteLwc({ componentName: name });
-        } else if (type === 'aura') {
+        } else if (type === META_TYPE.AURA) {
             deletePromise = deleteAura({ componentName: name });
-        } else if (type === 'field') {
+        } else if (type === META_TYPE.FIELD) {
             // name format must be: ObjectName.FieldName
             const parts = name.split('.');
             if (parts.length < 2) {
@@ -415,13 +618,13 @@ export default class MetadataDashboard extends LightningElement {
             const objectName = parts[0];
             const fieldName  = parts[1];
             deletePromise = deleteCustomField({ objectName, fieldName });
-        } else if (type === 'object') {
+        } else if (type === META_TYPE.OBJECT) {
             deletePromise = deleteCustomObject({ objectName: name });
-        } else if (type === 'permset') {
+        } else if (type === META_TYPE.PERMSET) {
             deletePromise = deletePermSet({ permSetName: name });
-        } else if (type === 'profile') {
+        } else if (type === META_TYPE.PROFILE) {
             deletePromise = deactivateProfile({ profileName: name, fallbackProfileName: null });
-        } else if (type === 'vr') {
+        } else if (type === META_TYPE.VR) {
             // name format must be: ObjectName.RuleName
             const parts = name.split('.');
             if (parts.length < 2) {
@@ -464,16 +667,16 @@ export default class MetadataDashboard extends LightningElement {
 
     // ── Refresh dashboard after delete ───────────────────────
     _refreshAfterDelete(type) {
-        if (type === 'apex')    { this._apexLoaded     = false; if (this.activeTab === 'apex')     this._loadApex();     }
-        if (type === 'flow')    { this._flowsLoaded    = false; if (this.activeTab === 'flows')    this._loadFlows();    }
-        if (type === 'trigger') { this._triggersLoaded = false; if (this.activeTab === 'triggers') this._loadTriggers(); }
-        if (type === 'lwc')     { this._lwcLoaded      = false; if (this.activeTab === 'lwc')      this._loadLwc();      }
-        if (type === 'aura')    { this._auraLoaded     = false; if (this.activeTab === 'aura')     this._loadAura();     }
-        if (type === 'field')   { this._fieldsLoaded   = false; if (this.activeTab === 'fields')   this._loadFields();   }
-        if (type === 'object')  { this._objectsLoaded  = false; if (this.activeTab === 'objects')  this._loadObjects();  }
-        if (type === 'permset') { this._permSetsLoaded = false; if (this.activeTab === 'permsets') this._loadPermSets(); }
-        if (type === 'profile') { this._profilesLoaded = false; this._loadProfiles(); }
-        if (type === 'vr')      { this._vrLoaded       = false; if (this.activeTab === 'vr')       this._loadVr();       }
+        if (type === META_TYPE.APEX)    { this._apexLoaded     = false; if (this.activeTab === TAB.APEX)     this._loadApex();     }
+        if (type === META_TYPE.FLOW)    { this._flowsLoaded    = false; if (this.activeTab === TAB.FLOWS)    this._loadFlows();    }
+        if (type === META_TYPE.TRIGGER) { this._triggersLoaded = false; if (this.activeTab === TAB.TRIGGERS) this._loadTriggers(); }
+        if (type === META_TYPE.LWC)     { this._lwcLoaded      = false; if (this.activeTab === TAB.LWC)      this._loadLwc();      }
+        if (type === META_TYPE.AURA)    { this._auraLoaded     = false; if (this.activeTab === TAB.AURA)     this._loadAura();     }
+        if (type === META_TYPE.FIELD)   { this._fieldsLoaded   = false; if (this.activeTab === TAB.FIELDS)   this._loadFields();   }
+        if (type === META_TYPE.OBJECT)  { this._objectsLoaded  = false; if (this.activeTab === TAB.OBJECTS)  this._loadObjects();  }
+        if (type === META_TYPE.PERMSET) { this._permSetsLoaded = false; if (this.activeTab === TAB.PERMSETS) this._loadPermSets(); }
+        if (type === META_TYPE.PROFILE) { this._profilesLoaded = false; this._loadProfiles(); }
+        if (type === META_TYPE.VR)      { this._vrLoaded       = false; if (this.activeTab === TAB.VR)       this._loadVr();       }
     }
 
     // ── Navigate dashboard tab based on query intent ─────────
@@ -482,20 +685,20 @@ export default class MetadataDashboard extends LightningElement {
 
         // Switch dashboard to the first matched tab
         this.activeTab = intent.tabs[0];
-        this.activeCardFilter = 'all';
+        this.activeCardFilter = FILTER.ALL;
 
         // For each matched tab — only load data if not already loaded (Bug 1 fix)
         const loadIfNeeded = {
-            flows   : () => { if (!this._flowsLoaded)    this._loadFlows();    },
-            apex    : () => { if (!this._apexLoaded)     this._loadApex();     },
-            triggers: () => { if (!this._triggersLoaded) this._loadTriggers(); },
-            lwc     : () => { if (!this._lwcLoaded)      this._loadLwc();      },
-            aura    : () => { if (!this._auraLoaded)     this._loadAura();     },
-            profiles: () => { if (!this._profilesLoaded) this._loadProfiles(); },
-            permsets: () => { if (!this._permSetsLoaded) this._loadPermSets(); },
-            fields  : () => { if (!this._fieldsLoaded)   this._loadFields();   },
-            objects : () => { if (!this._objectsLoaded)  this._loadObjects();  },
-            vr      : () => { if (!this._vrLoaded)       this._loadVr();       },
+            [TAB.FLOWS]    : () => { if (!this._flowsLoaded)    this._loadFlows();    },
+            [TAB.APEX]     : () => { if (!this._apexLoaded)     this._loadApex();     },
+            [TAB.TRIGGERS] : () => { if (!this._triggersLoaded) this._loadTriggers(); },
+            [TAB.LWC]      : () => { if (!this._lwcLoaded)      this._loadLwc();      },
+            [TAB.AURA]     : () => { if (!this._auraLoaded)     this._loadAura();     },
+            [TAB.PROFILES] : () => { if (!this._profilesLoaded) this._loadProfiles(); },
+            [TAB.PERMSETS] : () => { if (!this._permSetsLoaded) this._loadPermSets(); },
+            [TAB.FIELDS]   : () => { if (!this._fieldsLoaded)   this._loadFields();   },
+            [TAB.OBJECTS]  : () => { if (!this._objectsLoaded)  this._loadObjects();  },
+            [TAB.VR]       : () => { if (!this._vrLoaded)       this._loadVr();       },
         };
 
         intent.tabs.forEach(tab => {
@@ -506,31 +709,31 @@ export default class MetadataDashboard extends LightningElement {
     // ────────────────────────────────────────────────────────
     // DASHBOARD TAB HELPERS (unchanged)
     // ────────────────────────────────────────────────────────
-    get showFlowsTab()     { return this.activeTab === 'flows';     }
-    get showApexTab()      { return this.activeTab === 'apex';      }
-    get showTriggersTab()  { return this.activeTab === 'triggers';  }
-    get showLwcTab()       { return this.activeTab === 'lwc';       }
-    get showAuraTab()      { return this.activeTab === 'aura';      }
-    get showProfilesTab()  { return this.activeTab === 'profiles';  }
-    get showPermSetsTab()  { return this.activeTab === 'permsets';  }
-    get showFieldsTab()    { return this.activeTab === 'fields';    }
-    get showObjectsTab()   { return this.activeTab === 'objects';   }
-    get showVrTab()        { return this.activeTab === 'vr';        }
+    get showFlowsTab()     { return this.activeTab === TAB.FLOWS;     }
+    get showApexTab()      { return this.activeTab === TAB.APEX;      }
+    get showTriggersTab()  { return this.activeTab === TAB.TRIGGERS;  }
+    get showLwcTab()       { return this.activeTab === TAB.LWC;       }
+    get showAuraTab()      { return this.activeTab === TAB.AURA;      }
+    get showProfilesTab()  { return this.activeTab === TAB.PROFILES;  }
+    get showPermSetsTab()  { return this.activeTab === TAB.PERMSETS;  }
+    get showFieldsTab()    { return this.activeTab === TAB.FIELDS;    }
+    get showObjectsTab()   { return this.activeTab === TAB.OBJECTS;   }
+    get showVrTab()        { return this.activeTab === TAB.VR;        }
 
     get showNamespaceFilter() {
-        return ['flows','apex','triggers','lwc','aura','fields','objects','vr'].includes(this.activeTab);
+        return [TAB.FLOWS, TAB.APEX, TAB.TRIGGERS, TAB.LWC, TAB.AURA, TAB.PROFILES, TAB.PERMSETS, TAB.FIELDS, TAB.OBJECTS, TAB.VR].includes(this.activeTab);
     }
 
-    get flowTabClass()    { return this._tabClass('flows');    }
-    get apexTabClass()    { return this._tabClass('apex');     }
-    get triggerTabClass() { return this._tabClass('triggers'); }
-    get lwcTabClass()     { return this._tabClass('lwc');      }
-    get auraTabClass()    { return this._tabClass('aura');     }
-    get profileTabClass() { return this._tabClass('profiles'); }
-    get permSetTabClass() { return this._tabClass('permsets'); }
-    get fieldTabClass()   { return this._tabClass('fields');   }
-    get objectTabClass()  { return this._tabClass('objects');  }
-    get vrTabClass()      { return this._tabClass('vr');       }
+    get flowTabClass()    { return this._tabClass(TAB.FLOWS);    }
+    get apexTabClass()    { return this._tabClass(TAB.APEX);     }
+    get triggerTabClass() { return this._tabClass(TAB.TRIGGERS); }
+    get lwcTabClass()     { return this._tabClass(TAB.LWC);      }
+    get auraTabClass()    { return this._tabClass(TAB.AURA);     }
+    get profileTabClass() { return this._tabClass(TAB.PROFILES); }
+    get permSetTabClass() { return this._tabClass(TAB.PERMSETS); }
+    get fieldTabClass()   { return this._tabClass(TAB.FIELDS);   }
+    get objectTabClass()  { return this._tabClass(TAB.OBJECTS);  }
+    get vrTabClass()      { return this._tabClass(TAB.VR);       }
 
     _tabClass(tab) {
         return `tab-btn${this.activeTab === tab ? ' tab-btn--active' : ''}`;
@@ -550,6 +753,33 @@ export default class MetadataDashboard extends LightningElement {
     get objectTotal()  { return this.objectSummary.totalCount  !== '—' ? this.objectSummary.totalCount  : ''; }
     get vrTotal()      { return this.vrSummary.totalCount      !== '—' ? this.vrSummary.totalCount      : ''; }
 
+    // ── Tab badge — shows "filtered/total" when ns filter active, else just total ──
+    get flowTabBadge()    { return this.nsFilterInput ? this.flowTotalDisplay    + '/' + this.flowTotal    : this.flowTotal;    }
+    get apexTabBadge()    { return this.nsFilterInput ? this.apexTotalDisplay    + '/' + this.apexTotal    : this.apexTotal;    }
+    get triggerTabBadge() { return this.nsFilterInput ? this.triggerTotalDisplay + '/' + this.triggerTotal : this.triggerTotal; }
+    get lwcTabBadge()     { return this.nsFilterInput ? this.lwcTotalDisplay     + '/' + this.lwcTotal     : this.lwcTotal;     }
+    get auraTabBadge()    { return this.nsFilterInput ? this.auraTotalDisplay    + '/' + this.auraTotal    : this.auraTotal;    }
+    get profileTabBadge() { return this.nsFilterInput ? this.profileTotalDisplay + '/' + this.profileTotal : this.profileTotal; }
+    get permSetTabBadge() { return this.nsFilterInput ? this.permSetTotalDisplay + '/' + this.permSetTotal : this.permSetTotal; }
+    get fieldTabBadge()   { return this.nsFilterInput ? this.fieldTotalDisplay   + '/' + this.fieldTotal   : this.fieldTotal;   }
+    get objectTabBadge()  { return this.nsFilterInput ? this.objectTotalDisplay  + '/' + this.objectTotal  : this.objectTotal;  }
+    get vrTabBadge()      { return this.nsFilterInput ? this.vrTotalDisplay      + '/' + this.vrTotal      : this.vrTotal;      }
+
+    // ── Tab badge CSS class — highlighted orange when filter active ──
+    get flowTabBadgeClass()    { return this.nsFilterInput ? 'tab-badge tab-badge--filtered' : 'tab-badge'; }
+    get apexTabBadgeClass()    { return this.nsFilterInput ? 'tab-badge tab-badge--filtered' : 'tab-badge'; }
+    get triggerTabBadgeClass() { return this.nsFilterInput ? 'tab-badge tab-badge--filtered' : 'tab-badge'; }
+    get lwcTabBadgeClass()     { return this.nsFilterInput ? 'tab-badge tab-badge--filtered' : 'tab-badge'; }
+    get auraTabBadgeClass()    { return this.nsFilterInput ? 'tab-badge tab-badge--filtered' : 'tab-badge'; }
+    get profileTabBadgeClass() { return this.nsFilterInput ? 'tab-badge tab-badge--filtered' : 'tab-badge'; }
+    get permSetTabBadgeClass() { return this.nsFilterInput ? 'tab-badge tab-badge--filtered' : 'tab-badge'; }
+    get fieldTabBadgeClass()   { return this.nsFilterInput ? 'tab-badge tab-badge--filtered' : 'tab-badge'; }
+    get objectTabBadgeClass()  { return this.nsFilterInput ? 'tab-badge tab-badge--filtered' : 'tab-badge'; }
+    get vrTabBadgeClass()      { return this.nsFilterInput ? 'tab-badge tab-badge--filtered' : 'tab-badge'; }
+
+    // ── Filter active bar label ───────────────────────────────
+    get nsActiveFilterLabel() { return '"' + this.namespaceInput.trim() + '"'; }
+
     // ────────────────────────────────────────────────────────
     // STAT CARD CLICK — filter the lists below
     // ────────────────────────────────────────────────────────
@@ -560,24 +790,24 @@ export default class MetadataDashboard extends LightningElement {
         if (!filter) return;
         // 'total' always resets to show everything (it's a summary, not a filter)
         // Any other filter: clicking it activates it, clicking again resets to 'all'
-        if (filter === 'total') {
-            this.activeCardFilter = 'all';
+        if (filter === FILTER.TOTAL) {
+            this.activeCardFilter = FILTER.ALL;
         } else {
-            this.activeCardFilter = (this.activeCardFilter === filter) ? 'all' : filter;
+            this.activeCardFilter = (this.activeCardFilter === filter) ? FILTER.ALL : filter;
         }
     }
 
     // CSS class helpers for active card highlighting
-    get cardClassTotal()    { return 'stat-card stat-total'    + (this.activeCardFilter === 'total'    ? ' stat-card--active' : '') + ' stat-card--clickable'; }
-    get cardClassStandard() { return 'stat-card'               + (this.activeCardFilter === 'standard' ? ' stat-card--active' : '') + ' stat-card--clickable'; }
-    get cardClassUsed()     { return 'stat-card stat-active'   + (this.activeCardFilter === 'used'     ? ' stat-card--active' : '') + ' stat-card--clickable'; }
-    get cardClassUnused()   { return 'stat-card stat-inactive' + (this.activeCardFilter === 'unused'   ? ' stat-card--active' : '') + ' stat-card--clickable'; }
-    get cardClassTest()     { return 'stat-card'               + (this.activeCardFilter === 'test'     ? ' stat-card--active' : '') + ' stat-card--clickable'; }
-    get cardClassActive()   { return 'stat-card stat-active'   + (this.activeCardFilter === 'active'   ? ' stat-card--active' : '') + ' stat-card--clickable'; }
-    get cardClassInactive() { return 'stat-card stat-inactive' + (this.activeCardFilter === 'inactive' ? ' stat-card--active' : '') + ' stat-card--clickable'; }
-    get cardClassFlowTotal(){ return 'stat-card stat-total'    + (this.activeCardFilter === 'total'    ? ' stat-card--active' : '') + ' stat-card--clickable'; }
-    get cardClassWithNs()   { return 'stat-card'               + (this.activeCardFilter === 'withNs'   ? ' stat-card--active' : '') + ' stat-card--clickable'; }
-    get cardClassNoNs()     { return 'stat-card'               + (this.activeCardFilter === 'noNs'     ? ' stat-card--active' : '') + ' stat-card--clickable'; }
+    get cardClassTotal()    { return 'stat-card stat-total'    + (this.activeCardFilter === FILTER.TOTAL    ? ' stat-card--active' : '') + ' stat-card--clickable'; }
+    get cardClassStandard() { return 'stat-card'               + (this.activeCardFilter === FILTER.STANDARD ? ' stat-card--active' : '') + ' stat-card--clickable'; }
+    get cardClassUsed()     { return 'stat-card stat-active'   + (this.activeCardFilter === FILTER.USED     ? ' stat-card--active' : '') + ' stat-card--clickable'; }
+    get cardClassUnused()   { return 'stat-card stat-inactive' + (this.activeCardFilter === FILTER.UNUSED   ? ' stat-card--active' : '') + ' stat-card--clickable'; }
+    get cardClassTest()     { return 'stat-card'               + (this.activeCardFilter === FILTER.TEST     ? ' stat-card--active' : '') + ' stat-card--clickable'; }
+    get cardClassActive()   { return 'stat-card stat-active'   + (this.activeCardFilter === FILTER.ACTIVE   ? ' stat-card--active' : '') + ' stat-card--clickable'; }
+    get cardClassInactive() { return 'stat-card stat-inactive' + (this.activeCardFilter === FILTER.INACTIVE ? ' stat-card--active' : '') + ' stat-card--clickable'; }
+    get cardClassFlowTotal(){ return 'stat-card stat-total'    + (this.activeCardFilter === FILTER.TOTAL    ? ' stat-card--active' : '') + ' stat-card--clickable'; }
+    get cardClassWithNs()   { return 'stat-card'               + (this.activeCardFilter === FILTER.WITH_NS   ? ' stat-card--active' : '') + ' stat-card--clickable'; }
+    get cardClassNoNs()     { return 'stat-card'               + (this.activeCardFilter === FILTER.NO_NS     ? ' stat-card--active' : '') + ' stat-card--clickable'; }
 
     // Namespace-based filtered lists for LWC / Aura / Fields / Objects
 
@@ -587,9 +817,37 @@ export default class MetadataDashboard extends LightningElement {
             return hasNs ? hasNamespace : !hasNamespace;
         });
     }
-    _filterWithNs(list)  { return list.filter(i => i.meta && i.meta.toLowerCase().includes('ns:')); }
-    _filterNoNs(list)    { return list.filter(i => !i.meta || !i.meta.toLowerCase().includes('ns:')); }
+    _hasNamespace(item)  {
+        // Checks both 'NS: xxx' in meta (trigger/apex format) and '[xxx]' in name (lwc/aura/field/object format)
+        return (item.meta && item.meta.toLowerCase().includes('ns:')) ||
+               (item.name && /\[[A-Za-z0-9_]+\]/.test(item.name));
+    }
+    _filterWithNs(list)  { return list.filter(i => this._hasNamespace(i)); }
+    _filterNoNs(list)    { return list.filter(i => !this._hasNamespace(i)); }
 
+    // ── Client-side filtered display lists ───────────────────
+    // Flows
+    get activeFlowDisplayList()    { return this._clientNsFilter(this.activeFlowList);    }
+    get inactiveFlowDisplayList()  { return this._clientNsFilter(this.inactiveFlowList);  }
+    // Apex
+    get standardClassDisplayList() { return this._clientNsFilter(this.standardClassList); }
+    get usedClassDisplayList()     { return this._clientNsFilter(this.usedClassList);     }
+    get unusedClassDisplayList()   { return this._clientNsFilter(this.unusedClassList);   }
+    get testClassDisplayList()     { return this._clientNsFilter(this.testClassList);     }
+    // Triggers
+    get usedTriggerDisplayList()     { return this._clientNsFilter(this.usedTriggerList);     }
+    get activeTriggerDisplayList()   { return this._clientNsFilter(this.activeTriggerList);   }
+    get inactiveTriggerDisplayList() { return this._clientNsFilter(this.inactiveTriggerList); }
+    get unusedTriggerDisplayList()   { return this._clientNsFilter(this.unusedTriggerList);   }
+    // Profiles
+    get usedProfileDisplayList()   { return this._clientNsFilter(this.usedProfileList);   }
+    get unusedProfileDisplayList() { return this._clientNsFilter(this.unusedProfileList); }
+    // PermSets
+    get usedPermSetDisplayList()   { return this._clientNsFilter(this.usedPermSetList);   }
+    get unusedPermSetDisplayList() { return this._clientNsFilter(this.unusedPermSetList); }
+    // VR
+    get activeVrDisplayList()      { return this._clientNsFilter(this.activeVrList);      }
+    get inactiveVrDisplayList()    { return this._clientNsFilter(this.inactiveVrList);    }
     get lwcWithNsList()     { return this._filterWithNs(this.allLwcList);    }
     get lwcNoNsList()       { return this._filterNoNs(this.allLwcList);      }
     get auraWithNsList()    { return this._filterWithNs(this.allAuraList);   }
@@ -601,44 +859,106 @@ export default class MetadataDashboard extends LightningElement {
 
     // Computed display lists based on active filter
     get lwcDisplayList()    {
-        if (this.activeCardFilter === 'withNs') return this.lwcWithNsList;
-        if (this.activeCardFilter === 'noNs')   return this.lwcNoNsList;
-        return this.allLwcList;
+        let list = this.allLwcList;
+        if (this.activeCardFilter === FILTER.WITH_NS) list = this.lwcWithNsList;
+        if (this.activeCardFilter === FILTER.NO_NS)   list = this.lwcNoNsList;
+        return this._clientNsFilter(list);
     }
     get auraDisplayList()   {
-        if (this.activeCardFilter === 'withNs') return this.auraWithNsList;
-        if (this.activeCardFilter === 'noNs')   return this.auraNoNsList;
-        return this.allAuraList;
+        let list = this.allAuraList;
+        if (this.activeCardFilter === FILTER.WITH_NS) list = this.auraWithNsList;
+        if (this.activeCardFilter === FILTER.NO_NS)   list = this.auraNoNsList;
+        return this._clientNsFilter(list);
     }
     get fieldDisplayList()  {
-        if (this.activeCardFilter === 'withNs') return this.fieldWithNsList;
-        if (this.activeCardFilter === 'noNs')   return this.fieldNoNsList;
-        return this.allFieldList;
+        let list = this.allFieldList;
+        if (this.activeCardFilter === FILTER.WITH_NS) list = this.fieldWithNsList;
+        if (this.activeCardFilter === FILTER.NO_NS)   list = this.fieldNoNsList;
+        return this._clientNsFilter(list);
     }
     get objectDisplayList() {
-        if (this.activeCardFilter === 'withNs') return this.objectWithNsList;
-        if (this.activeCardFilter === 'noNs')   return this.objectNoNsList;
-        return this.allObjectList;
+        let list = this.allObjectList;
+        if (this.activeCardFilter === FILTER.WITH_NS) list = this.objectWithNsList;
+        if (this.activeCardFilter === FILTER.NO_NS)   list = this.objectNoNsList;
+        return this._clientNsFilter(list);
     }
 
-    // Label for the filtered list header
+    // ────────────────────────────────────────────────────────
+    // CLIENT-SIDE NAMESPACE FILTER HELPER
+    // ────────────────────────────────────────────────────────
+    // Handles 3 name formats:
+    //   1. SimpleClass         → ApexClass, Trigger, LWC, Aura, Profile, PermSet
+    //   2. Object.FieldName    → CustomField, ValidationRule (check part after dot)
+    //   3. [NS] bracket in meta → namespace prefix tag from Apex output
+    // Applies same nextChar guard as MetadataEngine Apex logic
+    _clientNsFilter(list) {
+        const ns = this.nsFilterInput; // already lowercased
+        if (!ns) return list;
+        return list.filter(item => {
+            const rawName  = item.name  || '';
+            const rawMeta  = item.meta  || '';
+
+            // Check 1: [NS] bracket in meta OR name — e.g. "getStartedAgentforce [devedapp]"
+            if (rawMeta.toLowerCase().includes('[' + ns + ']')) return true;
+            if (rawName.toLowerCase().includes('[' + ns + ']')) return true;
+
+            // Helper: check if a single name token matches with nextChar guard
+            const matchesToken = (token) => {
+                const lower = token.toLowerCase();
+                if (!lower.startsWith(ns)) return false;
+                const nextIdx = ns.length;
+                if (nextIdx >= lower.length) return true; // exact match
+                const nextChar = token.substring(nextIdx, nextIdx + 1);
+                return nextChar === '_' || nextChar === nextChar.toUpperCase();
+            };
+
+            // Check 2: direct name match (Apex, LWC, Aura, Profile, PermSet, Trigger)
+            if (matchesToken(rawName)) return true;
+
+            // Check 3: ObjectName.ComponentName format (Field, VR)
+            // e.g. "Account.EM_Mayank__c" → check "EM_Mayank__c" part after dot
+            const dotIdx = rawName.indexOf('.');
+            if (dotIdx > -1) {
+                const afterDot = rawName.substring(dotIdx + 1);
+                if (matchesToken(afterDot)) return true;
+            }
+
+            return false;
+        });
+    }
+
     get nsFilterLabel() {
-        if (this.activeCardFilter === 'withNs') return 'With Namespace';
-        if (this.activeCardFilter === 'noNs')   return 'No Namespace';
+        if (this.nsFilterInput) return 'Namespace: ' + this.namespaceInput.trim();
         return 'All';
     }
 
     // Reset card filter when switching tabs
-    showFlows()    { this.activeTab = 'flows';    this.activeCardFilter = 'all'; if (!this._flowsLoaded)    this._loadFlows();    }
-    showApex()     { this.activeTab = 'apex';     this.activeCardFilter = 'all'; if (!this._apexLoaded)     this._loadApex();     }
-    showTriggers() { this.activeTab = 'triggers'; this.activeCardFilter = 'all'; if (!this._triggersLoaded) this._loadTriggers(); }
-    showLwc()      { this.activeTab = 'lwc';      this.activeCardFilter = 'all'; if (!this._lwcLoaded)      this._loadLwc();      }
-    showAura()     { this.activeTab = 'aura';     this.activeCardFilter = 'all'; if (!this._auraLoaded)     this._loadAura();     }
-    showProfiles() { this.activeTab = 'profiles'; this.activeCardFilter = 'all'; if (!this._profilesLoaded) this._loadProfiles(); }
-    showPermSets() { this.activeTab = 'permsets'; this.activeCardFilter = 'all'; if (!this._permSetsLoaded) this._loadPermSets(); }
-    showFields()   { this.activeTab = 'fields';   this.activeCardFilter = 'all'; if (!this._fieldsLoaded)   this._loadFields();   }
-    showObjects()  { this.activeTab = 'objects';  this.activeCardFilter = 'all'; if (!this._objectsLoaded)  this._loadObjects();  }
-    showVr()       { this.activeTab = 'vr';       this.activeCardFilter = 'all'; if (!this._vrLoaded)       this._loadVr();       }
+    _switchTab(tab, loadedFlag, loadFn) {
+        // Reset namespace input AND filter when switching tabs
+        if (this.activeTab !== tab) {
+            this.namespaceInput   = '';
+            this.nsFilterInput    = ''; // clear active filter too
+            this._lastDataResponse = null; // clear chat export — tab data takes over
+            if (this._nsDebounceTimer) {
+                clearTimeout(this._nsDebounceTimer);
+                this._nsDebounceTimer = null;
+            }
+        }
+        this.activeTab        = tab;
+        this.activeCardFilter = FILTER.ALL;
+        if (!loadedFlag) loadFn();
+    }
+
+    showFlows()    { this._switchTab(TAB.FLOWS,    this._flowsLoaded,    () => this._loadFlows());    }
+    showApex()     { this._switchTab(TAB.APEX,     this._apexLoaded,     () => this._loadApex());     }
+    showTriggers() { this._switchTab(TAB.TRIGGERS, this._triggersLoaded, () => this._loadTriggers()); }
+    showLwc()      { this._switchTab(TAB.LWC,      this._lwcLoaded,      () => this._loadLwc());      }
+    showAura()     { this._switchTab(TAB.AURA,     this._auraLoaded,     () => this._loadAura());     }
+    showProfiles() { this._switchTab(TAB.PROFILES, this._profilesLoaded, () => this._loadProfiles()); }
+    showPermSets() { this._switchTab(TAB.PERMSETS, this._permSetsLoaded, () => this._loadPermSets()); }
+    showFields()   { this._switchTab(TAB.FIELDS,   this._fieldsLoaded,   () => this._loadFields());   }
+    showObjects()  { this._switchTab(TAB.OBJECTS,  this._objectsLoaded,  () => this._loadObjects());  }
+    showVr()       { this._switchTab(TAB.VR,       this._vrLoaded,       () => this._loadVr());       }
 
     handleRefreshAll() {
         this._flowsLoaded = this._apexLoaded = this._triggersLoaded = false;
@@ -649,7 +969,17 @@ export default class MetadataDashboard extends LightningElement {
         this._dispatchCurrentTab();
     }
 
-    handleNamespaceInput(event) { this.namespaceInput = event.target.value; }
+    handleNamespaceInput(event) {
+        this.namespaceInput = event.target.value;
+        // Debounce — wait 300ms after user stops typing, then apply client-side filter
+        // eslint-disable-next-line @lwc/lwc/no-async-operation
+        if (this._nsDebounceTimer) clearTimeout(this._nsDebounceTimer);
+        // eslint-disable-next-line @lwc/lwc/no-async-operation
+        this._nsDebounceTimer = setTimeout(() => {
+            this.nsFilterInput    = this.namespaceInput.trim().toLowerCase();
+            this._nsDebounceTimer = null;
+        }, TIMING.NS_DEBOUNCE);
+    }
 
     // ── Export Modal — HTML-aligned handlers & getters ────────
 
@@ -657,29 +987,12 @@ export default class MetadataDashboard extends LightningElement {
     get showExportModal() { return this.exportModalOpen; }
 
     get exportTabLabel() {
-        const t = this._lastDataResponse || '';
-        if (/unused.*flow|inactive.*flow|flow.*unused|flow.*inactive/i.test(t)) return 'Unused Flows';
-        if (/\bflow/i.test(t))                                                  return 'Flows';
-        if (/unused.*apex|apex.*unused/i.test(t))                               return 'Unused Apex Classes';
-        if (/\bapex\b|apex.*class/i.test(t))                                   return 'Apex Classes';
-        if (/\btrigger/i.test(t))                                               return 'Triggers';
-        if (/\blwc\b|lightning.*web/i.test(t))                                 return 'LWC Components';
-        if (/\baura\b/i.test(t))                                               return 'Aura Components';
-        if (/\bprofile/i.test(t))                                               return 'Profiles';
-        if (/permission.*set|permset/i.test(t))                                 return 'Permission Sets';
-        if (/custom.*field/i.test(t))                                           return 'Custom Fields';
-        if (/custom.*object/i.test(t))                                          return 'Custom Objects';
-        if (/validation.*rule/i.test(t))                                        return 'Validation Rules';
-        if (t)                                                                  return 'Agent Response';
-        const labels = { flows:'Flows', apex:'Apex Classes', triggers:'Triggers', lwc:'LWC',
-                         aura:'Aura', profiles:'Profiles', permsets:'Perm Sets',
-                         fields:'Fields', objects:'Objects', vr:'Validation Rules' };
-        return labels[this.activeTab] || 'Metadata';
+        return this._exportTabLabel || 'Metadata';
     }
 
-    get exportCsvClass()  { return 'export-fmt-btn' + (this._exportFormatKey >= 0 && this.exportFormat === 'csv'  ? ' export-fmt-btn--active' : ''); }
-    get exportJsonClass() { return 'export-fmt-btn' + (this._exportFormatKey >= 0 && this.exportFormat === 'json' ? ' export-fmt-btn--active' : ''); }
-    get exportTxtClass()  { return 'export-fmt-btn' + (this._exportFormatKey >= 0 && this.exportFormat === 'txt'  ? ' export-fmt-btn--active' : ''); }
+    get exportCsvClass()  { return 'export-fmt-btn' + (this._exportFormatKey >= 0 && this.exportFormat === FORMAT.CSV  ? ' export-fmt-btn--active' : ''); }
+    get exportJsonClass() { return 'export-fmt-btn' + (this._exportFormatKey >= 0 && this.exportFormat === FORMAT.JSON ? ' export-fmt-btn--active' : ''); }
+    get exportTxtClass()  { return 'export-fmt-btn' + (this._exportFormatKey >= 0 && this.exportFormat === FORMAT.TXT  ? ' export-fmt-btn--active' : ''); }
 
     get exportSaveDisabled()  { return this.isSaving; }
     get exportSaveBtnLabel()  { return this.isSaving ? 'Saving…' : 'Save to Org Files'; }
@@ -691,20 +1004,56 @@ export default class MetadataDashboard extends LightningElement {
     _stopProp(event) { event.stopPropagation(); }
 
     // Open/close
-    openExportModal()   { this.exportModalOpen = true; this.exportFormat = 'csv'; }
+    openExportModal() {
+        const tabLabels = {
+            [TAB.FLOWS]:'Flows', [TAB.APEX]:'Apex Classes', [TAB.TRIGGERS]:'Triggers',
+            [TAB.LWC]:'LWC Components', [TAB.AURA]:'Aura Components', [TAB.PROFILES]:'Profiles',
+            [TAB.PERMSETS]:'Permission Sets', [TAB.FIELDS]:'Custom Fields',
+            [TAB.OBJECTS]:'Custom Objects', [TAB.VR]:'Validation Rules'
+        };
+        this._exportTabLabel  = tabLabels[this.activeTab] || 'Metadata';
+        this.exportModalOpen  = true;
+        this.exportFormat     = FORMAT.CSV;
+    }
     handleCloseExport() { this.exportModalOpen = false; }
 
     // Format toggle — matches HTML data-format attribute
     handleExportFormatChange(event) {
-        this.exportFormat = event.currentTarget.getAttribute('data-format') || 'csv';
+        this.exportFormat = event.currentTarget.getAttribute('data-format') || FORMAT.CSV;
         this._exportFormatKey = this._exportFormatKey + 1; // trigger re-render
     }
 
     // ── Download button in modal ──────────────────────────────
+    // ── Smart export: use chat data only if it matches active tab ───
+    _getExportSource() {
+        if (!this._lastDataResponse) return null;
+        const text  = this._lastDataResponse.toLowerCase();
+        const tab   = this.activeTab;
+        // Check if chat response matches the active tab
+        const tabMatches = {
+            [TAB.FLOWS]    : /\bflow/i,
+            [TAB.APEX]     : /\bapex class|\bunused class|\bused class|\bstandard class|\btest class/i,
+            [TAB.TRIGGERS] : /\btrigger/i,
+            [TAB.LWC]      : /\blwc\b|\blightning web/i,
+            [TAB.AURA]     : /\baura component/i,
+            [TAB.PROFILES] : /\bprofile/i,
+            [TAB.PERMSETS] : /\bpermission set|\bpermset/i,
+            [TAB.FIELDS]   : /\bcustom field/i,
+            [TAB.OBJECTS]  : /\bcustom object/i,
+            [TAB.VR]       : /\bvalidation rule/i,
+        };
+        const pattern = tabMatches[tab];
+        // If chat data matches active tab → use it
+        if (pattern && pattern.test(this._lastDataResponse)) return this._lastDataResponse;
+        // Chat data is from a different tab → use tab data
+        return null;
+    }
+
     handleDownload() {
         this.exportModalOpen = false;
         const d = new Date(); const date = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-        const content = this._buildExportContent(this._lastDataResponse);
+        // Smart: use chat data only if it matches active tab, else use tab data
+        const content = this._buildExportContent(this._getExportSource());
         if (!content) {
             this._showToast('No data to export. Ask the agent a question first or open a dashboard tab.');
             return;
@@ -712,7 +1061,7 @@ export default class MetadataDashboard extends LightningElement {
         const ext      = this.exportFormat;
         const tag      = this._getExportTag();
         const fileName = `org-${tag}-${date}.${ext}`;
-        const mime     = ext === 'json' ? 'application/json' : ext === 'txt' ? 'text/plain' : 'text/csv';
+        const mime     = ext === FORMAT.JSON ? 'application/json' : ext === FORMAT.TXT ? 'text/plain' : 'text/csv';
         const dataUrl  = `data:${mime};charset=utf-8,${encodeURIComponent(content)}`;
         const link = document.createElement('a');
         link.style.display = 'none';
@@ -728,9 +1077,8 @@ export default class MetadataDashboard extends LightningElement {
     handleSaveToFiles() {
         const d = new Date(); const date = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 
-        // Build content from tab data first, fall back to last chat response
-        // Passing null makes _buildExportContent use activeTab + loaded list getters
-        let content = this._buildExportContent(this._lastDataResponse);
+        // Smart: use chat data only if it matches active tab, else use tab data
+        let content = this._buildExportContent(this._getExportSource());
 
         if (!content) {
             this.exportModalOpen = false;
@@ -766,77 +1114,174 @@ export default class MetadataDashboard extends LightningElement {
             });
     }
 
-    // Returns a short tag for the filename based on context
     _getExportTag() {
-        if (this._lastDataResponse) {
-            const t = this._lastDataResponse;
-            if (/unused.*apex|apex.*unused/i.test(t))           return 'unused-apex-classes';
-            if (/apex\s*class|all.*apex/i.test(t))              return 'apex-classes';
-            if (/flow/i.test(t))                                return 'flows';
-            if (/trigger/i.test(t))                             return 'triggers';
-            if (/\blwc\b|lightning\s*web\s*component/i.test(t)) return 'lwc-components';
-            if (/\baura\b/i.test(t))                            return 'aura-components';
-            if (/profile/i.test(t))                             return 'profiles';
-            if (/permission\s*set|permset/i.test(t))            return 'permission-sets';
-            if (/custom\s*field/i.test(t))                      return 'custom-fields';
-            if (/custom\s*object/i.test(t))                     return 'custom-objects';
-            if (/validation\s*rule/i.test(t))                   return 'validation-rules';
-            return 'agent-response';
+        // ── Detect ALL metadata types present in the last chat response ──────
+        // Uses strict patterns to avoid false positives (e.g. class names containing "trigger")
+        const _detectTypes = (text) => {
+            if (!text) return [];
+            const found = [];
+            // Apex — must appear as a clear section header or keyword, NOT just class names
+            if (/\bAPEX\b|\bApex Class(es)?\b|\bapex class(es)?\b/i.test(text))          found.push('apex-classes');
+            // Triggers — look for trigger section headers, not class names like "DeleteTriggerAction"
+            if (/\bTRIGGERS?\b|\bApex Trigger(s)?\b|active trigger|inactive trigger|unused trigger/i.test(text)) found.push('triggers');
+            // Flows
+            if (/\bFLOWS?\b|\bactive flow|inactive flow/i.test(text))                    found.push('flows');
+            // LWC
+            if (/\bLWC\b|\bLightning Web Component/i.test(text))                         found.push('lwc-components');
+            // Aura
+            if (/\bAura Component/i.test(text))                                           found.push('aura-components');
+            // Profiles
+            if (/\bProfile(s)?\b/i.test(text) && !/permission/i.test(text.slice(0,50)))  found.push('profiles');
+            // Permission Sets — only explicit "Permission Set" phrase, not partial matches
+            if (/\bPermission Set(s)?\b|\bpermset\b/i.test(text))                        found.push('permission-sets');
+            // Fields / Objects / VR
+            if (/\bCustom Field(s)?\b/i.test(text))                                      found.push('custom-fields');
+            if (/\bCustom Object(s)?\b/i.test(text))                                     found.push('custom-objects');
+            if (/\bValidation Rule(s)?\b/i.test(text))                                   found.push('validation-rules');
+            return found;
+        };
+
+        const detected = _detectTypes(this._lastDataResponse);
+
+        // Multi-type: build combined slug from ALL detected types (max 3 then "-and-more")
+        if (detected.length > 1) {
+            if (detected.length <= 3) return detected.join('-and-');
+            return detected.slice(0, 3).join('-and-') + '-and-more';
         }
-        if (this.activeTab === 'apex' && this._apexLoaded) return 'unused-apex-classes';
-        return 'dashboard-' + this.activeTab;
+
+        // Single detected type from chat
+        if (detected.length === 1) return detected[0];
+
+        // No chat data — fall back to active tab slug
+        const tabTags = {
+            [TAB.FLOWS]:'flows', [TAB.APEX]:'apex-classes', [TAB.TRIGGERS]:'triggers',
+            [TAB.LWC]:'lwc-components', [TAB.AURA]:'aura-components', [TAB.PROFILES]:'profiles',
+            [TAB.PERMSETS]:'permission-sets', [TAB.FIELDS]:'custom-fields',
+            [TAB.OBJECTS]:'custom-objects', [TAB.VR]:'validation-rules'
+        };
+        return tabTags[this.activeTab] || ('dashboard-' + this.activeTab);
     }
 
     _buildExportContent(chatText) {
         const e = v => (v || '').toString().replace(/"/g, '""');
 
-        // ── Detect subset shown in chat (unused/inactive/active/all) ────
-        // chatText holds exactly what the agent displayed — parse it first.
-        // Only fall back to full tab-loaded data if chat parsing yields nothing.
+        // ── Detect ALL metadata types present in chat text ────────────────────
+        // Uses strict patterns — avoids false positives from class names like "DeleteTriggerAction"
+        // Returns array of internal type keys (may be multiple for multi-type responses)
+        const _detectChatTypes = (text) => {
+            if (!text) return [];
+            const found = [];
+            // Apex — clear section keyword, NOT just class names containing "Apex"
+            if (/unused.*apex|apex.*unused/i.test(text))                                   found.push('unusedApex');
+            else if (/\bApex Class(es)?\b|\bAPEX CLASS(ES)?\b/i.test(text))               found.push(TAB.APEX);
+            // Triggers — section-level keywords only; excludes class names like "DeleteTriggerAction"
+            if (/\bApex Trigger(s)?\b|\bTRIGGERS?\b(?!Action)|active trigger|inactive trigger|unused trigger/i.test(text) &&
+                !found.includes('unusedApex') && !found.includes(TAB.APEX))               found.push(TAB.TRIGGERS);
+            else if (/\bApex Trigger(s)?\b|\bTRIGGERS?\b(?!Action)|active trigger|inactive trigger|unused trigger/i.test(text))
+                                                                                            found.push(TAB.TRIGGERS);
+            // Flows
+            if (/\bFlow(s)?\b|\bactive flow|inactive flow/i.test(text))                   found.push(TAB.FLOWS);
+            // LWC / Aura
+            if (/\bLWC\b|\bLightning Web Component/i.test(text))                          found.push(TAB.LWC);
+            if (/\bAura Component/i.test(text))                                            found.push(TAB.AURA);
+            // Profiles / Permission Sets — explicit phrases only
+            if (/\bProfile(s)?\b/i.test(text))                                            found.push(TAB.PROFILES);
+            if (/\bPermission Set(s)?\b|\bpermset\b/i.test(text))                        found.push(TAB.PERMSETS);
+            // Fields / Objects / VR
+            if (/\bCustom Field(s)?\b/i.test(text))                                       found.push(TAB.FIELDS);
+            if (/\bCustom Object(s)?\b/i.test(text))                                      found.push(TAB.OBJECTS);
+            if (/inactive.*validation|unused.*validation/i.test(text))                    found.push('inactiveVr');
+            else if (/\bValidation Rule(s)?\b/i.test(text))                               found.push(META_TYPE.VR);
+            return [...new Set(found)]; // deduplicate
+        };
 
-        const chatType = (() => {
-            if (!chatText) return null;
-            if (/unused.*apex|apex.*unused/i.test(chatText))           return 'unusedApex';
-            if (/unused.*trigger|trigger.*unused/i.test(chatText))     return 'unusedTriggers';
-            if (/inactive.*trigger|trigger.*inactive/i.test(chatText)) return 'inactiveTriggers';
-            if (/active.*trigger|trigger.*active/i.test(chatText))     return 'activeTriggers';
-            if (/\btrigger/i.test(chatText))                           return 'triggers';
-            if (/unused.*flow|inactive.*flow|flow.*unused|flow.*inactive/i.test(chatText)) return 'unusedFlows';
-            if (/\bflow/i.test(chatText))                              return 'flows';
-            if (/\bapex\b|apex.*class/i.test(chatText))               return 'apex';
-            if (/\blwc\b|lightning.*web/i.test(chatText))             return 'lwc';
-            if (/\baura\b/i.test(chatText))                           return 'aura';
-            if (/unassigned.*profile|unused.*profile/i.test(chatText)) return 'unusedProfiles';
-            if (/\bprofile/i.test(chatText))                           return 'profiles';
-            if (/unassigned.*perm|unused.*perm/i.test(chatText))       return 'unusedPermSets';
-            if (/permission.*set|\bpermset\b/i.test(chatText))        return 'permsets';
-            if (/custom.*field/i.test(chatText))                       return 'fields';
-            if (/custom.*object/i.test(chatText))                      return 'objects';
-            if (/inactive.*validation|unused.*validation/i.test(chatText)) return 'inactiveVr';
-            if (/validation.*rule/i.test(chatText))                    return 'vr';
-            return 'generic';
-        })();
+        const chatTypes  = _detectChatTypes(chatText);
+        const isMultiType = chatTypes.length > 1;
+        // Primary type (backward compat for single-type paths)
+        const chatType   = chatTypes.length === 1 ? chatTypes[0] : (chatTypes.length > 1 ? '__multi__' : (chatText ? 'generic' : null));
 
-        // ── CSV / JSON / TXT helpers ───────────────────────────
-        const toCsv = (headers, dataRows) => {
-            const hRow = headers.map(h => `"${e(h)}"`).join(',');
-            const lines = dataRows.map(r => headers.map(h => `"${e(r[h] || '')}"`).join(','));
+        // ── Section label map — internal key → human label ────────────────────
+        const TYPE_LABEL = {
+            unusedApex      : 'Apex Classes',
+            [TAB.APEX]      : 'Apex Classes',
+            [TAB.TRIGGERS]  : 'Triggers',
+            [TAB.FLOWS]     : 'Flows',
+            [TAB.LWC]       : 'LWC Components',
+            [TAB.AURA]      : 'Aura Components',
+            [TAB.PROFILES]  : 'Profiles',
+            [TAB.PERMSETS]  : 'Permission Sets',
+            [TAB.FIELDS]    : 'Custom Fields',
+            [TAB.OBJECTS]   : 'Custom Objects',
+            inactiveVr      : 'Validation Rules',
+            [META_TYPE.VR]  : 'Validation Rules',
+        };
+
+        // ── CSV / JSON / TXT helpers ───────────────────────────────────────────
+        const HEADERS = ['Label', 'API Name', 'Type'];
+
+        // normalise: ensure every item has exactly Label / API Name / Type keys
+        const norm = (items, fallbackType) => items.map(i => ({
+            'Label'   : i.label    || i.apiName || i.name || '',
+            'API Name': i.apiName  || i.name    || i.label || '',
+            'Type'    : i.type     || fallbackType || 'Metadata'
+        }));
+
+        // ── CSV (single section — no heading row needed, just data) ───────────
+        const toCsv = (dataRows) => {
+            const hRow  = HEADERS.map(h => `"${e(h)}"`).join(',');
+            const lines = dataRows.map(r => HEADERS.map(h => `"${e(r[h] || '')}"`).join(','));
             return lines.length ? [hRow, ...lines].join('\n') : null;
         };
-        const toJson = obj => JSON.stringify(obj, null, 2);
-        const toTxt  = (title, lines) => [title, '='.repeat(40), '', ...lines].join('\n');
 
-        // ── Helper: parse numbered/block list from chat text ──
-        // Returns [{name, meta}] — works for any metadata type the agent formats
+        // ── CSV (multi-section — # comment separator before each group) ───────
+        const toCsvMulti = (sections) => {
+            const lines = [HEADERS.map(h => `"${e(h)}"`).join(',')];
+            sections.forEach((sec, si) => {
+                if (si > 0) lines.push('');
+                lines.push(`# === ${sec.title} (${sec.items.length}) ===`);
+                sec.items.forEach(r => lines.push(HEADERS.map(h => `"${e(r[h] || '')}"`).join(',')));
+            });
+            return lines.join('\n');
+        };
+
+        // ── JSON (single section — { "Section Title": [ {Label, API Name, Type} ] }) ─
+        const toJson = (title, dataRows) => JSON.stringify({ [title]: dataRows }, null, 2);
+
+        // ── JSON (multi-section — { "Flows": [...], "Apex Classes": [...] }) ──
+        const toJsonMulti = (sections) => {
+            const obj = {};
+            sections.forEach(sec => { obj[sec.title] = sec.items; });
+            return JSON.stringify(obj, null, 2);
+        };
+
+        // ── TXT (single section) ───────────────────────────────────────────────
+        const toTxt = (title, dataRows) => {
+            const heading = [`${title} (${dataRows.length})`, '='.repeat(40), ''];
+            const rows = dataRows.map((r, i) =>
+                `${i+1}.\n   Label    : ${r['Label']}\n   API Name : ${r['API Name']}\n   Type     : ${r['Type']}\n`
+            );
+            return [...heading, ...rows].join('\n');
+        };
+
+        // ── TXT (multi-section) ────────────────────────────────────────────────
+        const toTxtMulti = (sections) => sections.map((sec, si) => {
+            const heading = [`${si > 0 ? '\n' : ''}${sec.title} (${sec.items.length})`, '='.repeat(40), ''];
+            const rows = sec.items.map((r, i) =>
+                `${i+1}.\n   Label    : ${r['Label']}\n   API Name : ${r['API Name']}\n   Type     : ${r['Type']}\n`
+            );
+            return [...heading, ...rows].join('\n');
+        }).join('\n');
+
+        // ── Helper: parse numbered/block list from chat text ──────────────────
         const parseChatList = (text) => {
             if (!text) return [];
             const items = [];
             const lines = text.split('\n');
-            let pendingLabel = '', pendingApi = '', pendingMeta = '';
+            let pendingLabel = '', pendingApi = '', pendingType = '', pendingMeta = '';
             const flush = () => {
-                const name = pendingApi || pendingLabel;
-                if (name) items.push({ name, meta: pendingMeta });
-                pendingLabel = ''; pendingApi = ''; pendingMeta = '';
+                const apiName = pendingApi || pendingLabel;
+                if (apiName) items.push({ label: pendingLabel || apiName, apiName, type: pendingType, meta: pendingMeta });
+                pendingLabel = ''; pendingApi = ''; pendingType = ''; pendingMeta = '';
             };
             for (const line of lines) {
                 const t = line.trim();
@@ -848,87 +1293,173 @@ export default class MetadataDashboard extends LightningElement {
                 const numM  = t.match(/^\d+\.\s+(.+)/);
                 if (lblM)  { pendingLabel = lblM[1].trim(); continue; }
                 if (apiM)  { pendingApi   = apiM[1].trim(); continue; }
-                if (typeM) { flush(); continue; }
+                if (typeM) { pendingType  = typeM[1].trim(); flush(); continue; }
                 if (metaM) { pendingMeta  = metaM[1].trim(); continue; }
                 if (numM)  {
                     flush();
                     const body  = numM[1].trim();
                     const parts = body.split('|').map(p => p.trim());
-                    if (parts[0]) items.push({ name: parts[0], meta: parts.slice(1).join(' | ') });
+                    let pLabel = parts[0], pApi = parts[0], pType = '', pMeta = '';
+                    for (let pi = 1; pi < parts.length; pi++) {
+                        const aM = parts[pi].match(/^API\s*Name\s*:\s*(.+)/i);
+                        const tM = parts[pi].match(/^Type\s*:\s*(.+)/i);
+                        if (aM) { pApi  = aM[1].trim(); continue; }
+                        if (tM) { pType = tM[1].trim(); continue; }
+                        pMeta += (pMeta ? ' | ' : '') + parts[pi];
+                    }
+                    if (pLabel) items.push({ label: pLabel, apiName: pApi, type: pType, meta: pMeta });
                 }
             }
             flush();
             return items;
         };
 
-        // ── If chat has data, export ONLY what the chat showed ─
-        if (chatText && chatType !== 'generic' && chatType !== null) {
-            const chatItems = parseChatList(chatText);
-            if (chatItems.length) {
-                const label = {
-                    unusedApex      : 'Unused Apex Classes',
-                    apex            : 'Apex Classes',
-                    unusedTriggers  : 'Unused Triggers',
-                    inactiveTriggers: 'Inactive Triggers',
-                    activeTriggers  : 'Active Triggers',
-                    triggers        : 'Triggers',
-                    unusedFlows     : 'Unused Flows',
-                    flows           : 'Flows',
-                    lwc             : 'LWC Components',
-                    aura            : 'Aura Components',
-                    unusedProfiles  : 'Unused Profiles',
-                    profiles        : 'Profiles',
-                    unusedPermSets  : 'Unused Permission Sets',
-                    permsets        : 'Permission Sets',
-                    fields          : 'Custom Fields',
-                    objects         : 'Custom Objects',
-                    inactiveVr      : 'Inactive Validation Rules',
-                    vr              : 'Validation Rules',
-                }[chatType] || 'Metadata';
-                const data = chatItems.map(i => ({ 'API Name': i.name, 'Label': i.name, 'Type': label, 'Meta': i.meta }));
-                if (this.exportFormat === 'csv')  return toCsv(['API Name', 'Label', 'Type', 'Meta'], data);
-                if (this.exportFormat === 'json') return toJson(data);
-                if (this.exportFormat === 'txt')  return toTxt(label, data.map((r, i) => `${i+1}.\n   Label    : ${r['Label']}\n   API Name : ${r['API Name']}\n   Type     : ${r['Type']}\n`));
+        // ── Collect items for a single chat type from loaded summary data ─────
+        const _itemsForType = (ct) => {
+            const items = [];
+            if (ct === 'unusedApex') {
+                const rows = this._extractUnusedApexRows(chatText);
+                rows.forEach(r => items.push({ label: r.name, apiName: r.name, type: 'Apex Class', meta: '' }));
+                if (!items.length && this._apexLoaded && this.apexSummary) {
+                    this._parseDetailedList(this.apexSummary.unusedClasses)
+                        .forEach(r => items.push({ label: r.name, apiName: r.name, type: 'Apex Class', meta: r.meta }));
+                }
+            } else if (ct === TAB.APEX && this._apexLoaded && this.apexSummary) {
+                this._parseSimpleList(this.apexSummary.standardClasses)
+                    .forEach(r => items.push({ label: r.name, apiName: r.name, type: 'Apex Class',        meta: '' }));
+                this._parseSimpleList(this.apexSummary.usedClasses)
+                    .forEach(r => items.push({ label: r.name, apiName: r.name, type: 'Apex Class',        meta: '' }));
+                this._parseDetailedList(this.apexSummary.unusedClasses)
+                    .forEach(r => items.push({ label: r.name, apiName: r.name, type: 'Apex Class',        meta: r.meta }));
+                this._parseSimpleList(this.apexSummary.testClasses)
+                    .forEach(r => items.push({ label: r.name, apiName: r.name, type: 'Apex Class (Test)', meta: '' }));
+            } else if (ct === TAB.TRIGGERS && this._triggersLoaded && this.triggerSummary) {
+                const seen = new Set();
+                const addTrig = (list, status) => this._parseDetailedList(list).forEach(r => {
+                    if (seen.has(r.name)) return; seen.add(r.name);
+                    items.push({ label: r.name, apiName: r.name, type: 'Trigger', status, meta: r.meta });
+                });
+                addTrig(this.triggerSummary.activeTriggers,   'Active');
+                addTrig(this.triggerSummary.inactiveTriggers, 'Inactive');
+                addTrig(this.triggerSummary.unusedTriggers,   'Unused');
+            } else if (ct === TAB.FLOWS && chatText) {
+                // Parse Label / API Name / Type directly from the chatbot block-format response
+                // The summary fields (activeFlows/inactiveFlows) contain detailed strings that
+                // _parseSimpleList cannot split correctly — use parseChatList on chatText instead
+                const flowItems = parseChatList(chatText).filter(i => i.type && /flow|Appointments|RoutingFlow|AutoLaunched|EvaluationFlow|PromptFlow|IndividualObject|DataCapture|ApprovalWorkflow|ManagedContent|FieldService/i.test(i.type));
+                if (flowItems.length) {
+                    flowItems.forEach(r => items.push({ label: r.label || r.apiName, apiName: r.apiName || r.label, type: 'Flow', meta: '' }));
+                } else if (this._flowsLoaded && this.flowSummary) {
+                    // Fallback: summary loaded — parse active/inactive simple lists
+                    this._parseSimpleList(this.flowSummary.activeFlows)
+                        .forEach(r => items.push({ label: r.name, apiName: r.name, type: 'Flow', status: 'Active',   meta: '' }));
+                    this._parseSimpleList(this.flowSummary.inactiveFlows)
+                        .forEach(r => items.push({ label: r.name, apiName: r.name, type: 'Flow', status: 'Inactive', meta: '' }));
+                }
+            } else if (ct === TAB.LWC && this._lwcLoaded && this.lwcSummary) {
+                this._parseDetailedList(this.lwcSummary.allComponents)
+                    .forEach(r => items.push({ label: r.name, apiName: r.name, type: 'LWC Component', meta: r.meta }));
+            } else if (ct === TAB.AURA && this._auraLoaded && this.auraSummary) {
+                this._parseDetailedList(this.auraSummary.allComponents)
+                    .forEach(r => items.push({ label: r.name, apiName: r.name, type: 'Aura Component', meta: r.meta }));
+            } else if (ct === TAB.PROFILES && this._profilesLoaded && this.profileSummary) {
+                this._parseDetailedList(this.profileSummary.usedProfiles)
+                    .forEach(r => items.push({ label: r.name, apiName: r.name, type: 'Profile', status: 'Assigned',   meta: r.meta }));
+                this._parseDetailedList(this.profileSummary.unusedProfiles)
+                    .forEach(r => items.push({ label: r.name, apiName: r.name, type: 'Profile', status: 'Unassigned', meta: r.meta }));
+            } else if (ct === TAB.PERMSETS && this._permSetsLoaded && this.permSetSummary) {
+                this._parseDetailedList(this.permSetSummary.usedPermSets)
+                    .forEach(r => items.push({ label: r.name, apiName: r.name, type: 'Permission Set', status: 'Assigned',   meta: r.meta }));
+                this._parseDetailedList(this.permSetSummary.unusedPermSets)
+                    .forEach(r => items.push({ label: r.name, apiName: r.name, type: 'Permission Set', status: 'Unassigned', meta: r.meta }));
+            } else if (ct === TAB.FIELDS && this._fieldsLoaded && this.fieldSummary) {
+                this._parseDetailedList(this.fieldSummary.allFields)
+                    .forEach(r => items.push({ label: r.name, apiName: r.name, type: 'Custom Field', meta: r.meta }));
+            } else if (ct === TAB.OBJECTS && this._objectsLoaded && this.objectSummary) {
+                this._parseDetailedList(this.objectSummary.allObjects)
+                    .forEach(r => items.push({ label: r.name, apiName: r.name, type: 'Custom Object', meta: r.meta }));
+            } else if ((ct === 'inactiveVr' || ct === META_TYPE.VR) && this._vrLoaded && this.vrSummary) {
+                this._parseDetailedList(this.vrSummary.activeRules)
+                    .forEach(r => items.push({ label: r.name, apiName: r.name, type: 'Validation Rule', status: 'Active',   meta: r.meta }));
+                this._parseDetailedList(this.vrSummary.inactiveRules)
+                    .forEach(r => items.push({ label: r.name, apiName: r.name, type: 'Validation Rule', status: 'Inactive', meta: r.meta }));
             }
+            // Fallback: parse raw chat text if summary not loaded
+            if (!items.length) {
+                parseChatList(chatText).forEach(i => items.push(i));
+            }
+            // Deduplicate
+            const seen = new Set();
+            return items.filter(i => {
+                const key = (i.apiName || i.label || '').toLowerCase();
+                if (seen.has(key)) return false;
+                seen.add(key); return true;
+            });
+        };
+
+        // ── MULTI-TYPE: render each type as its own labeled section ──────────
+        if (isMultiType && chatText) {
+            const sections = chatTypes
+                .map(ct => ({ title: TYPE_LABEL[ct] || ct, items: norm(_itemsForType(ct), TYPE_LABEL[ct]) }))
+                .filter(s => s.items.length > 0);
+
+            if (sections.length) {
+                if (this.exportFormat === FORMAT.CSV)  return toCsvMulti(sections);
+                if (this.exportFormat === FORMAT.JSON) return toJsonMulti(sections);
+                if (this.exportFormat === FORMAT.TXT)  return toTxtMulti(sections);
+            }
+        }
+
+        // ── SINGLE-TYPE path ──────────────────────────────────────────────────
+        if (chatText && chatType && chatType !== 'generic' && chatType !== '__multi__') {
+            const sectionLabel = TYPE_LABEL[chatType] || 'Metadata';
+            let chatItems = _itemsForType(chatType);
+            if (!chatItems.length) chatItems = parseChatList(chatText);
+
+            if (chatItems.length) {
+                const data = norm(chatItems, sectionLabel);
+                if (this.exportFormat === FORMAT.CSV)  return toCsv(data);
+                if (this.exportFormat === FORMAT.JSON) return toJson(sectionLabel, data);
+                if (this.exportFormat === FORMAT.TXT)  return toTxt(sectionLabel, data);
+            }
+            if (chatType === 'unusedApex' || chatType === TAB.APEX) return null;
         }
 
         // ── No chat data (or chat parse yielded nothing) ───────
         // Export full tab data from loaded summary via parsed list getters
         const resolvedType = (() => {
-            if (this.activeTab === 'flows')    return 'flows';
-            if (this.activeTab === 'apex')     return 'apex';
-            if (this.activeTab === 'triggers') return 'triggers';
-            if (this.activeTab === 'lwc')      return 'lwc';
-            if (this.activeTab === 'aura')     return 'aura';
-            if (this.activeTab === 'profiles') return 'profiles';
-            if (this.activeTab === 'permsets') return 'permsets';
-            if (this.activeTab === 'fields')   return 'fields';
-            if (this.activeTab === 'objects')  return 'objects';
-            if (this.activeTab === 'vr')       return 'vr';
+            if (this.activeTab === TAB.FLOWS)    return TAB.FLOWS;
+            if (this.activeTab === TAB.APEX)     return TAB.APEX;
+            if (this.activeTab === TAB.TRIGGERS) return TAB.TRIGGERS;
+            if (this.activeTab === TAB.LWC)      return TAB.LWC;
+            if (this.activeTab === TAB.AURA)     return TAB.AURA;
+            if (this.activeTab === TAB.PROFILES) return TAB.PROFILES;
+            if (this.activeTab === TAB.PERMSETS) return TAB.PERMSETS;
+            if (this.activeTab === TAB.FIELDS)   return TAB.FIELDS;
+            if (this.activeTab === TAB.OBJECTS)  return TAB.OBJECTS;
+            if (this.activeTab === TAB.VR)       return META_TYPE.VR;
             return chatType;
         })();
 
                 // ── Fallback: generic chat text parser ─────────────────
-        if (this.exportFormat === 'json') {
-            if (chatText) {
-                const parsed = this._parseChatTextToObjects(chatText);
-                return toJson(parsed.length ? parsed : { raw: chatText });
-            }
+        if (this.exportFormat === FORMAT.JSON) {
             const rows = this._buildExportRows();
-            return rows.length ? toJson(rows) : null;
+            return rows.length ? JSON.stringify(rows, null, 2) : null;
         }
-        if (this.exportFormat === 'txt') {
-            if (chatText) return chatText;
+        if (this.exportFormat === FORMAT.TXT) {
             const rows = this._buildExportRows();
             if (!rows.length) return null;
-            const headers = ['API Name', 'Label', 'Type', 'Status', 'Detail 1', 'Detail 2'];
-            return [headers.join('\t'), ...rows.map(r => headers.map(h => r[h] || '').join('\t'))].join('\n');
+            const lines = [];
+            rows.forEach((r, i) => {
+                lines.push((i + 1) + '.');
+                lines.push('   Label    : ' + (r['Label']    || ''));
+                lines.push('   API Name : ' + (r['API Name'] || ''));
+                lines.push('   Type     : ' + (r['Type']     || ''));
+                lines.push('');
+            });
+            return lines.join('\n');
         }
         // CSV last resort
-        if (chatText) {
-            const csv = this._chatTextToCSV(chatText);
-            if (csv) return csv;
-        }
         return this._buildDashboardCSV();
     }
 
@@ -958,7 +1489,7 @@ export default class MetadataDashboard extends LightningElement {
     _unusedApexToTXT(text) {
         const rows = this._extractUnusedApexRows(text);
         if (!rows.length) return text; // fallback to raw
-        const lines = ['Unused Apex Classes', '='.repeat(40), ''];
+        const lines = ['Apex Classes', '='.repeat(40), ''];
         rows.forEach((r, i) => {
             lines.push(`${i+1}.`);
             lines.push(`   Label    : ${r.name}`);
@@ -976,12 +1507,13 @@ export default class MetadataDashboard extends LightningElement {
         let inUnusedSection = false;
         let pendingLabel = '';
         let pendingApi   = '';
+        let pendingType  = '';
 
         const flushRow = () => {
             if (pendingApi || pendingLabel) {
-                rows.push({ name: pendingApi || pendingLabel, lines: '', modified: '' });
+                rows.push({ name: pendingApi || pendingLabel, type: pendingType || 'Apex Class', lines: '', modified: '' });
             }
-            pendingLabel = ''; pendingApi = '';
+            pendingLabel = ''; pendingApi = ''; pendingType = '';
         };
 
         for (const line of lines) {
@@ -1009,9 +1541,9 @@ export default class MetadataDashboard extends LightningElement {
             const apiMatch = trimmed.match(/^API\s*Name\s*:\s*(.+)/i);
             if (apiMatch) { pendingApi = apiMatch[1].trim(); continue; }
 
-            // Block style: "Type     : Apex Class" — flush the row
+            // Block style: "Type     : Apex Class" — capture type then flush
             const typeMatch = trimmed.match(/^Type\s*:\s*(.+)/i);
-            if (typeMatch) { flushRow(); continue; }
+            if (typeMatch) { pendingType = typeMatch[1].trim(); flushRow(); continue; }
 
             // Pipe style: "1. ClassName | Lines: 42 | Last Modified: ..."
             if (/^\d+\./.test(trimmed)) {
@@ -1024,7 +1556,7 @@ export default class MetadataDashboard extends LightningElement {
                     if (/^Lines\s*:/i.test(p))         linesVal = p.replace(/^Lines\s*:\s*/i, '').trim();
                     if (/^Last\s*Modified\s*:/i.test(p)) modVal  = p.replace(/^Last\s*Modified\s*:\s*/i, '').trim().slice(0, 10);
                 }
-                if (name) rows.push({ name, lines: linesVal, modified: modVal });
+                if (name) rows.push({ name, type: 'Apex Class', lines: linesVal, modified: modVal });
             }
         }
         flushRow(); // flush any trailing block row
@@ -1253,8 +1785,8 @@ export default class MetadataDashboard extends LightningElement {
     _buildDashboardCSV() {
         const rows = this._buildExportRows();
         if (!rows.length) return null;
-        const headers = ['API Name', 'Label', 'Type', 'Status', 'Detail 1', 'Detail 2'];
-        return [headers.join(','), ...rows.map(r =>
+        const headers = ['Label', 'API Name', 'Type'];
+        return [headers.map(h => '"' + h + '"').join(','), ...rows.map(r =>
             headers.map(h => '"' + (r[h] || '').toString().replace(/"/g, '""') + '"').join(',')
         )].join('\n');
     }
@@ -1271,191 +1803,171 @@ export default class MetadataDashboard extends LightningElement {
 
     _buildExportRows() {
         const rows = [];
-        const e = (v) => (v || '').toString().replace(/"/g, '""');
-        const row = (apiName, label, type, status, extra1Key, extra1Val, extra2Key, extra2Val) =>
-            rows.push({
-                'API Name' : apiName  || '',
-                'Label'    : label    || apiName || '',
-                'Type'     : type     || '',
-                'Status'   : status   || '',
-                [extra1Key || 'Detail 1'] : extra1Val || '',
-                [extra2Key || 'Detail 2'] : extra2Val || '',
-            });
+        // Simple 3-column format: Label, API Name, Type
+        const row = (label, apiName, type) =>
+            rows.push({ 'Label': label || apiName || '', 'API Name': apiName || label || '', 'Type': type || '' });
+
+        const tab = this.activeTab;
 
         // ── FLOWS ─────────────────────────────────────────────
-        if (this._flowsLoaded && this.flowSummary && this.flowSummary.allFlowObjects) {
+        if (tab === TAB.FLOWS && this._flowsLoaded && this.flowSummary && this.flowSummary.allFlowObjects) {
             for (const f of this.flowSummary.allFlowObjects) {
-                row(f.apiName, f.label, f.processType || 'Flow',
-                    f.isActive ? 'Active' : 'Inactive',
-                    'Namespace', f.namespacePrefix || '');
+                row(f.label, f.apiName, f.processType || 'Flow');
             }
         }
 
         // ── APEX CLASSES ───────────────────────────────────────
-        if (this._apexLoaded && this.apexSummary) {
+        if (tab === TAB.APEX && this._apexLoaded && this.apexSummary) {
             const s = this.apexSummary;
-            if (s.unusedApexObjects) {
-                for (const c of s.unusedApexObjects) {
-                    row(c.name, c.name, 'Apex Class', 'Unused',
-                        'Lines', c.linesOfCode, 'Last Modified', (c.lastModifiedDate || '').slice(0, 10));
-                }
+            // Unused — use parsed string list as source of truth
+            for (const c of this.unusedClassList) {
+                row(c.name, c.name, 'Apex Class');
             }
-            if (s.usedClassNames) {
-                for (const n of s.usedClassNames) {
-                    row(n, n, 'Apex Class', 'Used', '', '', '', '');
-                }
+            // Used
+            for (const c of this.usedClassList) {
+                row(c.name, c.name, 'Apex Class');
             }
-            if (s.testClasses) {
-                for (const n of (s.testClasses || '').split('\n').filter(Boolean)) {
-                    const name = n.replace(/^\d+\.\s*/, '').trim();
-                    if (name) row(name, name, 'Apex Class', 'Test', '', '', '', '');
-                }
+            // Test
+            for (const c of this.testClassList) {
+                row(c.name, c.name, 'Apex Class');
             }
-            if (s.standardClasses) {
-                for (const n of (s.standardClasses || '').split('\n').filter(Boolean)) {
-                    const name = n.replace(/^\d+\.\s*/, '').trim();
-                    if (name) row(name, name, 'Apex Class', 'Standard/Package', '', '', '', '');
-                }
+            // Standard/Package
+            for (const c of this.standardClassList) {
+                row(c.name, c.name, 'Apex Class');
             }
         }
 
         // ── TRIGGERS ──────────────────────────────────────────
-        if (this._triggersLoaded && this.triggerSummary) {
-            const s = this.triggerSummary;
-            const processTriggers = (list, status) => {
-                if (!list) return;
-                for (const t of list) {
-                    row(t.name, t.name, 'Trigger', status,
-                        'Object', t.objectName,
-                        'Lines', t.linesOfCode);
+        if (tab === TAB.TRIGGERS && this._triggersLoaded && this.triggerSummary) {
+            const seen = new Set();
+            const addTriggers = (list) => {
+                for (const t of (list || [])) {
+                    if (seen.has(t.name)) continue;
+                    seen.add(t.name);
+                    row(t.name, t.name, 'Apex Trigger');
                 }
             };
-            processTriggers(s.unusedTriggerObjects, 'Unused');
-            processTriggers(s.activeTriggerObjects, 'Active');
-            processTriggers(s.inactiveTriggerObjects, 'Inactive');
+            addTriggers(this.activeTriggerList);
+            addTriggers(this.inactiveTriggerList);
         }
 
         // ── LWC ───────────────────────────────────────────────
-        if (this._lwcLoaded && this.lwcSummary && this.lwcSummary.allLwcObjects) {
-            for (const c of this.lwcSummary.allLwcObjects) {
-                row(c.name, c.name, 'LWC', 'Active',
-                    'API Version', c.apiVersion,
-                    'Namespace', c.namespacePrefix || '');
+        if (tab === TAB.LWC && this._lwcLoaded) {
+            for (const c of this.allLwcList) {
+                row(c.name, c.name, 'LWC Component');
             }
         }
 
         // ── AURA ──────────────────────────────────────────────
-        if (this._auraLoaded && this.auraSummary && this.auraSummary.allAuraObjects) {
-            for (const c of this.auraSummary.allAuraObjects) {
-                row(c.name, c.name, 'Aura Component', 'Active',
-                    'API Version', c.apiVersion,
-                    'Namespace', c.namespacePrefix || '');
+        if (tab === TAB.AURA && this._auraLoaded) {
+            for (const c of this.allAuraList) {
+                row(c.name, c.name, 'Aura Component');
             }
         }
 
         // ── PROFILES ──────────────────────────────────────────
-        if (this._profilesLoaded && this.profileSummary) {
-            const s = this.profileSummary;
-            if (s.usedProfileObjects) {
-                for (const p of s.usedProfileObjects) {
-                    row(p.name, p.name, 'Profile', 'Assigned',
-                        'User Count', p.assignedUserCount,
-                        'License', p.userLicenseName || '');
-                }
-            }
-            if (s.unusedProfileObjects) {
-                for (const p of s.unusedProfileObjects) {
-                    row(p.name, p.name, 'Profile', 'Unassigned',
-                        'User Count', 0,
-                        'License', p.userLicenseName || '');
-                }
-            }
+        if (tab === TAB.PROFILES && this._profilesLoaded) {
+            for (const p of this.usedProfileList)   { row(p.name, p.name, 'Profile'); }
+            for (const p of this.unusedProfileList) { row(p.name, p.name, 'Profile'); }
         }
 
         // ── PERMISSION SETS ───────────────────────────────────
-        if (this._permSetsLoaded && this.permSetSummary) {
-            const s = this.permSetSummary;
-            if (s.usedPermSetObjects) {
-                for (const p of s.usedPermSetObjects) {
-                    row(p.name, p.label || p.name, 'Permission Set', 'Assigned',
-                        'Assignments', p.assignmentCount,
-                        'Namespace', p.namespacePrefix || '');
-                }
-            }
-            if (s.unusedPermSetObjects) {
-                for (const p of s.unusedPermSetObjects) {
-                    row(p.name, p.label || p.name, 'Permission Set', 'Unassigned',
-                        'Assignments', 0,
-                        'Namespace', p.namespacePrefix || '');
-                }
-            }
+        if (tab === TAB.PERMSETS && this._permSetsLoaded) {
+            for (const p of this.usedPermSetList)   { row(p.name, p.name, 'Permission Set'); }
+            for (const p of this.unusedPermSetList) { row(p.name, p.name, 'Permission Set'); }
         }
 
         // ── CUSTOM FIELDS ─────────────────────────────────────
-        if (this._fieldsLoaded && this.fieldSummary && this.fieldSummary.allFieldObjects) {
-            for (const f of this.fieldSummary.allFieldObjects) {
-                row(f.objectName + '.' + f.name + '__c',
-                    f.name,
-                    'Custom Field',
-                    '',
-                    'Object', f.objectName,
-                    'Data Type', f.dataType || '');
+        if (tab === TAB.FIELDS && this._fieldsLoaded) {
+            for (const f of this.allFieldList) {
+                row(f.name, f.name, 'Custom Field');
             }
         }
 
         // ── CUSTOM OBJECTS ────────────────────────────────────
-        if (this._objectsLoaded && this.objectSummary && this.objectSummary.allObjectObjects) {
-            for (const o of this.objectSummary.allObjectObjects) {
-                row(o.name + '__c', o.label || o.name, 'Custom Object', '',
-                    'Namespace', o.namespacePrefix || '', '', '');
+        if (tab === TAB.OBJECTS && this._objectsLoaded) {
+            for (const o of this.allObjectList) {
+                row(o.name, o.name, 'Custom Object');
             }
         }
 
         // ── VALIDATION RULES ──────────────────────────────────
-        if (this._vrLoaded && this.vrSummary) {
-            const s = this.vrSummary;
-            const processRules = (list, status) => {
-                if (!list) return;
-                for (const v of list) {
-                    row(v.objectName + '.' + v.name,
-                        v.name,
-                        'Validation Rule',
-                        status,
-                        'Object', v.objectName,
-                        'Namespace', v.namespacePrefix || '');
-                }
-            };
-            processRules(s.activeRuleObjects,   'Active');
-            processRules(s.inactiveRuleObjects, 'Inactive');
+        if (tab === TAB.VR && this._vrLoaded) {
+            for (const r of this.activeVrList)   { row(r.name, r.name, 'Validation Rule'); }
+            for (const r of this.inactiveVrList) { row(r.name, r.name, 'Validation Rule'); }
         }
 
         return rows;
     }
-
     _showToast(message) {
         this._toastMessage = message;
         // eslint-disable-next-line @lwc/lwc/no-async-operation
-        setTimeout(() => { this._toastMessage = ''; }, 4500);
+        setTimeout(() => { this._toastMessage = ''; }, TIMING.TOAST_DISMISS);
+    }
+
+    handleNamespaceKeydown(event) {
+        if (event.key === 'Enter') {
+            // Enter key — apply immediately, cancel debounce timer
+            if (this._nsDebounceTimer) {
+                clearTimeout(this._nsDebounceTimer);
+                this._nsDebounceTimer = null;
+            }
+            this.nsFilterInput = this.namespaceInput.trim().toLowerCase();
+        }
+    }
+
+    handleNamespaceClear() {
+        // Cancel any pending debounce
+        if (this._nsDebounceTimer) {
+            clearTimeout(this._nsDebounceTimer);
+            this._nsDebounceTimer = null;
+        }
+        this.namespaceInput = '';
+        this.nsFilterInput  = ''; // instantly clears client-side filter — no Apex call
+    }
+
+    get namespaceFilterActive() {
+        return !!this.nsFilterInput;
+    }
+
+    get nsFilterApplyLabel() {
+        return this.namespaceInput.trim() ? 'Apply' : 'Reset';
+    }
+
+    get nsFilterApplyClass() {
+        return 'ns-filter-apply' + (this.nsFilterInput ? ' ns-filter-apply--active' : '');
     }
 
     handleNamespaceApply() {
-        if (this.activeTab === 'flows')    { this._flowsLoaded    = false; this._loadFlows();    }
-        if (this.activeTab === 'apex')     { this._apexLoaded     = false; this._loadApex();     }
-        if (this.activeTab === 'triggers') { this._triggersLoaded = false; this._loadTriggers(); }
-        if (this.activeTab === 'lwc')      { this._lwcLoaded      = false; this._loadLwc();      }
-        if (this.activeTab === 'aura')     { this._auraLoaded     = false; this._loadAura();     }
-        if (this.activeTab === 'fields')   { this._fieldsLoaded   = false; this._loadFields();   }
-        if (this.activeTab === 'objects')  { this._objectsLoaded  = false; this._loadObjects();  }
-        if (this.activeTab === 'vr')       { this._vrLoaded       = false; this._loadVr();       }
+        // Cancel debounce and apply immediately — client-side only, no Apex call
+        if (this._nsDebounceTimer) {
+            clearTimeout(this._nsDebounceTimer);
+            this._nsDebounceTimer = null;
+        }
+        this.nsFilterInput = this.namespaceInput.trim().toLowerCase();
+        // If current tab data not loaded yet, load it now so filter has data to work on
+        const loadIfNeeded = {
+            [TAB.FLOWS]    : () => { if (!this._flowsLoaded)    this._loadFlows();    },
+            [TAB.APEX]     : () => { if (!this._apexLoaded)     this._loadApex();     },
+            [TAB.TRIGGERS] : () => { if (!this._triggersLoaded) this._loadTriggers(); },
+            [TAB.LWC]      : () => { if (!this._lwcLoaded)      this._loadLwc();      },
+            [TAB.AURA]     : () => { if (!this._auraLoaded)     this._loadAura();     },
+            [TAB.PROFILES] : () => { if (!this._profilesLoaded) this._loadProfiles(); },
+            [TAB.PERMSETS] : () => { if (!this._permSetsLoaded) this._loadPermSets(); },
+            [TAB.FIELDS]   : () => { if (!this._fieldsLoaded)   this._loadFields();   },
+            [TAB.OBJECTS]  : () => { if (!this._objectsLoaded)  this._loadObjects();  },
+            [TAB.VR]       : () => { if (!this._vrLoaded)       this._loadVr();       },
+        };
+        if (loadIfNeeded[this.activeTab]) loadIfNeeded[this.activeTab]();
     }
 
     _dispatchCurrentTab() {
         const map = {
-            flows:    () => this._loadFlows(),    apex:    () => this._loadApex(),
-            triggers: () => this._loadTriggers(), lwc:     () => this._loadLwc(),
-            aura:     () => this._loadAura(),     profiles: () => this._loadProfiles(),
-            permsets: () => this._loadPermSets(), fields:  () => this._loadFields(),
-            objects:  () => this._loadObjects(),  vr:      () => this._loadVr()
+            [TAB.FLOWS]:    () => this._loadFlows(),    [TAB.APEX]:     () => this._loadApex(),
+            [TAB.TRIGGERS] : () => this._loadTriggers(), [TAB.LWC]:      () => this._loadLwc(),
+            [TAB.AURA]:     () => this._loadAura(),     [TAB.PROFILES] : () => this._loadProfiles(),
+            [TAB.PERMSETS] : () => this._loadPermSets(), [TAB.FIELDS]:   () => this._loadFields(),
+            [TAB.OBJECTS]:  () => this._loadObjects(),  [TAB.VR]:       () => this._loadVr()
         };
         if (map[this.activeTab]) map[this.activeTab]();
     }
@@ -1465,70 +1977,75 @@ export default class MetadataDashboard extends LightningElement {
     // ────────────────────────────────────────────────────────
     _loadFlows() {
         this.isLoading = true; this.hasError = false;
-        getFlowSummary({ namespaceFilter: this.namespaceInput || null })
+        getFlowSummary({ namespaceFilter: this.namespaceInput.trim() || null })
             .then(r => { if (r) { this.flowSummary = { ...this.flowSummary, ...r }; this._flowsLoaded = true; } })
             .catch(e => { this.hasError = true; this.errorMessage = this._errorMsg(e); })
             .finally(() => { this.isLoading = false; });
     }
     _loadApex() {
         this.isLoading = true; this.hasError = false;
-        getApexSummary({ namespaceFilter: this.namespaceInput || null })
+        getApexSummary({ namespaceFilter: this.namespaceInput.trim() || null })
             .then(r => { if (r) { this.apexSummary = { ...this.apexSummary, ...r }; this._apexLoaded = true; } })
             .catch(e => { this.hasError = true; this.errorMessage = this._errorMsg(e); })
             .finally(() => { this.isLoading = false; });
     }
     _loadTriggers() {
         this.isLoading = true; this.hasError = false;
-        getTriggerSummary({ namespaceFilter: this.namespaceInput || null })
+        getTriggerSummary({ namespaceFilter: this.namespaceInput.trim() || null })
             .then(r => { if (r) { this.triggerSummary = { ...this.triggerSummary, ...r }; this._triggersLoaded = true; } })
             .catch(e => { this.hasError = true; this.errorMessage = this._errorMsg(e); })
             .finally(() => { this.isLoading = false; });
     }
     _loadLwc() {
         this.isLoading = true; this.hasError = false;
-        getLwcSummary({ namespaceFilter: this.namespaceInput || null })
-            .then(r => { if (r) { this.lwcSummary = { ...this.lwcSummary, ...r }; this._lwcLoaded = true; } })
+        getLwcSummary({ namespaceFilter: this.namespaceInput.trim() || null })
+            .then(r => {
+                if (r) {
+                    this.lwcSummary = { ...this.lwcSummary, ...r };
+                    this._lwcLoaded = true;
+                }
+            })
             .catch(e => { this.hasError = true; this.errorMessage = this._errorMsg(e); })
             .finally(() => { this.isLoading = false; });
     }
     _loadAura() {
         this.isLoading = true; this.hasError = false;
-        getAuraSummary({ namespaceFilter: this.namespaceInput || null })
+        getAuraSummary({ namespaceFilter: this.namespaceInput.trim() || null })
             .then(r => { if (r) { this.auraSummary = { ...this.auraSummary, ...r }; this._auraLoaded = true; } })
             .catch(e => { this.hasError = true; this.errorMessage = this._errorMsg(e); })
             .finally(() => { this.isLoading = false; });
     }
     _loadProfiles() {
         this.isLoading = true; this.hasError = false;
-        getProfileSummary()
+        getProfileSummary({ namespaceFilter: this.namespaceInput.trim() || null })
             .then(r => { if (r) { this.profileSummary = { ...this.profileSummary, ...r }; this._profilesLoaded = true; } })
             .catch(e => { this.hasError = true; this.errorMessage = this._errorMsg(e); })
             .finally(() => { this.isLoading = false; });
     }
     _loadPermSets() {
         this.isLoading = true; this.hasError = false;
-        getPermissionSetSummary()
+        getPermissionSetSummary({ namespaceFilter: this.namespaceInput.trim() || null })
             .then(r => { if (r) { this.permSetSummary = { ...this.permSetSummary, ...r }; this._permSetsLoaded = true; } })
             .catch(e => { this.hasError = true; this.errorMessage = this._errorMsg(e); })
             .finally(() => { this.isLoading = false; });
     }
     _loadFields() {
         this.isLoading = true; this.hasError = false;
-        getCustomFieldSummary({ namespaceFilter: this.namespaceInput || null })
+        getCustomFieldSummary({ namespaceFilter: this.namespaceInput.trim() || null })
             .then(r => { if (r) { this.fieldSummary = { ...this.fieldSummary, ...r }; this._fieldsLoaded = true; } })
             .catch(e => { this.hasError = true; this.errorMessage = this._errorMsg(e); })
             .finally(() => { this.isLoading = false; });
     }
     _loadObjects() {
         this.isLoading = true; this.hasError = false;
-        getCustomObjectSummary({ namespaceFilter: this.namespaceInput || null })
+        getCustomObjectSummary({ namespaceFilter: this.namespaceInput.trim() || null })
             .then(r => { if (r) { this.objectSummary = { ...this.objectSummary, ...r }; this._objectsLoaded = true; } })
             .catch(e => { this.hasError = true; this.errorMessage = this._errorMsg(e); })
             .finally(() => { this.isLoading = false; });
     }
     _loadVr() {
         this.isLoading = true; this.hasError = false;
-        getValidationRuleSummary({ namespaceFilter: this.namespaceInput || null })
+        getValidationRuleSummary({ namespaceFilter: this.namespaceInput.trim() || null })
             .then(r => { if (r) { this.vrSummary = { ...this.vrSummary, ...r }; this._vrLoaded = true; } })
             .catch(e => { this.hasError = true; this.errorMessage = this._errorMsg(e); })
             .finally(() => { this.isLoading = false; });
@@ -1584,19 +2101,81 @@ export default class MetadataDashboard extends LightningElement {
     get inactiveVrList()          { return this._parseDetailedList(this.vrSummary.inactiveRules);         }
     get filteredVrList()          { return this._parseDetailedList(this.vrSummary.filteredRules);         }
 
-    get flowHasFilter()    { return this._hasFilter(this.flowSummary.namespaceFilterApplied);    }
-    get apexHasFilter()    { return this._hasFilter(this.apexSummary.namespaceFilterApplied);    }
-    get triggerHasFilter() { return this._hasFilter(this.triggerSummary.namespaceFilterApplied); }
-    get lwcHasFilter()     { return this._hasFilter(this.lwcSummary.namespaceFilterApplied);     }
-    get auraHasFilter()    { return this._hasFilter(this.auraSummary.namespaceFilterApplied);    }
-    get fieldHasFilter()   { return this._hasFilter(this.fieldSummary.namespaceFilterApplied);   }
-    get objectHasFilter()  { return this._hasFilter(this.objectSummary.namespaceFilterApplied);  }
-    get vrHasFilter()      { return this._hasFilter(this.vrSummary.namespaceFilterApplied);      }
+    // ────────────────────────────────────────────────────────
+    // STAT CARD DISPLAY COUNTS — reflect client-side ns filter
+    // When nsFilterInput is active, show filtered counts
+    // When no filter, show original summary counts
+    // ────────────────────────────────────────────────────────
+
+    // FLOWS
+    get flowTotalDisplay()    { return this.nsFilterInput ? (this.activeFlowDisplayList.length + this.inactiveFlowDisplayList.length) : this.flowSummary.totalCount; }
+    get flowActiveDisplay()   { return this.nsFilterInput ? this.activeFlowDisplayList.length    : this.flowSummary.activeCount;   }
+    get flowInactiveDisplay() { return this.nsFilterInput ? this.inactiveFlowDisplayList.length  : this.flowSummary.inactiveCount; }
+
+    // APEX
+    get apexTotalDisplay()    { return this.nsFilterInput ? (this.standardClassDisplayList.length + this.usedClassDisplayList.length + this.unusedClassDisplayList.length + this.testClassDisplayList.length) : this.apexSummary.totalCount; }
+    get apexStandardDisplay() { return this.nsFilterInput ? this.standardClassDisplayList.length : this.apexSummary.standardCount; }
+    get apexUsedDisplay()     { return this.nsFilterInput ? this.usedClassDisplayList.length     : this.apexSummary.usedCount;     }
+    get apexUnusedDisplay()   { return this.nsFilterInput ? this.unusedClassDisplayList.length   : this.apexSummary.unusedCount;   }
+    get apexTestDisplay()     { return this.nsFilterInput ? this.testClassDisplayList.length     : this.apexSummary.testCount;     }
+
+    // TRIGGERS
+    get triggerTotalDisplay()    { return this.nsFilterInput ? (this.activeTriggerDisplayList.length + this.inactiveTriggerDisplayList.length) : this.triggerSummary.totalCount; }
+    get triggerActiveDisplay()   { return this.nsFilterInput ? this.activeTriggerDisplayList.length   : this.triggerSummary.activeCount;   }
+    get triggerInactiveDisplay() { return this.nsFilterInput ? this.inactiveTriggerDisplayList.length : this.triggerSummary.inactiveCount; }
+    get triggerUsedDisplay()     { return this.nsFilterInput ? this.usedTriggerDisplayList.length     : this.triggerSummary.usedCount;     }
+    get triggerUnusedDisplay()   { return this.nsFilterInput ? this.unusedTriggerDisplayList.length   : this.triggerSummary.unusedCount;   }
+
+    // LWC
+    get lwcTotalDisplay()   { return this.nsFilterInput ? this.lwcDisplayList.length  : this.lwcSummary.totalCount;            }
+    get lwcWithNsDisplay()  { return this.nsFilterInput ? this._filterWithNs(this.lwcDisplayList).length  : this.lwcSummary.withNamespaceCount;    }
+    get lwcNoNsDisplay()    { return this.nsFilterInput ? this._filterNoNs(this.lwcDisplayList).length    : this.lwcSummary.withoutNamespaceCount; }
+
+    // AURA
+    get auraTotalDisplay()  { return this.nsFilterInput ? this.auraDisplayList.length : this.auraSummary.totalCount;            }
+    get auraWithNsDisplay() { return this.nsFilterInput ? this._filterWithNs(this.auraDisplayList).length : this.auraSummary.withNamespaceCount;    }
+    get auraNoNsDisplay()   { return this.nsFilterInput ? this._filterNoNs(this.auraDisplayList).length   : this.auraSummary.withoutNamespaceCount; }
+
+    // PROFILES
+    get profileTotalDisplay()    { return this.nsFilterInput ? (this.usedProfileDisplayList.length + this.unusedProfileDisplayList.length) : this.profileSummary.totalCount; }
+    get profileUsedDisplay()     { return this.nsFilterInput ? this.usedProfileDisplayList.length   : this.profileSummary.usedCount;   }
+    get profileUnusedDisplay()   { return this.nsFilterInput ? this.unusedProfileDisplayList.length : this.profileSummary.unusedCount; }
+
+    // PERMSETS
+    get permSetTotalDisplay()    { return this.nsFilterInput ? (this.usedPermSetDisplayList.length + this.unusedPermSetDisplayList.length) : this.permSetSummary.totalCount; }
+    get permSetUsedDisplay()     { return this.nsFilterInput ? this.usedPermSetDisplayList.length   : this.permSetSummary.usedCount;   }
+    get permSetUnusedDisplay()   { return this.nsFilterInput ? this.unusedPermSetDisplayList.length : this.permSetSummary.unusedCount; }
+
+    // FIELDS
+    get fieldTotalDisplay()   { return this.nsFilterInput ? this.fieldDisplayList.length  : this.fieldSummary.totalCount;            }
+    get fieldWithNsDisplay()  { return this.nsFilterInput ? this._filterWithNs(this.fieldDisplayList).length  : this.fieldSummary.withNamespaceCount;    }
+    get fieldNoNsDisplay()    { return this.nsFilterInput ? this._filterNoNs(this.fieldDisplayList).length    : this.fieldSummary.withoutNamespaceCount; }
+
+    // OBJECTS
+    get objectTotalDisplay()  { return this.nsFilterInput ? this.objectDisplayList.length : this.objectSummary.totalCount;            }
+    get objectWithNsDisplay() { return this.nsFilterInput ? this._filterWithNs(this.objectDisplayList).length : this.objectSummary.withNamespaceCount;    }
+    get objectNoNsDisplay()   { return this.nsFilterInput ? this._filterNoNs(this.objectDisplayList).length   : this.objectSummary.withoutNamespaceCount; }
+
+    // VR
+    get vrTotalDisplay()    { return this.nsFilterInput ? (this.activeVrDisplayList.length + this.inactiveVrDisplayList.length) : this.vrSummary.totalCount;    }
+    get vrActiveDisplay()   { return this.nsFilterInput ? this.activeVrDisplayList.length   : this.vrSummary.activeCount;   }
+    get vrInactiveDisplay() { return this.nsFilterInput ? this.inactiveVrDisplayList.length : this.vrSummary.inactiveCount; }
+    get apexHasFilter()       { return this._hasFilter(this.apexSummary.namespaceFilterApplied);       }
+    get triggerHasFilter()    { return this._hasFilter(this.triggerSummary.namespaceFilterApplied);    }
+    get lwcHasFilter()        { return this._hasFilter(this.lwcSummary.namespaceFilterApplied);        }
+    get auraHasFilter()       { return this._hasFilter(this.auraSummary.namespaceFilterApplied);       }
+    get profileHasFilter()    { return this._hasFilter(this.profileSummary.namespaceFilterApplied);    }
+    get permSetHasFilter()    { return this._hasFilter(this.permSetSummary.namespaceFilterApplied);    }
+    get fieldHasFilter()      { return this._hasFilter(this.fieldSummary.namespaceFilterApplied);      }
+    get objectHasFilter()     { return this._hasFilter(this.objectSummary.namespaceFilterApplied);     }
+    get vrHasFilter()         { return this._hasFilter(this.vrSummary.namespaceFilterApplied);         }
 
     _hasFilter(v) { return v && v !== 'None (showing all)' && v !== '—'; }
 
-    get filteredActiveFlowList()   { return this._parseSimpleList(this.flowSummary.filteredActiveFlows);   }
-    get filteredInactiveFlowList() { return this._parseSimpleList(this.flowSummary.filteredInactiveFlows); }
-    get filteredApexList()         { return this._parseDetailedList(this.apexSummary.filteredClasses);     }
-    get filteredTriggerList()      { return this._parseDetailedList(this.triggerSummary.filteredTriggers); }
+    get filteredActiveFlowList()   { return this._parseSimpleList(this.flowSummary.filteredActiveFlows);     }
+    get filteredInactiveFlowList() { return this._parseSimpleList(this.flowSummary.filteredInactiveFlows);   }
+    get filteredApexList()         { return this._parseDetailedList(this.apexSummary.filteredClasses);       }
+    get filteredTriggerList()      { return this._parseDetailedList(this.triggerSummary.filteredTriggers);   }
+    get filteredProfileList()      { return this._parseDetailedList(this.profileSummary.filteredProfiles);   }
+    get filteredPermSetList()      { return this._parseDetailedList(this.permSetSummary.filteredPermSets);   }
 }

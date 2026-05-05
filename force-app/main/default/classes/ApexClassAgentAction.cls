@@ -1,4 +1,4 @@
-@SuppressWarnings('PMD.CognitiveComplexity')
+@SuppressWarnings('PMD.CognitiveComplexity,PMD.NcssMethodCount')
 public without sharing class ApexClassAgentAction {
 
     public class ApexRequest {
@@ -70,70 +70,114 @@ public without sharing class ApexClassAgentAction {
         return buildOutput(namespaceFilter);
     }
 
+    // ── Build individual category lists ───────────────────────
+    private static String buildStandardList(MetadataEngine.ApexSummary summary) {
+        if (summary.standardClassNames == null || summary.standardClassNames.isEmpty()) {
+            return MetadataConstants.NONE;
+        }
+        String result = '';
+        for (Integer i = 0; i < summary.standardClassNames.size(); i++) {
+            result += (i + 1) + '. ' + summary.standardClassNames[i] + '\n';
+        }
+        return result;
+    }
+
+    private static String buildUsedList(MetadataEngine.ApexSummary summary) {
+        if (summary.usedClassNames == null || summary.usedClassNames.isEmpty()) {
+            return MetadataConstants.NONE;
+        }
+        String result = '';
+        for (Integer i = 0; i < summary.usedClassNames.size(); i++) {
+            result += (i + 1) + '. ' + summary.usedClassNames[i] + '\n';
+        }
+        return result;
+    }
+
+    private static String buildUnusedList(MetadataEngine.ApexSummary summary) {
+        if (summary.unusedClasses == null || summary.unusedClasses.isEmpty()) {
+            return MetadataConstants.NONE;
+        }
+        String result = '';
+        for (Integer i = 0; i < summary.unusedClasses.size(); i++) {
+            MetadataEngine.ApexClassInfo info = summary.unusedClasses[i];
+            result += (i + 1) + '. ' + info.name +
+                      MetadataConstants.COL_LINES + info.linesOfCode +
+                      ' | Last Modified: ' + info.lastModifiedDate + '\n';
+        }
+        return result;
+    }
+
+    private static String buildTestList(MetadataEngine.ApexSummary summary) {
+        if (summary.testClassNames == null || summary.testClassNames.isEmpty()) {
+            return MetadataConstants.NONE;
+        }
+        String result = '';
+        for (Integer i = 0; i < summary.testClassNames.size(); i++) {
+            result += (i + 1) + '. ' + summary.testClassNames[i] + '\n';
+        }
+        return result;
+    }
+
+    private static String buildFilteredList(MetadataEngine.ApexSummary summary, String namespaceFilter) {
+        if (summary.filteredClasses == null || summary.filteredClasses.isEmpty()) {
+            return String.isNotBlank(namespaceFilter)
+                ? 'No Apex classes found with namespace: ' + namespaceFilter
+                : MetadataConstants.NONE;
+        }
+        String result = '';
+        for (Integer i = 0; i < summary.filteredClasses.size(); i++) {
+            MetadataEngine.ApexClassInfo info = summary.filteredClasses[i];
+            result += (i + 1) + '. ' + info.name +
+                      (info.linesOfCode != null && info.linesOfCode > 0
+                          ? MetadataConstants.COL_LINES + info.linesOfCode : '') +
+                      (String.isNotBlank(info.lastModifiedDate)
+                          ? ' | Last Modified: ' + info.lastModifiedDate : '') + '\n';
+        }
+        return result;
+    }
+
+    private static String buildAllApexList(MetadataEngine.ApexSummary summary) {
+        String result = '';
+        Integer idx = 1;
+        if (summary.usedClassNames != null) {
+            for (String n : summary.usedClassNames) {
+                result += idx++ + '. ' + n + ' [USED]\n';
+            }
+        }
+        if (summary.unusedClasses != null) {
+            for (MetadataEngine.ApexClassInfo info : summary.unusedClasses) {
+                result += idx++ + '. ' + info.name +
+                    MetadataConstants.COL_LINES + info.linesOfCode +
+                    ' | Last Modified: ' + info.lastModifiedDate + ' [UNUSED]\n';
+            }
+        }
+        if (summary.testClassNames != null) {
+            for (String n : summary.testClassNames) {
+                result += idx++ + '. ' + n + ' [TEST]\n';
+            }
+        }
+        if (summary.standardClassNames != null) {
+            for (String n : summary.standardClassNames) {
+                result += idx++ + '. ' + n + ' [STANDARD/PACKAGE]\n';
+            }
+        }
+        return String.isBlank(result) ? MetadataConstants.NONE : result;
+    }
+
     // ── Shared logic ──────────────────────────────────────────
     private static ApexOutput buildOutput(String namespaceFilter) {
         MetadataEngine.ApexSummary summary = MetadataEngine.getApexClasses(namespaceFilter);
 
-        String standardList = '';
-        if (summary.standardClassNames == null || summary.standardClassNames.isEmpty()) {
-            standardList = 'None';
-        } else {
-            for (Integer i = 0; i < summary.standardClassNames.size(); i++) {
-                standardList += (i + 1) + '. ' + summary.standardClassNames[i] + '\n';
-            }
-        }
-
-        String usedList = '';
-        if (summary.usedClassNames.isEmpty()) {
-            usedList = 'None';
-        } else {
-            for (Integer i = 0; i < summary.usedClassNames.size(); i++) {
-                usedList += (i + 1) + '. ' + summary.usedClassNames[i] + '\n';
-            }
-        }
-
-        String unusedList = '';
-        if (summary.unusedClasses.isEmpty()) {
-            unusedList = 'None';
-        } else {
-            for (Integer i = 0; i < summary.unusedClasses.size(); i++) {
-                MetadataEngine.ApexClassInfo info = summary.unusedClasses[i];
-                unusedList += (i + 1) + '. ' + info.name +
-                              ' | Lines: ' + info.linesOfCode +
-                              ' | Last Modified: ' + info.lastModifiedDate + '\n';
-            }
-        }
-
-        String testList = '';
-        if (summary.testClassNames == null || summary.testClassNames.isEmpty()) {
-            testList = 'None';
-        } else {
-            for (Integer i = 0; i < summary.testClassNames.size(); i++) {
-                testList += (i + 1) + '. ' + summary.testClassNames[i] + '\n';
-            }
-        }
-
-        // Namespace-filtered list
-        String filteredList = '';
-        Integer filteredTotal = summary.filteredTotal != null ? summary.filteredTotal : 0;
-        if (summary.filteredClasses == null || summary.filteredClasses.isEmpty()) {
-            filteredList = String.isNotBlank(namespaceFilter)
-                ? 'No Apex classes found with namespace: ' + namespaceFilter
-                : 'None';
-        } else {
-            for (Integer i = 0; i < summary.filteredClasses.size(); i++) {
-                MetadataEngine.ApexClassInfo info = summary.filteredClasses[i];
-                filteredList += (i + 1) + '. ' + info.name +
-                                (info.linesOfCode != null && info.linesOfCode > 0
-                                    ? ' | Lines: ' + info.linesOfCode : '') +
-                                (String.isNotBlank(info.lastModifiedDate)
-                                    ? ' | Last Modified: ' + info.lastModifiedDate : '') + '\n';
-            }
-        }
-
-        String nsDisplay = String.isNotBlank(namespaceFilter) ? namespaceFilter : 'None (showing all)';
-        Integer stdCount = summary.standardClassNames != null ? summary.standardClassNames.size() : 0;
-        Integer tstCount = summary.testClassNames     != null ? summary.testClassNames.size()     : 0;
+        String  standardList  = buildStandardList(summary);
+        String  usedList      = buildUsedList(summary);
+        String  unusedList    = buildUnusedList(summary);
+        String  testList      = buildTestList(summary);
+        String  filteredList  = buildFilteredList(summary, namespaceFilter);
+        String  allApexList   = buildAllApexList(summary);
+        String  nsDisplay     = String.isNotBlank(namespaceFilter) ? namespaceFilter : MetadataConstants.NS_ALL;
+        Integer stdCount      = summary.standardClassNames != null ? summary.standardClassNames.size() : 0;
+        Integer tstCount      = summary.testClassNames     != null ? summary.testClassNames.size()     : 0;
+        Integer filteredTotal = summary.filteredTotal      != null ? summary.filteredTotal              : 0;
 
         ApexOutput output             = new ApexOutput();
         output.totalCount             = String.valueOf(summary.total);
@@ -151,15 +195,19 @@ public without sharing class ApexClassAgentAction {
         output.summary =
             'This org has ' + summary.total + ' Apex classes in total.\n\n' +
             'Namespace Filter: ' + nsDisplay + '\n\n' +
-            '--- STANDARD / PACKAGE CLASSES (' + stdCount + ') — Do NOT delete ---\n' + standardList + '\n' +
-            '--- CUSTOM USED CLASSES (' + summary.used + ') — Actively in use ---\n' + usedList + '\n' +
-            '--- CUSTOM UNUSED CLASSES (' + summary.unused + ') — Safe to delete ---\n' + unusedList + '\n' +
-            '--- TEST CLASSES (' + tstCount + ') — Do NOT delete ---\n' + testList +
+            '--- ALL APEX CLASSES (' + summary.total + ') ---\n' + allApexList + '\n' +
+            MetadataConstants.SEC_USED_CLASSES + ' (' + summary.used + MetadataConstants.SEC_HINT_IN_USE + usedList + '\n' +
+            MetadataConstants.SEC_UNUSED_CLASSES + ' (' + summary.unused + MetadataConstants.SEC_HINT_SAFE_DELETE + unusedList + '\n' +
+            MetadataConstants.SEC_TEST_CLASSES + ' (' + tstCount + MetadataConstants.SEC_HINT_NO_DELETE + testList + '\n' +
+            MetadataConstants.SEC_STANDARD_CLASSES + ' (' + stdCount + MetadataConstants.SEC_HINT_NO_DELETE + standardList +
             (String.isNotBlank(namespaceFilter)
                 ? '\n\n--- FILTERED BY NAMESPACE: ' + namespaceFilter + ' (' + filteredTotal + ') ---\n' + filteredList
                 : '');
 
-        output.allApexObjects    = summary.filteredClasses;
+        output.allApexObjects = new List<MetadataEngine.ApexClassInfo>();
+        if (summary.unusedClasses != null) {
+            output.allApexObjects.addAll(summary.unusedClasses);
+        }
         output.unusedApexObjects = summary.unusedClasses;
         System.debug('APEX SUMMARY : ' + output.summary);
         return output;

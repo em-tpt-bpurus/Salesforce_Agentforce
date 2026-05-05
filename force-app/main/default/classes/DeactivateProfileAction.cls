@@ -33,7 +33,7 @@ public without sharing class DeactivateProfileAction {
             out.message = 'Profile name must be provided.';
             return out;
         }
-        String fallback = String.isBlank(fallbackProfileName) ? 'Standard User' : fallbackProfileName;
+        String fallback = String.isBlank(fallbackProfileName) ? MetadataConstants.DEFAULT_PROFILE : fallbackProfileName;
         MetadataEngine.DeleteResult r = MetadataEngine.deactivateProfileByName(profileName.trim(), fallback.trim());
         out.success = r.success;
         out.message  = r.message;

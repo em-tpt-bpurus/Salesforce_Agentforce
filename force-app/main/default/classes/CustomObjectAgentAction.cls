@@ -53,7 +53,7 @@ public without sharing class CustomObjectAgentAction {
     private static String buildObjectLine(Integer idx, MetadataEngine.CustomObjectInfo info) {
         return (idx + 1) + '. ' + info.name +
                (String.isNotBlank(info.namespacePrefix) ? ' [' + info.namespacePrefix + ']' : '') +
-               ' | Label: ' + (String.isNotBlank(info.label) ? info.label : 'N/A') + '\n';
+               MetadataConstants.COL_LABEL + (String.isNotBlank(info.label) ? info.label : MetadataConstants.NA) + '\n';
     }
 
     private static String buildObjectList(List<MetadataEngine.CustomObjectInfo> objects, String namespaceFilter, Boolean isFiltered) {
@@ -61,7 +61,7 @@ public without sharing class CustomObjectAgentAction {
             if (isFiltered && String.isNotBlank(namespaceFilter)) {
                 return 'No custom objects found with namespace: ' + namespaceFilter;
             }
-            return 'None';
+            return MetadataConstants.NONE;
         }
         String result = '';
         for (Integer i = 0; i < objects.size(); i++) {
@@ -76,7 +76,7 @@ public without sharing class CustomObjectAgentAction {
         String allList      = buildObjectList(summary.allObjects,      namespaceFilter, false);
         String filteredList = buildObjectList(summary.filteredObjects,  namespaceFilter, true);
 
-        String nsDisplay = String.isNotBlank(namespaceFilter) ? namespaceFilter : 'None (showing all)';
+        String nsDisplay = String.isNotBlank(namespaceFilter) ? namespaceFilter : MetadataConstants.NS_ALL;
 
         ObjectOutput output           = new ObjectOutput();
         output.totalCount             = String.valueOf(summary.total);
@@ -93,9 +93,9 @@ public without sharing class CustomObjectAgentAction {
             summary.withoutNamespace + ' do not.\n\n' +
             'Namespace Filter: ' + nsDisplay + '\n' +
             'Matching Objects: ' + output.filteredCount + '\n\n' +
-            '--- ALL CUSTOM OBJECTS (' + summary.total + ') ---\n' + allList + '\n' +
+            MetadataConstants.SEC_ALL_COMPONENTS + ' CUSTOM OBJECTS (' + summary.total + ') ---\n' + allList + '\n' +
             (String.isNotBlank(namespaceFilter)
-                ? '--- FILTERED BY NAMESPACE: ' + namespaceFilter + ' (' + output.filteredCount + ') ---\n' + filteredList
+                ? MetadataConstants.SEC_FILTERED_NS + namespaceFilter + ' (' + output.filteredCount + ') ---\n' + filteredList
                 : '');
 
         output.allObjectObjects = summary.allObjects;

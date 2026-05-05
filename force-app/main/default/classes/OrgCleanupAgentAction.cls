@@ -38,17 +38,88 @@ public without sharing class OrgCleanupAgentAction {
     private static final String ACTION_DELETE = 'delete';
     private static final String ACTION_QUERY  = 'query';
 
+    // ── Custom field/object suffix ────────────────────────────
+    private static final String  CUSTOM_SUFFIX    = '__c';
+
+    // ── Section separator width ───────────────────────────────
+    private static final Integer SEPARATOR_WIDTH  = 50;
+
+    // ── Help / hint message templates ────────────────────────
+    private static final String HELP_MESSAGE =
+        '👋 Hi! I can help you audit and clean your Salesforce org.\n\n'
+      + 'Try asking:\n'
+      + '  • "show unused flows"\n'
+      + '  • "which apex classes can be deleted?"\n'
+      + '  • "show apex + triggers"\n'
+      + '  • "show flows from managed packages"\n'
+      + '  • "list custom objects with no namespace"\n'
+      + '  • "show unassigned permission sets"\n'
+      + '  • "show inactive validation rules"\n'
+      + '  • "show lwc and aura components"\n'
+      + '  • "how many flows" — count only, no list\n'
+      + '  • "org summary" or "show everything"\n\n'
+      + 'Object & Field queries:\n'
+      + '  • "fields on Account"\n'
+      + '  • "what fields does MyObject__c have?"\n'
+      + '  • "describe Account" — label, field count, field list\n\n'
+      + 'Cross-type search:\n'
+      + '  • "find anything named LeadScoring"\n\n'
+      + 'Object-scoped queries:\n'
+      + '  • "flows on Account"\n'
+      + '  • "triggers on Account"\n'
+      + '  • "validation rules on Account"\n\n'
+      + 'Status & detail checks:\n'
+      + '  • "is MyFlow active?"\n'
+      + '  • "when was MyClass last modified"\n'
+      + '  • "how many lines in MyClass"\n\n'
+      + 'Org health:\n'
+      + '  • "org health check"\n'
+      + '  • "what should I clean up?"\n\n'
+      + '  • "delete apex class MyClass"\n'
+      + '  • "delete flow My_Flow_API_Name"\n'
+      + '  • "delete trigger AccountTrigger"\n'
+      + '  • "delete validation rule Account.MyRule"\n'
+      + '  • "delete permission set MyPermSet"\n'
+      + '  • "deactivate profile ReadOnly fallback Standard User"';
+
+    private static final String DELETE_HELP =
+        'What would you like to delete? Here are the supported formats:\n\n'
+      + '  • delete apex class MyClass\n'
+      + '  • delete flow My_Flow_API_Name\n'
+      + '  • delete trigger AccountTrigger\n'
+      + '  • delete lwc myComponent\n'
+      + '  • delete aura MyComponent\n'
+      + '  • delete field Account.EM_Usha\n'
+      + '  • delete field EM_Usha on Account\n'
+      + '  • delete validation rule Account.MyRule\n'
+      + '  • delete permission set MyPermSet\n'
+      + '  • delete custom object MyObject\n'
+      + '  • deactivate profile ReadOnly fallback "Standard User"';
+
+    // ── Section header labels ─────────────────────────────────
+    private static final String HDR_FLOWS         = '🔀 FLOWS';
+    private static final String HDR_APEX          = '⚡ APEX CLASSES';
+    private static final String HDR_TRIGGERS      = '⚡ TRIGGERS';
+    private static final String HDR_LWC           = '🔷 LWC COMPONENTS';
+    private static final String HDR_AURA          = '🔶 AURA COMPONENTS';
+    private static final String HDR_PROFILES      = '👤 PROFILES';
+    private static final String HDR_PERMSETS      = '🔑 PERMISSION SETS';
+    private static final String HDR_FIELDS        = '🗂️ CUSTOM FIELDS';
+    private static final String HDR_OBJECTS       = '🗄️ CUSTOM OBJECTS';
+    private static final String HDR_VR            = '✔️ VALIDATION RULES';
+
     // ── Query context wrapper — avoids long parameter lists ─
     @TestVisible
     private class QueryContext {
-        String intent;
-        String ns;
-        String lower;
+        String  intent;
+        String  ns;
+        String  lower;
         QueryContext(String intent, String ns, String lower) {
             this.intent = intent;
             this.ns     = ns;
             this.lower  = lower;
         }
+
     }
 
     // =========================================================
@@ -67,10 +138,55 @@ public without sharing class OrgCleanupAgentAction {
                 return handleDelete(lower, userQuery);
             }
 
+            // ── Greeting / thank-you intent ────────────────────
+            if (isGreetingIntent(lower)) {
+                return handleGreeting(lower);
+            }
+
+            // ── "Fields on Object" intent ──────────────────────
+            if (isFieldsOnObjectIntent(lower)) {
+                return handleFieldsOnObject(userQuery, lower);
+            }
+
+            // ── "Describe object" intent ───────────────────────
+            if (isDescribeObjectIntent(lower)) {
+                return handleDescribeObject(userQuery, lower);
+            }
+
+            // ── "Find anything named X" intent ────────────────
+            if (isFindByNameIntent(lower)) {
+                return handleFindByName(userQuery, lower);
+            }
+
+            // ── "How many X" count-only intent ────────────────
+            if (isCountOnlyIntent(lower)) {
+                return handleCountOnly(userQuery, lower);
+            }
+
+            // ── "X on Account" / type+object filter intent ────
+            if (isTypeOnObjectIntent(lower)) {
+                return handleTypeOnObject(userQuery, lower);
+            }
+
+            // ── Status check: "is X active" ───────────────────
+            if (isStatusCheckIntent(lower)) {
+                return handleStatusCheck(userQuery, lower);
+            }
+
+            // ── Component details: last modified / line count ──
+            if (isComponentDetailIntent(lower)) {
+                return handleComponentDetail(userQuery, lower);
+            }
+
+            // ── Org health / cleanup report ────────────────────
+            if (isOrgHealthIntent(lower)) {
+                return handleOrgHealth();
+            }
+
             // ── Query intent ───────────────────────────────────
-            List<String>  types  = detectTypes(lower);
-            String        intent = detectIntent(lower);
-            String        ns     = extractNamespace(userQuery, lower);
+            List<String>  types   = detectTypes(lower);
+            String        intent  = detectIntent(lower);
+            String        ns      = extractNamespace(userQuery, lower);
             QueryContext  ctx    = new QueryContext(intent, ns, lower);
 
             if (types.isEmpty()) {
@@ -83,7 +199,7 @@ public without sharing class OrgCleanupAgentAction {
                 sections.add(buildSection(t, ctx));
             }
 
-            String combined = String.join(sections, '\n' + repeat('─', 50) + '\n\n');
+            String combined = String.join(sections, '\n' + repeat('─', SEPARATOR_WIDTH) + '\n\n');
 
             // Add header if multiple types were matched
             if (types.size() > 1) {
@@ -102,9 +218,12 @@ public without sharing class OrgCleanupAgentAction {
     // DELETE HANDLER
     // =========================================================
     private static Boolean isDeleteIntent(String lower) {
-        return lower.startsWith('delete ') || lower.startsWith('remove ') ||
-               lower.contains('delete the ') || lower.contains('remove the ');
+        return lower.startsWith('delete ')     || lower.startsWith('remove ')     ||
+               lower.startsWith('deactivate ') || lower.contains('delete the ')  ||
+               lower.contains('remove the ');
     }
+
+
 
     private static String handleDelete(String lower, String originalQuery) {
         // ── Detect type — most specific first to avoid wrong matches ──
@@ -203,11 +322,11 @@ public without sharing class OrgCleanupAgentAction {
                 List<String> parts = fieldToken.split('\\.');
                 if (parts.size() == 2) {
                     objectName = parts[0].trim();
-                    fieldName  = parts[1].trim().replace('__c', '').replace('__C', '');
+                    fieldName  = parts[1].trim().replace(CUSTOM_SUFFIX, '').replace(CUSTOM_SUFFIX.toUpperCase(), '');
                 }
             } else if (String.isNotBlank(objectName)) {
                 // "on" notation: EM_Usha on Account
-                fieldName = fieldToken.trim().replace('__c', '').replace('__C', '');
+                fieldName = fieldToken.trim().replace(CUSTOM_SUFFIX, '').replace(CUSTOM_SUFFIX.toUpperCase(), '');
             }
         }
 
@@ -269,18 +388,7 @@ public without sharing class OrgCleanupAgentAction {
     }
 
     private static String buildDeleteHelp() {
-        return 'What would you like to delete? Here are the supported formats:\n\n' +
-               '  • delete apex class MyClass\n' +
-               '  • delete flow My_Flow_API_Name\n' +
-               '  • delete trigger AccountTrigger\n' +
-               '  • delete lwc myComponent\n' +
-               '  • delete aura MyComponent\n' +
-               '  • delete field Account.EM_Usha\n' +
-               '  • delete field EM_Usha on Account\n' +
-               '  • delete validation rule Account.MyRule\n' +
-               '  • delete permission set MyPermSet\n' +
-               '  • delete custom object MyObject\n' +
-               '  • deactivate profile ReadOnly fallback "Standard User"';
+        return DELETE_HELP;
     }
 
     private static String extractDeleteName(String query, String type) {
@@ -296,9 +404,12 @@ public without sharing class OrgCleanupAgentAction {
 
         String candidate = stripped.trim();
 
-        // Must look like an API name (letters, numbers, underscores)
-        if (candidate.length() > 0 && Pattern.matches('[A-Za-z][A-Za-z0-9_]*', candidate.split('\\s+')[0])) {
-            return candidate.split('\\s+')[0];
+        // Must look like an API name — supports simple names AND dotted (Object.Field)
+        if (candidate.length() > 0) {
+            String token = candidate.split('\\s+')[0];
+            if (Pattern.matches('[A-Za-z][A-Za-z0-9_.]*', token)) {
+                return token;
+            }
         }
         return null;
     }
@@ -332,9 +443,27 @@ public without sharing class OrgCleanupAgentAction {
     private static List<String> detectTypes(String lower) {
         List<String> types = new List<String>();
 
+        // ── Catch-all queries: show all metadata types ─────────
+        Boolean isAllQuery = lower.contains('everything')     || lower.contains('all metadata') ||
+                             lower.contains('full summary')   || lower.contains('org summary')  ||
+                             lower.contains('overview')       || lower.contains('full report');
+        if (isAllQuery) {
+            return new List<String>{ TYPE_FLOW, TYPE_APEX, TYPE_TRIGGER, TYPE_LWC,
+                                     TYPE_AURA, TYPE_PROFILE, TYPE_PERMSET,
+                                     TYPE_FIELD, TYPE_OBJECT, TYPE_VR };
+        }
+
         if (lower.contains('flow'))                                                              types.add(TYPE_FLOW);
-        if (lower.contains('apex') || lower.contains('apex class') || lower.contains('class'))  types.add(TYPE_APEX);
+        // trigger keyword → triggers only
         if (lower.contains('trigger'))                                                           types.add(TYPE_TRIGGER);
+        // 'apex class' or 'class' explicitly → classes only
+        if ((lower.contains('apex') && lower.contains('class')) ||
+            (lower.contains('class') && !lower.contains('trigger') && !lower.contains('object'))) types.add(TYPE_APEX);
+        // 'apex' alone (no 'class', no 'trigger') → show BOTH apex classes + triggers
+        if (lower.contains('apex') && !lower.contains('class') && !lower.contains('trigger')) {
+            types.add(TYPE_APEX);
+            types.add(TYPE_TRIGGER);
+        }
         if (lower.contains('lwc') || lower.contains('lightning web') ||
             lower.contains('lightning component'))                                               types.add(TYPE_LWC);
         if (lower.contains('aura'))                                                              types.add(TYPE_AURA);
@@ -362,7 +491,7 @@ public without sharing class OrgCleanupAgentAction {
             lower.contains('safe to remove') || lower.contains('no reference')    ||
             lower.contains('not referenced') || lower.contains('not used')        ||
             lower.contains('never used')     || lower.contains('cleanup')         ||
-            lower.contains('clean up')       || lower.contains('which')           && lower.contains('delet') ||
+            lower.contains('clean up')       || (lower.contains('which') && lower.contains('delet')) ||
             lower.contains('unassigned')     || lower.contains('no assignment')) {
             return INTENT_UNUSED;
         }
@@ -388,6 +517,13 @@ public without sharing class OrgCleanupAgentAction {
             return INTENT_UNMANAGED;
         }
 
+        // Count / summary queries — show all with totals
+        if (lower.contains('how many') || lower.contains('count')  ||
+            lower.contains('total')    || lower.contains('summary') ||
+            lower.contains('report')) {
+            return INTENT_ALL;
+        }
+
         // Default — show all
         return INTENT_ALL;
     }
@@ -409,7 +545,12 @@ public without sharing class OrgCleanupAgentAction {
             'permission','sets','set','modified','last','days','old','recent',
             'managed','package','packages','installed','from','not','without','with',
             'namespace','custom','only','unmanaged','can','be','deleted','safe',
-            'remove','which','never','used','assigned','referenced','in','use'
+            'remove','which','never','used','assigned','referenced','in','use',
+            // additional stop words to prevent false namespace extraction
+            'give','me','a','an','of','and','or','to','for','are','is','was',
+            'validation','trigger','aura','components','component','classes',
+            'flows','triggers','profiles','permsets','please','want','need',
+            'count','how','many','total','summary','report','everything','overview'
         };
 
         // Pattern 1: "from namespace X" / "in namespace X" / "belonging to X"
@@ -458,7 +599,7 @@ public without sharing class OrgCleanupAgentAction {
 
     // ── FLOWS ─────────────────────────────────────────────────
     private static String buildFlowResponse(MetadataEngine.FlowSummary s, QueryContext ctx) {
-        String resp = '🔀 FLOWS\n'
+        String resp = HDR_FLOWS + '\n'
                     + 'Total: ' + s.total + '  |  Active: ' + s.active + '  |  Inactive: ' + s.inactive + '\n\n';
 
         List<MetadataEngine.FlowInfo> all = s.allFlowObjects != null ? s.allFlowObjects : new List<MetadataEngine.FlowInfo>();
@@ -500,7 +641,6 @@ public without sharing class OrgCleanupAgentAction {
             Integer i = 1;
             for (MetadataEngine.FlowInfo f : all) {
                 if (f.isActive) {
-                    if (i > 30) { resp += '  ... and ' + (s.active - 30) + ' more.\n'; break; }
                     resp += formatItem(i++, f.label, f.apiName, f.processType != null ? f.processType : 'Flow');
                 }
             }
@@ -537,7 +677,6 @@ public without sharing class OrgCleanupAgentAction {
             resp += '--- ✅ ACTIVE (' + activeList.size() + ') ---\n\n';
             Integer i = 1;
             for (MetadataEngine.FlowInfo f : activeList) {
-                if (i > 20) { resp += '  ... and ' + (activeList.size() - 20) + ' more.\n'; break; }
                 resp += formatItem(i++, f.label, f.apiName, f.processType != null ? f.processType : 'Flow');
             }
             resp += '\n';
@@ -554,7 +693,7 @@ public without sharing class OrgCleanupAgentAction {
 
     // ── APEX CLASSES ──────────────────────────────────────────
     private static String buildApexResponse(MetadataEngine.ApexSummary s, QueryContext ctx) {
-        String resp = '⚡ APEX CLASSES\n'
+        String resp = HDR_APEX + '\n'
                     + 'Total: ' + s.total + '  |  Used: ' + s.used + '  |  Unused: ' + s.unused
                     + '  |  Test: ' + s.testCount + '  |  Standard/Package: ' + s.standard + '\n\n';
 
@@ -622,7 +761,6 @@ public without sharing class OrgCleanupAgentAction {
             if (s.usedClassNames != null) {
                 Integer i = 1;
                 for (String n : s.usedClassNames) {
-                    if (i > 20) { resp += '  ... and ' + (s.used - 20) + ' more.\n'; break; }
                     resp += formatItem(i++, n, n, 'Apex Class');
                 }
             }
@@ -648,7 +786,6 @@ public without sharing class OrgCleanupAgentAction {
             resp += '--- ✅ USED (' + s.used + ') ---\n\n';
             Integer i = 1;
             for (String n : s.usedClassNames) {
-                if (i > 20) { resp += '  ... and ' + (s.used - 20) + ' more.\n'; break; }
                 resp += formatItem(i++, n, n, 'Apex Class');
             }
             resp += '\n';
@@ -659,13 +796,21 @@ public without sharing class OrgCleanupAgentAction {
             for (String n : s.testClassNames) {
                 resp += formatItem(i++, n, n, 'Apex Class (Test)');
             }
+            resp += '\n';
+        }
+        if (s.standardClassNames != null && !s.standardClassNames.isEmpty()) {
+            resp += '--- 📦 STANDARD/PACKAGE (' + s.standard + ') ---\n\n';
+            Integer i = 1;
+            for (String n : s.standardClassNames) {
+                resp += formatItem(i++, n, n, 'Apex Class');
+            }
         }
         return resp;
     }
 
     // ── TRIGGERS ──────────────────────────────────────────────
     private static String buildTriggerResponse(MetadataEngine.TriggerSummary s, QueryContext ctx) {
-        String resp = '⚡ TRIGGERS\n'
+        String resp = HDR_TRIGGERS + '\n'
                     + 'Total: ' + s.total + '  |  Active: ' + s.active + '  |  Inactive: ' + s.inactive
                     + '  |  Used: ' + s.used + '  |  Unused: ' + s.unused + '\n\n';
 
@@ -733,7 +878,7 @@ public without sharing class OrgCleanupAgentAction {
 
     // ── LWC ───────────────────────────────────────────────────
     private static String buildLwcResponse(MetadataEngine.LwcSummary s, QueryContext ctx) {
-        String resp = '🔷 LWC COMPONENTS\n'
+        String resp = HDR_LWC + '\n'
                     + 'Total: ' + s.total + '  |  With namespace: ' + s.withNamespace
                     + '  |  No namespace: ' + s.withoutNamespace + '\n\n';
 
@@ -776,7 +921,6 @@ public without sharing class OrgCleanupAgentAction {
         if (s.allComponents != null && !s.allComponents.isEmpty()) {
             Integer i = 1;
             for (MetadataEngine.LwcComponentInfo c : s.allComponents) {
-                if (i > 30) { resp += '  ... and ' + (s.total - 30) + ' more.\n'; break; }
                 String apiName = String.isNotBlank(c.namespacePrefix) ? c.namespacePrefix + '__' + c.name : c.name;
                 resp += formatItem(i++, c.name, apiName, 'LWC Component');
             }
@@ -788,7 +932,7 @@ public without sharing class OrgCleanupAgentAction {
 
     // ── AURA ──────────────────────────────────────────────────
     private static String buildAuraResponse(MetadataEngine.AuraSummary s, QueryContext ctx) {
-        String resp = '🔶 AURA COMPONENTS\n'
+        String resp = HDR_AURA + '\n'
                     + 'Total: ' + s.total + '  |  With namespace: ' + s.withNamespace
                     + '  |  No namespace: ' + s.withoutNamespace + '\n\n';
 
@@ -831,7 +975,6 @@ public without sharing class OrgCleanupAgentAction {
         if (s.allComponents != null && !s.allComponents.isEmpty()) {
             Integer i = 1;
             for (MetadataEngine.AuraComponentInfo c : s.allComponents) {
-                if (i > 30) { resp += '  ... and ' + (s.total - 30) + ' more.\n'; break; }
                 String apiName = String.isNotBlank(c.namespacePrefix) ? c.namespacePrefix + '__' + c.name : c.name;
                 resp += formatItem(i++, c.name, apiName, 'Aura Component');
             }
@@ -843,7 +986,7 @@ public without sharing class OrgCleanupAgentAction {
 
     // ── PROFILES ──────────────────────────────────────────────
     private static String buildProfileResponse(MetadataEngine.ProfileSummary s, QueryContext ctx) {
-        String resp = '👤 PROFILES\n'
+        String resp = HDR_PROFILES + '\n'
                     + 'Total: ' + s.total + '  |  Assigned: ' + s.used + '  |  Unassigned: ' + s.unused + '\n\n';
 
         if (ctx.intent == INTENT_UNUSED) {
@@ -890,7 +1033,7 @@ public without sharing class OrgCleanupAgentAction {
 
     // ── PERMISSION SETS ───────────────────────────────────────
     private static String buildPermSetResponse(MetadataEngine.PermissionSetSummary s, QueryContext ctx) {
-        String resp = '🔑 PERMISSION SETS\n'
+        String resp = HDR_PERMSETS + '\n'
                     + 'Total: ' + s.total + '  |  Assigned: ' + s.used + '  |  Unassigned: ' + s.unused + '\n\n';
 
         if (ctx.intent == INTENT_UNUSED) {
@@ -916,7 +1059,7 @@ public without sharing class OrgCleanupAgentAction {
             return resp;
         }
 
-        // Default
+        // Default — all sections
         if (!s.usedPermSets.isEmpty()) {
             resp += '--- ✅ ASSIGNED (' + s.used + ') ---\n\n';
             Integer i = 1;
@@ -937,7 +1080,7 @@ public without sharing class OrgCleanupAgentAction {
 
     // ── CUSTOM FIELDS ─────────────────────────────────────────
     private static String buildFieldResponse(MetadataEngine.CustomFieldSummary s, QueryContext ctx) {
-        String resp = '🗂️ CUSTOM FIELDS\n'
+        String resp = HDR_FIELDS + '\n'
                     + 'Total: ' + s.total + '  |  With namespace: ' + s.withNamespace
                     + '  |  No namespace: ' + s.withoutNamespace + '\n\n';
 
@@ -971,7 +1114,6 @@ public without sharing class OrgCleanupAgentAction {
                 Integer i = 1;
                 for (MetadataEngine.CustomFieldInfo f : s.allFields) {
                     if (String.isBlank(f.namespacePrefix)) {
-                        if (i > 30) { resp += '  ... and more. Use namespace filter.\n'; break; }
                         resp += formatItem(i++, f.name, f.objectName + '.' + f.name, 'Custom Field');
                     }
                 }
@@ -984,7 +1126,6 @@ public without sharing class OrgCleanupAgentAction {
         if (s.allFields != null && !s.allFields.isEmpty()) {
             Integer i = 1;
             for (MetadataEngine.CustomFieldInfo f : s.allFields) {
-                if (i > 30) { resp += '  ... and ' + (s.total - 30) + ' more. Use namespace filter.\n'; break; }
                 resp += formatItem(i++, f.name, f.objectName + '.' + f.name, 'Custom Field');
             }
         } else {
@@ -995,7 +1136,7 @@ public without sharing class OrgCleanupAgentAction {
 
     // ── CUSTOM OBJECTS ────────────────────────────────────────
     private static String buildObjectResponse(MetadataEngine.CustomObjectSummary s, QueryContext ctx) {
-        String resp = '🗄️ CUSTOM OBJECTS\n'
+        String resp = HDR_OBJECTS + '\n'
                     + 'Total: ' + s.total + '  |  With namespace: ' + s.withNamespace
                     + '  |  No namespace: ' + s.withoutNamespace + '\n\n';
 
@@ -1003,7 +1144,7 @@ public without sharing class OrgCleanupAgentAction {
             resp += 'Namespace filter: ' + ctx.ns + ' (' + (s.filteredObjects != null ? s.filteredObjects.size() : 0) + ' matching)\n';
             if (s.filteredObjects != null && !s.filteredObjects.isEmpty()) {
                 for (MetadataEngine.CustomObjectInfo o : s.filteredObjects) {
-                    resp += '  * ' + o.name + '__c' + (String.isNotBlank(o.namespacePrefix) ? ' [' + o.namespacePrefix + ']' : '') + '\n';
+                    resp += '  * ' + o.name + CUSTOM_SUFFIX + (String.isNotBlank(o.namespacePrefix) ? ' [' + o.namespacePrefix + ']' : '') + '\n';
                 }
             } else {
                 resp += '  No objects found for namespace "' + ctx.ns + '".\n';
@@ -1017,7 +1158,7 @@ public without sharing class OrgCleanupAgentAction {
                 Integer i = 1;
                 for (MetadataEngine.CustomObjectInfo o : s.allObjects) {
                     if (String.isNotBlank(o.namespacePrefix))
-                        resp += formatItem(i++, o.label, o.name + '__c', 'Custom Object');
+                        resp += formatItem(i++, o.label, o.name + CUSTOM_SUFFIX, 'Custom Object');
                 }
             }
             return resp;
@@ -1029,7 +1170,7 @@ public without sharing class OrgCleanupAgentAction {
                 Integer i = 1;
                 for (MetadataEngine.CustomObjectInfo o : s.allObjects) {
                     if (String.isBlank(o.namespacePrefix))
-                        resp += formatItem(i++, o.label, o.name + '__c', 'Custom Object');
+                        resp += formatItem(i++, o.label, o.name + CUSTOM_SUFFIX, 'Custom Object');
                 }
             }
             return resp;
@@ -1040,7 +1181,7 @@ public without sharing class OrgCleanupAgentAction {
         if (s.allObjects != null && !s.allObjects.isEmpty()) {
             Integer i = 1;
             for (MetadataEngine.CustomObjectInfo o : s.allObjects) {
-                resp += formatItem(i++, o.label, o.name + '__c', 'Custom Object');
+                resp += formatItem(i++, o.label, o.name + CUSTOM_SUFFIX, 'Custom Object');
             }
         } else {
             resp += 'None found.\n';
@@ -1050,7 +1191,7 @@ public without sharing class OrgCleanupAgentAction {
 
     // ── VALIDATION RULES ──────────────────────────────────────
     private static String buildVrResponse(MetadataEngine.ValidationRuleSummary s, QueryContext ctx) {
-        String resp = '✔️ VALIDATION RULES\n'
+        String resp = HDR_VR + '\n'
                     + 'Total: ' + s.total + '  |  Active: ' + s.active + '  |  Inactive: ' + s.inactive + '\n\n';
 
         if (String.isNotBlank(ctx.ns)) {
@@ -1085,7 +1226,6 @@ public without sharing class OrgCleanupAgentAction {
             if (s.activeRules != null) {
                 Integer i = 1;
                 for (MetadataEngine.ValidationRuleInfo v : s.activeRules) {
-                    if (i > 20) { resp += '  ... and ' + (s.active - 20) + ' more.\n'; break; }
                     resp += formatItem(i++, v.name, v.objectName + '.' + v.name, 'Validation Rule');
                 }
             }
@@ -1097,7 +1237,6 @@ public without sharing class OrgCleanupAgentAction {
             resp += '--- ✅ ACTIVE (' + s.active + ') ---\n\n';
             Integer i = 1;
             for (MetadataEngine.ValidationRuleInfo v : s.activeRules) {
-                if (i > 20) { resp += '  ... and ' + (s.active - 20) + ' more.\n'; break; }
                 resp += formatItem(i++, v.name, v.objectName + '.' + v.name, 'Validation Rule');
             }
             resp += '\n';
@@ -1124,31 +1263,6 @@ public without sharing class OrgCleanupAgentAction {
                '   Type     : ' + type + '\n';
     }
 
-    private static String listItems(List<String> items, String header, String prefix) {
-        if (items == null || items.isEmpty()) return '';
-        String result = (String.isNotBlank(header) ? header + '\n' : '');
-        for (String item : items) {
-            result += prefix + item + '\n';
-        }
-        return result + '\n';
-    }
-
-    private static String listItemsCapped(List<String> items, String prefix, Integer cap) {
-        if (items == null || items.isEmpty()) return '';
-        String result = '';
-        Integer shown = 0;
-        for (String item : items) {
-            if (shown >= cap) { result += '  ... and ' + (items.size() - cap) + ' more.\n'; break; }
-            result += prefix + item + '\n'; shown++;
-        }
-        return result;
-    }
-
-    private static String formatDate(String isoDate) {
-        if (String.isBlank(isoDate)) return 'unknown';
-        return isoDate.length() >= 10 ? isoDate.substring(0, 10) : isoDate;
-    }
-
     private static String repeat(String ch, Integer times) {
         String result = '';
         for (Integer i = 0; i < times; i++) {
@@ -1158,21 +1272,689 @@ public without sharing class OrgCleanupAgentAction {
     }
 
     private static String helpMessage() {
-        return '👋 Hi! I can help you audit and clean your Salesforce org.\n\n'
-             + 'Try asking:\n'
-             + '  • "show unused flows"\n'
-             + '  • "which apex classes can be deleted?"\n'
-             + '  • "show apex + triggers"\n'
-             + '  • "show flows from managed packages"\n'
-             + '  • "list custom objects with no namespace"\n'
-             + '  • "show unassigned permission sets"\n'
-             + '  • "show inactive validation rules"\n'
-             + '  • "show lwc and aura components"\n\n'
-             + 'To delete:\n'
-             + '  • "delete apex class MyClass"\n'
-             + '  • "delete flow My_Flow_API_Name"\n'
-             + '  • "delete trigger AccountTrigger"\n'
-             + '  • "delete validation rule Account.MyRule"\n'
-             + '  • "delete permission set MyPermSet"';
+        return HELP_MESSAGE;
+    }
+
+    // =========================================================
+    // ── NEW FEATURES ─────────────────────────────────────────
+    // =========================================================
+
+    // ── GREETING / THANK-YOU ──────────────────────────────────
+    private static Boolean isGreetingIntent(String lower) {
+        return lower.equals('hello') || lower.equals('hi') || lower.equals('hey') ||
+               lower.startsWith('hello') || lower.startsWith('hi ') ||
+               lower.contains('thank') || lower.contains('thanks') ||
+               lower.equals('help') || lower.startsWith('help ') || lower.equals('what can you do') ||
+               lower.contains('what can you do') || lower.contains('capabilities');
+    }
+
+    private static String handleGreeting(String lower) {
+        if (lower.contains('thank')) {
+            return '😊 You\'re welcome! Let me know if there\'s anything else you\'d like to audit or clean up in your org.';
+        }
+        if (lower.contains('help') || lower.contains('what can you do') || lower.contains('capabilities')) {
+            return HELP_MESSAGE +
+                '\n\nAdditional queries you can try:\n' +
+                '  • \"fields on Account\" or \"what fields does MyObject__c have?\"\n' +
+                '  • \"describe Account\" — label, field count, field list\n' +
+                '  • \"find anything named LeadScoring\" — searches all metadata types\n' +
+                '  • \"how many flows\" — count only, no full list\n' +
+                '  • \"flows on Account\" — flows related to a specific object\n' +
+                '  • \"triggers on Account\" — triggers for a specific object\n' +
+                '  • \"is MyFlow active\" — quick status check\n' +
+                '  • \"when was MyClass last modified\" — last modified date\n' +
+                '  • \"how many lines in MyClass\" — line count\n' +
+                '  • \"org health check\" or \"what should I clean up?\" — full health report';
+        }
+        return '👋 Hi there! I\'m your Salesforce Org Metadata Assistant.\n\n' +
+               'I can help you audit flows, Apex classes, triggers, LWC, Aura components, profiles, permission sets, custom fields, objects, and validation rules.\n\n' +
+               'Type \"help\" to see everything I can do, or just ask me something like:\n' +
+               '  • \"show unused flows\"\n' +
+               '  • \"fields on Account\"\n' +
+               '  • \"org health check\"';
+    }
+
+    // ── FIELDS ON OBJECT ──────────────────────────────────────
+    private static Boolean isFieldsOnObjectIntent(String lower) {
+        return (lower.contains('field') && lower.contains(' on ')) ||
+               lower.startsWith('fields on ') ||
+               lower.contains('what fields') ||
+               lower.contains('fields does') ||
+               lower.contains('fields of ') ||
+               lower.contains('fields for ');
+    }
+
+    private static String handleFieldsOnObject(String originalQuery, String lower) {
+        String objectName = extractObjectNameFromQuery(originalQuery, lower);
+        if (String.isBlank(objectName)) {
+            return '⚠️ Please specify an object name.\nExamples:\n  • fields on Account\n  • what fields does MyObject__c have?';
+        }
+
+        String fullObjName = objectName.endsWith('__c') ? objectName : objectName;
+
+        try {
+            Schema.SObjectType sot = Schema.getGlobalDescribe().get(fullObjName);
+            if (sot == null) {
+                sot = Schema.getGlobalDescribe().get(fullObjName + '__c');
+                if (sot != null) fullObjName = fullObjName + '__c';
+            }
+            if (sot == null) {
+                return '❌ Object not found: \"' + objectName + '\". Check the API name and try again.';
+            }
+
+            Schema.DescribeSObjectResult describe = sot.getDescribe();
+            Map<String, Schema.SObjectField> fieldsMap = describe.fields.getMap();
+
+            String resp = '🗂️ Fields on ' + describe.getLabel() + ' (' + fullObjName + ')\n';
+            resp += 'Total fields: ' + fieldsMap.size() + '\n\n';
+
+            List<String> customFields  = new List<String>();
+            List<String> standardFields = new List<String>();
+
+            for (String fieldKey : fieldsMap.keySet()) {
+                Schema.DescribeFieldResult f = fieldsMap.get(fieldKey).getDescribe();
+                String line = '  ' + f.getLabel() + ' (' + f.getName() + ') [' + f.getType() + ']';
+                if (f.isCustom()) {
+                    customFields.add(line);
+                } else {
+                    standardFields.add(line);
+                }
+            }
+
+            if (!customFields.isEmpty()) {
+                resp += '--- CUSTOM FIELDS (' + customFields.size() + ') ---\n';
+                for (String f : customFields) resp += f + '\n';
+                resp += '\n';
+            }
+            if (!standardFields.isEmpty()) {
+                resp += '--- STANDARD FIELDS (' + standardFields.size() + ') ---\n';
+                for (String f : standardFields) resp += f + '\n';
+            }
+
+            return resp;
+
+        } catch (Exception ex) {
+            return '❌ Error fetching fields for \"' + objectName + '\": ' + ex.getMessage();
+        }
+    }
+
+    // ── DESCRIBE OBJECT ───────────────────────────────────────
+    private static Boolean isDescribeObjectIntent(String lower) {
+        return lower.startsWith('describe ') ||
+               lower.contains('describe the object') ||
+               lower.contains('tell me about ') && lower.contains('object');
+    }
+
+    private static String handleDescribeObject(String originalQuery, String lower) {
+        // Extract object name after "describe"
+        String objectName = null;
+        List<String> words = originalQuery.trim().split('\\s+');
+        for (Integer i = 0; i < words.size(); i++) {
+            if (words[i].equalsIgnoreCase('describe') && i + 1 < words.size()) {
+                objectName = words[i + 1].replaceAll('[^A-Za-z0-9_]', '');
+                break;
+            }
+        }
+
+        if (String.isBlank(objectName)) {
+            return '⚠️ Please specify an object name.\nExample: describe Account';
+        }
+
+        try {
+            String fullObjName = objectName;
+            Schema.SObjectType sot = Schema.getGlobalDescribe().get(fullObjName);
+            if (sot == null) {
+                sot = Schema.getGlobalDescribe().get(fullObjName + '__c');
+                if (sot != null) fullObjName = fullObjName + '__c';
+            }
+            if (sot == null) {
+                return '❌ Object not found: \"' + objectName + '\". Check the API name.';
+            }
+
+            Schema.DescribeSObjectResult d = sot.getDescribe();
+            Map<String, Schema.SObjectField> fieldsMap = d.fields.getMap();
+
+            Integer customCount   = 0;
+            Integer standardCount = 0;
+            List<String> customFieldNames = new List<String>();
+
+            for (String fKey : fieldsMap.keySet()) {
+                Schema.DescribeFieldResult f = fieldsMap.get(fKey).getDescribe();
+                if (f.isCustom()) {
+                    customCount++;
+                    customFieldNames.add(f.getLabel() + ' (' + f.getName() + ')');
+                } else {
+                    standardCount++;
+                }
+            }
+
+            String resp = '🗄️ Object Description: ' + fullObjName + '\n\n';
+            resp += '  Label         : ' + d.getLabel() + '\n';
+            resp += '  API Name      : ' + d.getName() + '\n';
+            resp += '  Label Plural  : ' + d.getLabelPlural() + '\n';
+            resp += '  Key Prefix    : ' + d.getKeyPrefix() + '\n';
+            resp += '  Total Fields  : ' + fieldsMap.size() + '\n';
+            resp += '  Custom Fields : ' + customCount + '\n';
+            resp += '  Standard Fields: ' + standardCount + '\n';
+            resp += '  Createable    : ' + d.isCreateable() + '\n';
+            resp += '  Queryable     : ' + d.isQueryable() + '\n\n';
+
+            if (!customFieldNames.isEmpty()) {
+                resp += '--- CUSTOM FIELDS (' + customCount + ') ---\n';
+                for (String fn : customFieldNames) resp += '  • ' + fn + '\n';
+            }
+
+            return resp;
+
+        } catch (Exception ex) {
+            return '❌ Error describing \"' + objectName + '\": ' + ex.getMessage();
+        }
+    }
+
+    // ── FIND BY NAME (cross-type search) ──────────────────────
+    private static Boolean isFindByNameIntent(String lower) {
+        return lower.startsWith('find ') || lower.startsWith('search ') ||
+               lower.contains('find anything named') || lower.contains('search for ') ||
+               lower.contains('look for ') || lower.contains('find anything with');
+    }
+
+    private static String handleFindByName(String originalQuery, String lower) {
+        // Extract search term
+        String searchTerm = null;
+        String[] patterns = new String[]{ 'find anything named ', 'find anything with ', 'search for ', 'look for ', 'find ', 'search ' };
+        for (String p : patterns) {
+            if (lower.startsWith(p)) {
+                searchTerm = originalQuery.substring(p.length()).trim();
+                break;
+            }
+        }
+        if (String.isBlank(searchTerm) || searchTerm.length() < 2) {
+            return '⚠️ Please provide a search term of at least 2 characters.\nExamples:\n  • find anything named LeadScoring\n  • search for Account';
+        }
+
+        String termLower = searchTerm.toLowerCase();
+        List<String> results = new List<String>();
+
+        // Search Flows
+        MetadataEngine.FlowSummary flows = MetadataEngine.getFlows(null);
+        if (flows.allFlowObjects != null) {
+            for (MetadataEngine.FlowInfo f : flows.allFlowObjects) {
+                if ((f.label != null && f.label.toLowerCase().contains(termLower)) ||
+                    (f.apiName != null && f.apiName.toLowerCase().contains(termLower))) {
+                    results.add('🔀 Flow: ' + f.label + ' (' + f.apiName + ') — ' + (f.isActive ? 'Active' : 'Inactive'));
+                }
+            }
+        }
+
+        // Search Apex Classes
+        MetadataEngine.ApexSummary apex = MetadataEngine.getApexClasses(null);
+        Map<String, MetadataEngine.ApexClassInfo> allApex = new Map<String, MetadataEngine.ApexClassInfo>();
+        if (apex.unusedClasses != null) for (MetadataEngine.ApexClassInfo c : apex.unusedClasses) allApex.put(c.name, c);
+        if (apex.usedClassNames != null) for (String n : apex.usedClassNames) if (!allApex.containsKey(n)) allApex.put(n, null);
+        for (String n : allApex.keySet()) {
+            if (n.toLowerCase().contains(termLower)) {
+                results.add('⚡ Apex Class: ' + n);
+            }
+        }
+
+        // Search Triggers
+        MetadataEngine.TriggerSummary trigs = MetadataEngine.getTriggers(null);
+        List<MetadataEngine.TriggerInfo> allTrigs = new List<MetadataEngine.TriggerInfo>();
+        if (trigs.activeTriggers != null) allTrigs.addAll(trigs.activeTriggers);
+        if (trigs.inactiveTriggers != null) allTrigs.addAll(trigs.inactiveTriggers);
+        for (MetadataEngine.TriggerInfo t : allTrigs) {
+            if (t.name != null && t.name.toLowerCase().contains(termLower)) {
+                results.add('⚡ Trigger: ' + t.name + ' on ' + t.objectName + ' — ' + (t.isActive ? 'Active' : 'Inactive'));
+            }
+        }
+
+        // Search LWC
+        MetadataEngine.LwcSummary lwc = MetadataEngine.getLwcComponents(null);
+        if (lwc.allComponents != null) {
+            for (MetadataEngine.LwcComponentInfo c : lwc.allComponents) {
+                if (c.name != null && c.name.toLowerCase().contains(termLower)) {
+                    results.add('🔷 LWC: ' + c.name);
+                }
+            }
+        }
+
+        // Search Aura
+        MetadataEngine.AuraSummary aura = MetadataEngine.getAuraComponents(null);
+        if (aura.allComponents != null) {
+            for (MetadataEngine.AuraComponentInfo c : aura.allComponents) {
+                if (c.name != null && c.name.toLowerCase().contains(termLower)) {
+                    results.add('🔶 Aura: ' + c.name);
+                }
+            }
+        }
+
+        // Search Custom Objects
+        MetadataEngine.CustomObjectSummary objs = MetadataEngine.getCustomObjects(null);
+        if (objs.allObjects != null) {
+            for (MetadataEngine.CustomObjectInfo o : objs.allObjects) {
+                if ((o.name != null && o.name.toLowerCase().contains(termLower)) ||
+                    (o.label != null && o.label.toLowerCase().contains(termLower))) {
+                    results.add('🗄️ Custom Object: ' + o.name + '__c (' + o.label + ')');
+                }
+            }
+        }
+
+        // Search Custom Fields
+        MetadataEngine.CustomFieldSummary fields = MetadataEngine.getCustomFields(null);
+        if (fields.allFields != null) {
+            for (MetadataEngine.CustomFieldInfo f : fields.allFields) {
+                if (f.name != null && f.name.toLowerCase().contains(termLower)) {
+                    results.add('🗂️ Custom Field: ' + f.objectName + '.' + f.name + '__c');
+                }
+            }
+        }
+
+        // Search Validation Rules
+        MetadataEngine.ValidationRuleSummary vrs = MetadataEngine.getValidationRules(null);
+        List<MetadataEngine.ValidationRuleInfo> allVrs = new List<MetadataEngine.ValidationRuleInfo>();
+        if (vrs.activeRules != null) allVrs.addAll(vrs.activeRules);
+        if (vrs.inactiveRules != null) allVrs.addAll(vrs.inactiveRules);
+        for (MetadataEngine.ValidationRuleInfo v : allVrs) {
+            if (v.name != null && v.name.toLowerCase().contains(termLower)) {
+                results.add('✔️ Validation Rule: ' + v.objectName + '.' + v.name + ' — ' + (v.isActive ? 'Active' : 'Inactive'));
+            }
+        }
+
+        if (results.isEmpty()) {
+            return '🔍 No metadata found matching \"' + searchTerm + '\" across all types.';
+        }
+
+        String resp = '🔍 Search results for \"' + searchTerm + '\" (' + results.size() + ' found):\n\n';
+        for (Integer i = 0; i < results.size(); i++) {
+            resp += (i + 1) + '. ' + results[i] + '\n';
+        }
+        return resp;
+    }
+
+    // ── COUNT-ONLY INTENT ─────────────────────────────────────
+    private static Boolean isCountOnlyIntent(String lower) {
+        return (lower.startsWith('how many ') || lower.contains('how many ') && lower.length() < 40) &&
+               !lower.contains(' on ');
+    }
+
+    private static String handleCountOnly(String originalQuery, String lower) {
+        List<String> types = detectTypes(lower);
+        if (types.isEmpty()) {
+            return '⚠️ I couldn\'t detect a metadata type. Try: \"how many flows\" or \"how many apex classes\"';
+        }
+
+        String resp = '📊 Count Summary\n\n';
+        for (String t : types) {
+            if      (t == TYPE_FLOW)    { MetadataEngine.FlowSummary s = MetadataEngine.getFlows(null);
+                                          resp += '🔀 Flows: ' + s.total + ' total  |  Active: ' + s.active + '  |  Inactive: ' + s.inactive + '\n'; }
+            else if (t == TYPE_APEX)    { MetadataEngine.ApexSummary s = MetadataEngine.getApexClasses(null);
+                                          resp += '⚡ Apex Classes: ' + s.total + ' total  |  Used: ' + s.used + '  |  Unused: ' + s.unused + '  |  Test: ' + s.testCount + '\n'; }
+            else if (t == TYPE_TRIGGER) { MetadataEngine.TriggerSummary s = MetadataEngine.getTriggers(null);
+                                          resp += '⚡ Triggers: ' + s.total + ' total  |  Active: ' + s.active + '  |  Inactive: ' + s.inactive + '\n'; }
+            else if (t == TYPE_LWC)     { MetadataEngine.LwcSummary s = MetadataEngine.getLwcComponents(null);
+                                          resp += '🔷 LWC Components: ' + s.total + ' total  |  With NS: ' + s.withNamespace + '  |  No NS: ' + s.withoutNamespace + '\n'; }
+            else if (t == TYPE_AURA)    { MetadataEngine.AuraSummary s = MetadataEngine.getAuraComponents(null);
+                                          resp += '🔶 Aura Components: ' + s.total + ' total  |  With NS: ' + s.withNamespace + '  |  No NS: ' + s.withoutNamespace + '\n'; }
+            else if (t == TYPE_PROFILE) { MetadataEngine.ProfileSummary s = MetadataEngine.getProfiles();
+                                          resp += '👤 Profiles: ' + s.total + ' total  |  Assigned: ' + s.used + '  |  Unassigned: ' + s.unused + '\n'; }
+            else if (t == TYPE_PERMSET) { MetadataEngine.PermissionSetSummary s = MetadataEngine.getPermissionSets();
+                                          resp += '🔑 Permission Sets: ' + s.total + ' total  |  Assigned: ' + s.used + '  |  Unassigned: ' + s.unused + '\n'; }
+            else if (t == TYPE_FIELD)   { MetadataEngine.CustomFieldSummary s = MetadataEngine.getCustomFields(null);
+                                          resp += '🗂️ Custom Fields: ' + s.total + ' total\n'; }
+            else if (t == TYPE_OBJECT)  { MetadataEngine.CustomObjectSummary s = MetadataEngine.getCustomObjects(null);
+                                          resp += '🗄️ Custom Objects: ' + s.total + ' total\n'; }
+            else if (t == TYPE_VR)      { MetadataEngine.ValidationRuleSummary s = MetadataEngine.getValidationRules(null);
+                                          resp += '✔️ Validation Rules: ' + s.total + ' total  |  Active: ' + s.active + '  |  Inactive: ' + s.inactive + '\n'; }
+        }
+        return resp;
+    }
+
+    // ── TYPE ON OBJECT FILTER ─────────────────────────────────
+    private static Boolean isTypeOnObjectIntent(String lower) {
+        return lower.contains(' on ') && (
+            lower.contains('flow') || lower.contains('trigger') || lower.contains('validation') ||
+            lower.contains('field') || lower.contains('active flow') || lower.contains('active trigger')
+        ) && !lower.contains('delete') && !lower.contains('remove');
+    }
+
+    private static String handleTypeOnObject(String originalQuery, String lower) {
+        // Extract object name from "X on ObjectName"
+        String objectName = null;
+        List<String> words = originalQuery.trim().split('\\s+');
+        for (Integer i = 0; i < words.size(); i++) {
+            if (words[i].equalsIgnoreCase('on') && i + 1 < words.size()) {
+                objectName = words[i + 1].replaceAll('[^A-Za-z0-9_]', '');
+                break;
+            }
+        }
+
+        if (String.isBlank(objectName)) {
+            return '⚠️ Please specify an object. Example: \"triggers on Account\"';
+        }
+
+        String objLower = objectName.toLowerCase();
+        List<String> results = new List<String>();
+        String resp = '📋 Metadata on ' + objectName + '\n\n';
+
+        // Triggers on Object
+        if (lower.contains('trigger')) {
+            MetadataEngine.TriggerSummary ts = MetadataEngine.getTriggers(null);
+            List<MetadataEngine.TriggerInfo> all = new List<MetadataEngine.TriggerInfo>();
+            if (ts.activeTriggers != null) all.addAll(ts.activeTriggers);
+            if (ts.inactiveTriggers != null) all.addAll(ts.inactiveTriggers);
+            resp += HDR_TRIGGERS + '\n';
+            Integer count = 0;
+            for (MetadataEngine.TriggerInfo t : all) {
+                if (t.objectName != null && t.objectName.toLowerCase().equals(objLower)) {
+                    resp += '  ' + (t.isActive ? '✅' : '⬜') + ' ' + t.name + ' (' + (t.isActive ? 'Active' : 'Inactive') + ')\n';
+                    count++;
+                }
+            }
+            if (count == 0) resp += '  None found on ' + objectName + '\n';
+            resp += '\n';
+        }
+
+        // Flows on Object
+        if (lower.contains('flow')) {
+            MetadataEngine.FlowSummary fs = MetadataEngine.getFlows(null);
+            resp += HDR_FLOWS + '\n';
+            Integer count = 0;
+            if (fs.allFlowObjects != null) {
+                for (MetadataEngine.FlowInfo f : fs.allFlowObjects) {
+                    if ((f.label != null && f.label.toLowerCase().contains(objLower)) ||
+                        (f.apiName != null && f.apiName.toLowerCase().contains(objLower))) {
+                        resp += '  ' + (f.isActive ? '✅' : '⬜') + ' ' + f.label + ' (' + f.apiName + ')\n';
+                        count++;
+                    }
+                }
+            }
+            if (count == 0) resp += '  No flows found referencing ' + objectName + '\n';
+            resp += '\n';
+        }
+
+        // Validation Rules on Object
+        if (lower.contains('validation')) {
+            MetadataEngine.ValidationRuleSummary vs = MetadataEngine.getValidationRules(null);
+            resp += HDR_VR + '\n';
+            Integer count = 0;
+            List<MetadataEngine.ValidationRuleInfo> allVrs = new List<MetadataEngine.ValidationRuleInfo>();
+            if (vs.activeRules != null) allVrs.addAll(vs.activeRules);
+            if (vs.inactiveRules != null) allVrs.addAll(vs.inactiveRules);
+            for (MetadataEngine.ValidationRuleInfo v : allVrs) {
+                if (v.objectName != null && v.objectName.toLowerCase().equals(objLower)) {
+                    resp += '  ' + (v.isActive ? '✅' : '⬜') + ' ' + v.name + ' (' + (v.isActive ? 'Active' : 'Inactive') + ')\n';
+                    count++;
+                }
+            }
+            if (count == 0) resp += '  None found on ' + objectName + '\n';
+            resp += '\n';
+        }
+
+        // Fields on Object (if not just "triggers/flows/validation")
+        if (lower.contains('field') && !lower.contains('trigger') && !lower.contains('flow')) {
+            return handleFieldsOnObject(originalQuery, lower);
+        }
+
+        return resp;
+    }
+
+    // ── STATUS CHECK: "is X active" ───────────────────────────
+    private static Boolean isStatusCheckIntent(String lower) {
+        return (lower.startsWith('is ') && lower.contains('active')) ||
+               lower.contains('is it active') || lower.contains('active?');
+    }
+
+    private static String handleStatusCheck(String originalQuery, String lower) {
+        // Extract component name — "is MyFlow active"
+        String name = null;
+        List<String> words = originalQuery.trim().split('\\s+');
+        if (words.size() >= 2) {
+            // name is typically the word(s) between "is" and "active"
+            List<String> nameParts = new List<String>();
+            Boolean inName = false;
+            for (String w : words) {
+                if (w.equalsIgnoreCase('is')) { inName = true; continue; }
+                if (w.equalsIgnoreCase('active') || w.equalsIgnoreCase('active?')) break;
+                if (inName) nameParts.add(w);
+            }
+            if (!nameParts.isEmpty()) name = String.join(nameParts, ' ').trim();
+        }
+
+        if (String.isBlank(name)) {
+            return '⚠️ Format: \"is <ComponentName> active?\"\nExample: \"is My_Flow active\"';
+        }
+
+        String nameLower = name.toLowerCase();
+        List<String> found = new List<String>();
+
+        // Check Flows
+        MetadataEngine.FlowSummary fs = MetadataEngine.getFlows(null);
+        if (fs.allFlowObjects != null) {
+            for (MetadataEngine.FlowInfo f : fs.allFlowObjects) {
+                if ((f.apiName != null && f.apiName.toLowerCase().equals(nameLower)) ||
+                    (f.label != null && f.label.toLowerCase().equals(nameLower))) {
+                    found.add('🔀 Flow \"' + f.label + '\": ' + (f.isActive ? '✅ ACTIVE' : '⬜ INACTIVE'));
+                }
+            }
+        }
+
+        // Check Triggers
+        MetadataEngine.TriggerSummary ts = MetadataEngine.getTriggers(null);
+        List<MetadataEngine.TriggerInfo> allT = new List<MetadataEngine.TriggerInfo>();
+        if (ts.activeTriggers != null) allT.addAll(ts.activeTriggers);
+        if (ts.inactiveTriggers != null) allT.addAll(ts.inactiveTriggers);
+        for (MetadataEngine.TriggerInfo t : allT) {
+            if (t.name != null && t.name.toLowerCase().equals(nameLower)) {
+                found.add('⚡ Trigger \"' + t.name + '\": ' + (t.isActive ? '✅ ACTIVE' : '⬜ INACTIVE'));
+            }
+        }
+
+        // Check Validation Rules
+        MetadataEngine.ValidationRuleSummary vs = MetadataEngine.getValidationRules(null);
+        List<MetadataEngine.ValidationRuleInfo> allV = new List<MetadataEngine.ValidationRuleInfo>();
+        if (vs.activeRules != null) allV.addAll(vs.activeRules);
+        if (vs.inactiveRules != null) allV.addAll(vs.inactiveRules);
+        for (MetadataEngine.ValidationRuleInfo v : allV) {
+            if (v.name != null && v.name.toLowerCase().equals(nameLower)) {
+                found.add('✔️ Validation Rule \"' + v.name + '\": ' + (v.isActive ? '✅ ACTIVE' : '⬜ INACTIVE'));
+            }
+        }
+
+        if (found.isEmpty()) {
+            return '🔍 No flow, trigger, or validation rule found named \"' + name + '\".\nTry \"find anything named ' + name + '\" to search all types.';
+        }
+        return String.join(found, '\n');
+    }
+
+    // ── COMPONENT DETAILS: last modified / line count ─────────
+    private static Boolean isComponentDetailIntent(String lower) {
+        return lower.contains('last modified') || lower.contains('when was') ||
+               lower.contains('how many lines') || lower.contains('line count') ||
+               lower.contains('lines in ');
+    }
+
+    private static String handleComponentDetail(String originalQuery, String lower) {
+        Boolean wantsLines    = lower.contains('how many lines') || lower.contains('line count') || lower.contains('lines in');
+        Boolean wantsModified = lower.contains('last modified') || lower.contains('when was');
+
+        // Extract component name — last word-token that looks like a name
+        String name = null;
+        String[] patterns = new String[]{ 'lines in ', 'when was ', 'last modified of ', 'modified date of ', 'line count of ', 'how many lines in ' };
+        for (String p : patterns) {
+            if (lower.contains(p)) {
+                Integer idx = lower.indexOf(p) + p.length();
+                String candidate = originalQuery.substring(idx).replaceFirst('(?i)\\s+(last modified|modified|active|inactive).*$', '').trim();
+                if (String.isNotBlank(candidate)) { name = candidate; break; }
+            }
+        }
+
+        if (String.isBlank(name)) {
+            // Fallback: take last token
+            List<String> words = originalQuery.trim().split('\\s+');
+            name = words[words.size() - 1].replaceAll('[^A-Za-z0-9_]', '');
+        }
+
+        if (String.isBlank(name)) {
+            return '⚠️ Please specify a component name.\nExamples:\n  • when was MyClass last modified\n  • how many lines in MyClass';
+        }
+
+        String nameLower = name.toLowerCase();
+        List<String> results = new List<String>();
+
+        // Search Apex Classes
+        MetadataEngine.ApexSummary apex = MetadataEngine.getApexClasses(null);
+        List<MetadataEngine.ApexClassInfo> allApex = new List<MetadataEngine.ApexClassInfo>();
+        if (apex.unusedClasses != null) allApex.addAll(apex.unusedClasses);
+        for (MetadataEngine.ApexClassInfo c : allApex) {
+            if (c.name != null && c.name.toLowerCase().equals(nameLower)) {
+                String info = '⚡ Apex Class: ' + c.name;
+                if (wantsLines) info += '\n   Lines of Code: ' + c.linesOfCode;
+                if (wantsModified && c.lastModifiedDate != null) info += '\n   Last Modified: ' + c.lastModifiedDate;
+                results.add(info);
+            }
+        }
+
+        // Search Triggers
+        MetadataEngine.TriggerSummary ts = MetadataEngine.getTriggers(null);
+        List<MetadataEngine.TriggerInfo> allT = new List<MetadataEngine.TriggerInfo>();
+        if (ts.activeTriggers != null) allT.addAll(ts.activeTriggers);
+        if (ts.inactiveTriggers != null) allT.addAll(ts.inactiveTriggers);
+        for (MetadataEngine.TriggerInfo t : allT) {
+            if (t.name != null && t.name.toLowerCase().equals(nameLower)) {
+                String info = '⚡ Trigger: ' + t.name + ' on ' + t.objectName;
+                if (wantsLines) info += '\n   Lines of Code: ' + t.linesOfCode;
+                if (wantsModified && t.lastModifiedDate != null) info += '\n   Last Modified: ' + t.lastModifiedDate;
+                results.add(info);
+            }
+        }
+
+        // Search LWC
+        MetadataEngine.LwcSummary lwc = MetadataEngine.getLwcComponents(null);
+        if (lwc.allComponents != null) {
+            for (MetadataEngine.LwcComponentInfo c : lwc.allComponents) {
+                if (c.name != null && c.name.toLowerCase().equals(nameLower)) {
+                    String info = '🔷 LWC: ' + c.name;
+                    if (wantsModified && c.lastModifiedDate != null) info += '\n   Last Modified: ' + c.lastModifiedDate;
+                    results.add(info);
+                }
+            }
+        }
+
+        // Search Aura
+        MetadataEngine.AuraSummary au = MetadataEngine.getAuraComponents(null);
+        if (au.allComponents != null) {
+            for (MetadataEngine.AuraComponentInfo c : au.allComponents) {
+                if (c.name != null && c.name.toLowerCase().equals(nameLower)) {
+                    String info = '🔶 Aura: ' + c.name;
+                    if (wantsModified && c.lastModifiedDate != null) info += '\n   Last Modified: ' + c.lastModifiedDate;
+                    results.add(info);
+                }
+            }
+        }
+
+        if (results.isEmpty()) {
+            return '🔍 No component found named \"' + name + '\".\nTry \"find anything named ' + name + '\" for a broader search.';
+        }
+        return String.join(results, '\n\n');
+    }
+
+    // ── ORG HEALTH CHECK ──────────────────────────────────────
+    private static Boolean isOrgHealthIntent(String lower) {
+        return lower.contains('org health') || lower.contains('health check') ||
+               lower.contains('what should i clean') || lower.contains('cleanup report') ||
+               lower.contains('how big is my org') || lower.contains('org size') ||
+               lower.contains('org cleanup report') || lower.contains('prioritized recommendations') ||
+               lower.contains('what to clean');
+    }
+
+    private static String handleOrgHealth() {
+        MetadataEngine.FlowSummary         flows   = MetadataEngine.getFlows(null);
+        MetadataEngine.ApexSummary         apex    = MetadataEngine.getApexClasses(null);
+        MetadataEngine.TriggerSummary      trigs   = MetadataEngine.getTriggers(null);
+        MetadataEngine.LwcSummary          lwc     = MetadataEngine.getLwcComponents(null);
+        MetadataEngine.AuraSummary         aura    = MetadataEngine.getAuraComponents(null);
+        MetadataEngine.ProfileSummary      profs   = MetadataEngine.getProfiles();
+        MetadataEngine.PermissionSetSummary perms  = MetadataEngine.getPermissionSets();
+        MetadataEngine.ValidationRuleSummary vrs   = MetadataEngine.getValidationRules(null);
+
+        Integer totalIssues = flows.inactive + apex.unused + trigs.inactive + profs.unused + perms.unused + vrs.inactive;
+        String score = totalIssues == 0 ? '🟢 Excellent' : totalIssues <= 5 ? '🟡 Good' : totalIssues <= 20 ? '🟠 Needs Attention' : '🔴 Cleanup Recommended';
+
+        String resp = '🏥 ORG HEALTH REPORT\n';
+        resp += repeat('═', 40) + '\n\n';
+        resp += 'Health Score: ' + score + '\n';
+        resp += 'Total issues found: ' + totalIssues + '\n\n';
+
+        resp += '📊 ORG SIZE SUMMARY\n';
+        resp += '  Flows           : ' + flows.total   + ' (' + flows.active   + ' active, '   + flows.inactive   + ' inactive)\n';
+        resp += '  Apex Classes    : ' + apex.total    + ' (' + apex.used      + ' used, '     + apex.unused      + ' unused)\n';
+        resp += '  Triggers        : ' + trigs.total   + ' (' + trigs.active   + ' active, '   + trigs.inactive   + ' inactive)\n';
+        resp += '  LWC Components  : ' + lwc.total     + '\n';
+        resp += '  Aura Components : ' + aura.total    + '\n';
+        resp += '  Profiles        : ' + profs.total   + ' (' + profs.used     + ' assigned, ' + profs.unused     + ' unassigned)\n';
+        resp += '  Permission Sets : ' + perms.total   + ' (' + perms.used     + ' assigned, ' + perms.unused     + ' unassigned)\n';
+        resp += '  Validation Rules: ' + vrs.total     + ' (' + vrs.active     + ' active, '   + vrs.inactive     + ' inactive)\n\n';
+
+        if (totalIssues == 0) {
+            resp += '✅ Your org looks clean! No immediate cleanup needed.\n';
+            return resp;
+        }
+
+        resp += '🗑️ PRIORITIZED CLEANUP RECOMMENDATIONS\n';
+        resp += repeat('─', 40) + '\n\n';
+
+        Integer priority = 1;
+
+        if (apex.unused > 0) {
+            resp += priority++ + '. [HIGH] ' + apex.unused + ' unused Apex class(es)\n';
+            resp += '   → Type \"show unused apex classes\" to review\n';
+            resp += '   → Type \"delete apex class <Name>\" to remove\n\n';
+        }
+
+        if (flows.inactive > 0) {
+            resp += priority++ + '. [HIGH] ' + flows.inactive + ' inactive flow(s)\n';
+            resp += '   → Type \"show inactive flows\" to review\n';
+            resp += '   → Type \"delete flow <ApiName>\" to remove\n\n';
+        }
+
+        if (trigs.inactive > 0) {
+            resp += priority++ + '. [MEDIUM] ' + trigs.inactive + ' inactive trigger(s)\n';
+            resp += '   → Type \"show inactive triggers\" to review\n\n';
+        }
+
+        if (profs.unused > 0) {
+            resp += priority++ + '. [MEDIUM] ' + profs.unused + ' unassigned profile(s)\n';
+            resp += '   → Type \"show unassigned profiles\" to review\n\n';
+        }
+
+        if (perms.unused > 0) {
+            resp += priority++ + '. [LOW] ' + perms.unused + ' unassigned permission set(s)\n';
+            resp += '   → Type \"show unassigned permission sets\" to review\n\n';
+        }
+
+        if (vrs.inactive > 0) {
+            resp += priority++ + '. [LOW] ' + vrs.inactive + ' inactive validation rule(s)\n';
+            resp += '   → Type \"show inactive validation rules\" to review\n\n';
+        }
+
+        return resp;
+    }
+
+    // ── SHARED UTILITY: extract object name from query ────────
+    private static String extractObjectNameFromQuery(String originalQuery, String lower) {
+        // Patterns: "fields on Account", "what fields does Account have", "fields of Account", "fields for Account"
+        List<String> words = originalQuery.trim().split('\\s+');
+        String[] prepositions = new String[]{ 'on', 'does', 'of', 'for' };
+        for (String prep : prepositions) {
+            for (Integer i = 0; i < words.size(); i++) {
+                if (words[i].equalsIgnoreCase(prep) && i + 1 < words.size()) {
+                    String candidate = words[i + 1].replaceAll('[^A-Za-z0-9_]', '');
+                    if (String.isNotBlank(candidate) && candidate.length() > 1) {
+                        return candidate;
+                    }
+                }
+            }
+        }
+        return null;
     }
 }

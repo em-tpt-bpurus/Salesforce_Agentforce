@@ -56,14 +56,14 @@ public without sharing class AuraAgentAction {
 
         String allList = '';
         if (summary.allComponents == null || summary.allComponents.isEmpty()) {
-            allList = 'None';
+            allList = MetadataConstants.NONE;
         } else {
             for (Integer i = 0; i < summary.allComponents.size(); i++) {
                 MetadataEngine.AuraComponentInfo info = summary.allComponents[i];
                 allList += (i + 1) + '. ' + info.name +
                            (String.isNotBlank(info.namespacePrefix) ? ' [' + info.namespacePrefix + ']' : '') +
-                           ' | API: ' + (String.isNotBlank(info.apiVersion) ? info.apiVersion : 'N/A') +
-                           ' | Modified: ' + (String.isNotBlank(info.lastModifiedDate) ? info.lastModifiedDate : 'N/A') + '\n';
+                           MetadataConstants.COL_API + (String.isNotBlank(info.apiVersion) ? info.apiVersion : MetadataConstants.NA) +
+                           MetadataConstants.COL_MODIFIED + (String.isNotBlank(info.lastModifiedDate) ? info.lastModifiedDate : MetadataConstants.NA) + '\n';
             }
         }
 
@@ -71,18 +71,18 @@ public without sharing class AuraAgentAction {
         if (summary.filteredComponents == null || summary.filteredComponents.isEmpty()) {
             filteredList = String.isNotBlank(namespaceFilter)
                 ? 'No Aura components found with namespace: ' + namespaceFilter
-                : 'None';
+                : MetadataConstants.NONE;
         } else {
             for (Integer i = 0; i < summary.filteredComponents.size(); i++) {
                 MetadataEngine.AuraComponentInfo info = summary.filteredComponents[i];
                 filteredList += (i + 1) + '. ' + info.name +
                                 (String.isNotBlank(info.namespacePrefix) ? ' [' + info.namespacePrefix + ']' : '') +
-                                ' | API: ' + (String.isNotBlank(info.apiVersion) ? info.apiVersion : 'N/A') +
-                                ' | Modified: ' + (String.isNotBlank(info.lastModifiedDate) ? info.lastModifiedDate : 'N/A') + '\n';
+                                MetadataConstants.COL_API + (String.isNotBlank(info.apiVersion) ? info.apiVersion : MetadataConstants.NA) +
+                                MetadataConstants.COL_MODIFIED + (String.isNotBlank(info.lastModifiedDate) ? info.lastModifiedDate : MetadataConstants.NA) + '\n';
             }
         }
 
-        String nsDisplay = String.isNotBlank(namespaceFilter) ? namespaceFilter : 'None (showing all)';
+        String nsDisplay = String.isNotBlank(namespaceFilter) ? namespaceFilter : MetadataConstants.NS_ALL;
 
         AuraOutput output             = new AuraOutput();
         output.totalCount             = String.valueOf(summary.total);
@@ -99,9 +99,9 @@ public without sharing class AuraAgentAction {
             summary.withoutNamespace + ' do not.\n\n' +
             'Namespace Filter: ' + nsDisplay + '\n' +
             'Matching Components: ' + output.filteredCount + '\n\n' +
-            '--- ALL AURA COMPONENTS (' + summary.total + ') ---\n' + allList + '\n' +
+            MetadataConstants.SEC_ALL_COMPONENTS + ' AURA COMPONENTS (' + summary.total + ') ---\n' + allList + '\n' +
             (String.isNotBlank(namespaceFilter)
-                ? '--- FILTERED BY NAMESPACE: ' + namespaceFilter + ' (' + output.filteredCount + ') ---\n' + filteredList
+                ? MetadataConstants.SEC_FILTERED_NS + namespaceFilter + ' (' + output.filteredCount + ') ---\n' + filteredList
                 : '');
 
         output.allAuraObjects = summary.allComponents;

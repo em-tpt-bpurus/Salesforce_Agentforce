@@ -80,47 +80,47 @@ public without sharing class TriggerAgentAction {
 
         String activeList = '';
         if (summary.activeTriggers == null || summary.activeTriggers.isEmpty()) {
-            activeList = 'None';
+            activeList = MetadataConstants.NONE;
         } else {
             for (Integer i = 0; i < summary.activeTriggers.size(); i++) {
                 MetadataEngine.TriggerInfo info = summary.activeTriggers[i];
                 activeList += (i + 1) + '. ' + info.name +
-                              ' | Object: '   + info.objectName +
-                              ' | Lines: '    + info.linesOfCode +
-                              ' | Modified: ' + info.lastModifiedDate + '\n';
+                              MetadataConstants.COL_OBJECT   + info.objectName +
+                              MetadataConstants.COL_LINES    + info.linesOfCode +
+                              MetadataConstants.COL_MODIFIED + info.lastModifiedDate + '\n';
             }
         }
 
         String inactiveList = '';
         if (summary.inactiveTriggers == null || summary.inactiveTriggers.isEmpty()) {
-            inactiveList = 'None';
+            inactiveList = MetadataConstants.NONE;
         } else {
             for (Integer i = 0; i < summary.inactiveTriggers.size(); i++) {
                 MetadataEngine.TriggerInfo info = summary.inactiveTriggers[i];
                 inactiveList += (i + 1) + '. ' + info.name +
-                                ' | Object: '   + info.objectName +
-                                ' | Lines: '    + info.linesOfCode +
-                                ' | Modified: ' + info.lastModifiedDate + '\n';
+                                MetadataConstants.COL_OBJECT   + info.objectName +
+                                MetadataConstants.COL_LINES    + info.linesOfCode +
+                                MetadataConstants.COL_MODIFIED + info.lastModifiedDate + '\n';
             }
         }
 
         String unusedList = '';
         if (summary.unusedTriggers == null || summary.unusedTriggers.isEmpty()) {
-            unusedList = 'None';
+            unusedList = MetadataConstants.NONE;
         } else {
             for (Integer i = 0; i < summary.unusedTriggers.size(); i++) {
                 MetadataEngine.TriggerInfo info = summary.unusedTriggers[i];
                 unusedList += (i + 1) + '. ' + info.name +
-                              ' | Object: '  + info.objectName +
-                              ' | Active: '  + info.isActive +
-                              ' | Lines: '   + info.linesOfCode +
-                              ' | Modified: '+ info.lastModifiedDate + '\n';
+                              MetadataConstants.COL_OBJECT  + info.objectName +
+                              MetadataConstants.COL_ACTIVE  + info.isActive +
+                              MetadataConstants.COL_LINES   + info.linesOfCode +
+                              MetadataConstants.COL_MODIFIED+ info.lastModifiedDate + '\n';
             }
         }
 
         String usedList = '';
         if (summary.usedTriggerNames == null || summary.usedTriggerNames.isEmpty()) {
-            usedList = 'None';
+            usedList = MetadataConstants.NONE;
         } else {
             for (Integer i = 0; i < summary.usedTriggerNames.size(); i++) {
                 usedList += (i + 1) + '. ' + summary.usedTriggerNames[i] + '\n';
@@ -133,20 +133,20 @@ public without sharing class TriggerAgentAction {
         if (summary.filteredTriggers == null || summary.filteredTriggers.isEmpty()) {
             filteredList = String.isNotBlank(namespaceFilter)
                 ? 'No triggers found with namespace: ' + namespaceFilter
-                : 'None';
+                : MetadataConstants.NONE;
         } else {
             for (Integer i = 0; i < summary.filteredTriggers.size(); i++) {
                 MetadataEngine.TriggerInfo info = summary.filteredTriggers[i];
                 filteredList += (i + 1) + '. ' + info.name +
-                                ' | Object: '  + info.objectName +
-                                ' | Active: '  + info.isActive +
-                                ' | Lines: '   + info.linesOfCode +
+                                MetadataConstants.COL_OBJECT  + info.objectName +
+                                MetadataConstants.COL_ACTIVE  + info.isActive +
+                                MetadataConstants.COL_LINES   + info.linesOfCode +
                                 (String.isNotBlank(info.namespacePrefix)
-                                    ? ' | NS: ' + info.namespacePrefix : '') + '\n';
+                                    ? MetadataConstants.COL_NS + info.namespacePrefix : '') + '\n';
             }
         }
 
-        String nsDisplay = String.isNotBlank(namespaceFilter) ? namespaceFilter : 'None (showing all)';
+        String nsDisplay = String.isNotBlank(namespaceFilter) ? namespaceFilter : MetadataConstants.NS_ALL;
 
         TriggerOutput output          = new TriggerOutput();
         output.totalCount             = String.valueOf(summary.total);
@@ -161,13 +161,37 @@ public without sharing class TriggerAgentAction {
         output.filteredCount          = String.valueOf(filteredTotal);
         output.namespaceFilterApplied = nsDisplay;
         output.filteredTriggers       = filteredList;
+        // Build combined ALL triggers list
+        String allTriggersList = '';
+        Integer allTIdx = 1;
+        if (summary.activeTriggers != null) {
+            for (MetadataEngine.TriggerInfo info : summary.activeTriggers) {
+                allTriggersList += allTIdx++ + '. ' + info.name +
+                    MetadataConstants.COL_OBJECT + info.objectName +
+                    MetadataConstants.COL_LINES + info.linesOfCode +
+                    MetadataConstants.COL_MODIFIED + info.lastModifiedDate + ' [ACTIVE]\n';
+            }
+        }
+        if (summary.inactiveTriggers != null) {
+            for (MetadataEngine.TriggerInfo info : summary.inactiveTriggers) {
+                allTriggersList += allTIdx++ + '. ' + info.name +
+                    MetadataConstants.COL_OBJECT + info.objectName +
+                    MetadataConstants.COL_LINES + info.linesOfCode +
+                    MetadataConstants.COL_MODIFIED + info.lastModifiedDate + ' [INACTIVE]\n';
+            }
+        }
+        if (String.isBlank(allTriggersList)) {
+            allTriggersList = MetadataConstants.NONE;
+        }
+
         output.summary =
             'This org has ' + summary.total + ' Apex Triggers in total.\n\n' +
             'Namespace Filter: ' + nsDisplay + '\n\n' +
-            '--- USED TRIGGERS ('    + summary.used    + ') — Actively referenced ---\n' + usedList    + '\n' +
-            '--- UNUSED TRIGGERS ('  + summary.unused  + ') — Safe to delete ---\n'      + unusedList  + '\n' +
-            '--- ACTIVE TRIGGERS ('  + summary.active  + ') ---\n'                       + activeList  + '\n' +
-            '--- INACTIVE TRIGGERS (' + summary.inactive + ') — Safe to delete ---\n'   + inactiveList +
+            '--- ALL TRIGGERS (' + summary.total + ') ---\n' + allTriggersList + '\n' +
+            MetadataConstants.SEC_ACTIVE_TRIGGERS + ' ('  + summary.active  + ') ---\n'                       + activeList  + '\n' +
+            MetadataConstants.SEC_INACTIVE_TRIGGERS + ' (' + summary.inactive + MetadataConstants.SEC_HINT_SAFE_DELETE   + inactiveList + '\n' +
+            MetadataConstants.SEC_USED_TRIGGERS + ' ('    + summary.used    + MetadataConstants.SEC_HINT_ACTIVE_REF + usedList    + '\n' +
+            MetadataConstants.SEC_UNUSED_TRIGGERS + ' ('  + summary.unused  + MetadataConstants.SEC_HINT_SAFE_DELETE      + unusedList +
             (String.isNotBlank(namespaceFilter)
                 ? '\n\n--- FILTERED BY NAMESPACE: ' + namespaceFilter + ' (' + filteredTotal + ') ---\n' + filteredList
                 : '');

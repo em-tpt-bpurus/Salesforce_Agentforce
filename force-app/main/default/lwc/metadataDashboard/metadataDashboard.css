@@ -145,6 +145,44 @@
 
 .tab-btn--active .tab-badge { background: #e8f4ff; color: #0070D2; }
 
+/* Filtered state — orange badge showing filtered/total */
+.tab-badge--filtered {
+    background: #fff3e0;
+    color: #e65100;
+    font-size: 0.7rem;
+    font-weight: 700;
+    padding: 0.1rem 0.45rem;
+    border-radius: 12px;
+    min-width: 1.4rem;
+    text-align: center;
+    line-height: 1.6;
+    animation: badge-pop 0.2s ease;
+}
+.tab-btn--active .tab-badge--filtered { background: #ffe0b2; color: #bf360c; }
+
+@keyframes badge-pop {
+    0%   { transform: scale(0.8); opacity: 0.5; }
+    100% { transform: scale(1);   opacity: 1;   }
+}
+
+/* ── Namespace Active Filter Bar ───────────────────────────────── */
+.ns-active-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: #e8f4ff;
+    border-bottom: 2px solid #0070D2;
+    padding: 0.45rem 1.5rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #0070D2;
+}
+.ns-active-bar-hint {
+    font-weight: 400;
+    color: #706e6b;
+    font-size: 0.78rem;
+}
+
 /* ── Namespace Filter Bar ──────────────────────────────────────── */
 .ns-filter-bar {
     display: flex;
@@ -185,6 +223,21 @@
 }
 
 .ns-filter-apply:hover:not(:disabled) { background: #005fb2; }
+.ns-filter-apply--active { background: #005fb2; box-shadow: 0 0 0 2px rgba(0,112,210,0.35); }
+.ns-filter-clear {
+    padding: 0.35rem 0.6rem;
+    background: transparent;
+    border: 1px solid #c23934;
+    color: #c23934;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.75rem;
+    font-weight: 700;
+    line-height: 1;
+    transition: background 0.15s;
+    flex-shrink: 0;
+}
+.ns-filter-clear:hover { background: #fef1ee; }
 .ns-filter-apply:active:not(:disabled) { transform: scale(0.97); }
 .ns-filter-apply:disabled { opacity: 0.55; cursor: not-allowed; }
 

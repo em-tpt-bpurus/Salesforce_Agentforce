@@ -2,6 +2,31 @@
 public without sharing class MetadataEngine {
 
     // ===============================
+    // GLOBAL CONSTANTS
+    // ===============================
+
+    /** Salesforce REST API version used for all callouts. Update here only when upgrading. */
+    private static final String  API_VERSION    = 'v60.0';
+
+    /** Named Credential configured in Setup → Named Credentials. Must match exactly. */
+    private static final String  NAMED_CRED     = 'Metadata_API';
+
+    /** Base URL for all REST API callouts — combines Named Credential + API version. */
+    private static final String  BASE_URL       = 'callout:' + NAMED_CRED + '/services/data/' + API_VERSION + '/';
+
+    /** Salesforce login URL for JWT OAuth flows. Use https://test.salesforce.com for sandboxes. */
+    private static final String  LOGIN_URL      = 'https://login.salesforce.com';
+
+    /** Timeout (ms) for long-running callouts: SOAP deletes, object/field queries. */
+    private static final Integer TIMEOUT_LONG   = 120000;
+
+    /** Timeout (ms) for short callouts: JWT token requests, package lookups. */
+    private static final Integer TIMEOUT_SHORT  = 30000;
+
+    /** JWT token expiry window in minutes. */
+    private static final Integer JWT_EXPIRY_MIN = 5;
+
+    // ===============================
     // WRAPPERS — FLOWS
     // ===============================
     public class FlowInfo {
@@ -121,6 +146,9 @@ public without sharing class MetadataEngine {
         public List<ProfileInfo> usedProfiles;
         public List<ProfileInfo> customProfiles;
         public List<ProfileInfo> standardProfiles;
+        public List<ProfileInfo> filteredProfiles;
+        public Integer           filteredTotal;
+        public String            namespaceFilter;
     }
 
     // ===============================
@@ -143,6 +171,7 @@ public without sharing class MetadataEngine {
         public Integer                 withoutNamespace;
         public Integer                 filteredTotal;
         public String                  namespaceFilterApplied;
+        public List<PermissionSetInfo> allPermSets;
         public List<PermissionSetInfo> unusedPermSets;
         public List<PermissionSetInfo> usedPermSets;
         public List<PermissionSetInfo> filteredPermSets;
@@ -257,7 +286,7 @@ public without sharing class MetadataEngine {
                       'WHERE ProcessType != \'StandardInvocableAction\'';
 
         HttpRequest req = new HttpRequest();
-        req.setEndpoint('callout:Metadata_API/services/data/v60.0/query?q=' +
+        req.setEndpoint(BASE_URL + 'query?q=' +
             EncodingUtil.urlEncode(soql, 'UTF-8'));
         req.setMethod('GET');
         req.setHeader('Content-Type', 'application/json');
@@ -296,8 +325,12 @@ public without sharing class MetadataEngine {
                         inactiveFlows.add(flowLabel);
                     }
 
-                    Boolean matchesFilter = String.isBlank(namespaceFilter) ||
-                        namespaceFilter.equalsIgnoreCase(nsPrefix == null ? '' : nsPrefix);
+                    String  flowNs = nsPrefix == null ? '' : nsPrefix;
+                    String  flowNm = apiName == null ? '' : apiName.toLowerCase();
+                    String  nsL    = namespaceFilter == null ? '' : namespaceFilter.toLowerCase();
+                    Boolean matchesFilter = String.isBlank(namespaceFilter) || nsL.equalsIgnoreCase(flowNs) ||
+                        flowNm.startsWith(nsL + '_') || (flowNm.startsWith(nsL) && flowNm.length() > nsL.length() &&
+                        flowNm.substring(nsL.length(), nsL.length()+1) != flowNm.substring(nsL.length(), nsL.length()+1).toLowerCase());
 
                     if (matchesFilter) {
                         if (isActive) {
@@ -339,7 +372,7 @@ public without sharing class MetadataEngine {
                             'LIMIT 1';
 
         HttpRequest lookupReq = new HttpRequest();
-        lookupReq.setEndpoint('callout:Metadata_API/services/data/v60.0/query?q=' +
+        lookupReq.setEndpoint(BASE_URL + 'query?q=' +
             EncodingUtil.urlEncode(lookupSoql, 'UTF-8'));
         lookupReq.setMethod('GET');
         lookupReq.setHeader('Content-Type', 'application/json');
@@ -369,7 +402,7 @@ public without sharing class MetadataEngine {
 
         if (isActive) {
             HttpRequest deactivateReq = new HttpRequest();
-            deactivateReq.setEndpoint('callout:Metadata_API/services/data/v60.0/tooling/sobjects/FlowDefinition/' + durableId);
+            deactivateReq.setEndpoint(BASE_URL + 'tooling/sobjects/FlowDefinition/' + durableId);
             deactivateReq.setMethod('PATCH');
             deactivateReq.setHeader('Content-Type', 'application/json');
             deactivateReq.setBody('{"Metadata": {"activeVersionNumber": 0}}');
@@ -387,7 +420,7 @@ public without sharing class MetadataEngine {
         String versionSoql = 'SELECT Id FROM Flow WHERE DefinitionId = \'' + durableId + '\'';
 
         HttpRequest versionReq = new HttpRequest();
-        versionReq.setEndpoint('callout:Metadata_API/services/data/v60.0/tooling/query?q=' +
+        versionReq.setEndpoint(BASE_URL + 'tooling/query?q=' +
             EncodingUtil.urlEncode(versionSoql, 'UTF-8'));
         versionReq.setMethod('GET');
         versionReq.setHeader('Content-Type', 'application/json');
@@ -417,7 +450,7 @@ public without sharing class MetadataEngine {
             String              versionId = (String) vRec.get('Id');
 
             HttpRequest deleteReq = new HttpRequest();
-            deleteReq.setEndpoint('callout:Metadata_API/services/data/v60.0/tooling/sobjects/Flow/' + versionId);
+            deleteReq.setEndpoint(BASE_URL + 'tooling/sobjects/Flow/' + versionId);
             deleteReq.setMethod('DELETE');
             deleteReq.setHeader('Content-Type', 'application/json');
 
@@ -451,7 +484,7 @@ public without sharing class MetadataEngine {
 
         String      countSoql = 'SELECT Id FROM ApexClass';
         HttpRequest countReq  = new HttpRequest();
-        countReq.setEndpoint('callout:Metadata_API/services/data/v60.0/tooling/query?q=' +
+        countReq.setEndpoint(BASE_URL + 'tooling/query?q=' +
             EncodingUtil.urlEncode(countSoql, 'UTF-8'));
         countReq.setMethod('GET');
         countReq.setHeader('Content-Type', 'application/json');
@@ -471,7 +504,7 @@ public without sharing class MetadataEngine {
         String      stdSoql = 'SELECT Id, Name, Status, LengthWithoutComments, LastModifiedDate, NamespacePrefix ' +
                               'FROM ApexClass WHERE NamespacePrefix != null ORDER BY Name ASC';
         HttpRequest stdReq  = new HttpRequest();
-        stdReq.setEndpoint('callout:Metadata_API/services/data/v60.0/tooling/query?q=' +
+        stdReq.setEndpoint(BASE_URL + 'tooling/query?q=' +
             EncodingUtil.urlEncode(stdSoql, 'UTF-8'));
         stdReq.setMethod('GET');
         stdReq.setHeader('Content-Type', 'application/json');
@@ -508,7 +541,7 @@ public without sharing class MetadataEngine {
         String      soql     = 'SELECT Id, Name, Status, LengthWithoutComments, LastModifiedDate, SymbolTable ' +
                                'FROM ApexClass WHERE NamespacePrefix = null ORDER BY Name ASC';
         HttpRequest classReq = new HttpRequest();
-        classReq.setEndpoint('callout:Metadata_API/services/data/v60.0/tooling/query?q=' +
+        classReq.setEndpoint(BASE_URL + 'tooling/query?q=' +
             EncodingUtil.urlEncode(soql, 'UTF-8'));
         classReq.setMethod('GET');
         classReq.setHeader('Content-Type', 'application/json');
@@ -602,7 +635,7 @@ public without sharing class MetadataEngine {
                               'FROM MetadataComponentDependency ' +
                               'WHERE RefMetadataComponentType = \'ApexClass\'';
         HttpRequest depReq  = new HttpRequest();
-        depReq.setEndpoint('callout:Metadata_API/services/data/v60.0/tooling/query?q=' +
+        depReq.setEndpoint(BASE_URL + 'tooling/query?q=' +
             EncodingUtil.urlEncode(depSoql, 'UTF-8'));
         depReq.setMethod('GET');
         depReq.setHeader('Content-Type', 'application/json');
@@ -734,11 +767,10 @@ public without sharing class MetadataEngine {
         DeleteResult result = new DeleteResult();
 
         String lookupSoql = 'SELECT Id, Name FROM ApexClass ' +
-                            'WHERE Name = \'' + String.escapeSingleQuotes(className) + '\' ' +
-                            'AND NamespacePrefix = null LIMIT 1';
+                            'WHERE Name = \'' + String.escapeSingleQuotes(className) + '\' LIMIT 1';
 
         HttpRequest lookupReq = new HttpRequest();
-        lookupReq.setEndpoint('callout:Metadata_API/services/data/v60.0/tooling/query?q=' +
+        lookupReq.setEndpoint(BASE_URL + 'tooling/query?q=' +
             EncodingUtil.urlEncode(lookupSoql, 'UTF-8'));
         lookupReq.setMethod('GET');
         lookupReq.setHeader('Content-Type', 'application/json');
@@ -764,7 +796,7 @@ public without sharing class MetadataEngine {
         String classId = (String)((Map<String, Object>) lookupRecords[0]).get('Id');
 
         HttpRequest deleteReq = new HttpRequest();
-        deleteReq.setEndpoint('callout:Metadata_API/services/data/v60.0/tooling/sobjects/ApexClass/' + classId);
+        deleteReq.setEndpoint(BASE_URL + 'tooling/sobjects/ApexClass/' + classId);
         deleteReq.setMethod('DELETE');
         deleteReq.setHeader('Content-Type', 'application/json');
 
@@ -791,7 +823,7 @@ public without sharing class MetadataEngine {
 
         String      classSoql = 'SELECT Name FROM ApexClass WHERE NamespacePrefix = null';
         HttpRequest classReq  = new HttpRequest();
-        classReq.setEndpoint('callout:Metadata_API/services/data/v60.0/tooling/query?q=' +
+        classReq.setEndpoint(BASE_URL + 'tooling/query?q=' +
             EncodingUtil.urlEncode(classSoql, 'UTF-8'));
         classReq.setMethod('GET');
         classReq.setHeader('Content-Type', 'application/json');
@@ -817,7 +849,7 @@ public without sharing class MetadataEngine {
         String      soql    = 'SELECT Id, Name, TableEnumOrId, Status, Body, LengthWithoutComments, LastModifiedDate, NamespacePrefix ' +
                               'FROM ApexTrigger WHERE NamespacePrefix = null ORDER BY Name ASC';
         HttpRequest trigReq = new HttpRequest();
-        trigReq.setEndpoint('callout:Metadata_API/services/data/v60.0/tooling/query?q=' +
+        trigReq.setEndpoint(BASE_URL + 'tooling/query?q=' +
             EncodingUtil.urlEncode(soql, 'UTF-8'));
         trigReq.setMethod('GET');
         trigReq.setHeader('Content-Type', 'application/json');
@@ -947,7 +979,7 @@ public without sharing class MetadataEngine {
                             'AND NamespacePrefix = null LIMIT 1';
 
         HttpRequest lookupReq = new HttpRequest();
-        lookupReq.setEndpoint('callout:Metadata_API/services/data/v60.0/tooling/query?q=' +
+        lookupReq.setEndpoint(BASE_URL + 'tooling/query?q=' +
             EncodingUtil.urlEncode(lookupSoql, 'UTF-8'));
         lookupReq.setMethod('GET');
         lookupReq.setHeader('Content-Type', 'application/json');
@@ -975,7 +1007,7 @@ public without sharing class MetadataEngine {
         String              objectName = (String) trigDef.get('TableEnumOrId');
 
         HttpRequest deleteReq = new HttpRequest();
-        deleteReq.setEndpoint('callout:Metadata_API/services/data/v60.0/tooling/sobjects/ApexTrigger/' + triggerId);
+        deleteReq.setEndpoint(BASE_URL + 'tooling/sobjects/ApexTrigger/' + triggerId);
         deleteReq.setMethod('DELETE');
         deleteReq.setHeader('Content-Type', 'application/json');
 
@@ -1004,7 +1036,7 @@ public without sharing class MetadataEngine {
                       'FROM LightningComponentBundle ORDER BY DeveloperName ASC';
 
         HttpRequest req = new HttpRequest();
-        req.setEndpoint('callout:Metadata_API/services/data/v60.0/tooling/query?q=' +
+        req.setEndpoint(BASE_URL + 'tooling/query?q=' +
             EncodingUtil.urlEncode(soql, 'UTF-8'));
         req.setMethod('GET');
         req.setHeader('Content-Type', 'application/json');
@@ -1076,7 +1108,7 @@ public without sharing class MetadataEngine {
                       'FROM AuraDefinitionBundle ORDER BY DeveloperName ASC';
 
         HttpRequest req = new HttpRequest();
-        req.setEndpoint('callout:Metadata_API/services/data/v60.0/tooling/query?q=' +
+        req.setEndpoint(BASE_URL + 'tooling/query?q=' +
             EncodingUtil.urlEncode(soql, 'UTF-8'));
         req.setMethod('GET');
         req.setHeader('Content-Type', 'application/json');
@@ -1142,20 +1174,28 @@ public without sharing class MetadataEngine {
     // GET PROFILES + DETECT UNUSED
     // ===============================
     public static ProfileSummary getProfiles() {
+        return getProfiles(null);
+    }
+
+    public static ProfileSummary getProfiles(String namespaceFilter) {
 
         Http http = new Http();
 
-        String      profileSoql = 'SELECT Id, Name, UserLicenseId, UserLicense.Name, UserType FROM Profile ORDER BY Name ASC';
-        HttpRequest profileReq  = new HttpRequest();
-        profileReq.setEndpoint('callout:Metadata_API/services/data/v60.0/query?q=' +
-            EncodingUtil.urlEncode(profileSoql, 'UTF-8'));
-        profileReq.setMethod('GET');
-        profileReq.setHeader('Content-Type', 'application/json');
-
-        HttpResponse             profileRes = http.send(profileReq);
+        String profileSoql = 'SELECT Id, Name, UserLicenseId, UserLicense.Name, UserType FROM Profile ORDER BY Name ASC';
         Map<String, ProfileInfo> profileMap = new Map<String, ProfileInfo>();
 
-        if (profileRes.getStatusCode() >= 200 && profileRes.getStatusCode() < 300) {
+        // Paginate through all pages
+        String  prEndpoint = BASE_URL + 'query?q=' + EncodingUtil.urlEncode(profileSoql, 'UTF-8');
+        Boolean prDone     = false;
+        while (!prDone) {
+            HttpRequest profileReq = new HttpRequest();
+            profileReq.setEndpoint(prEndpoint);
+            profileReq.setMethod('GET');
+            profileReq.setHeader('Content-Type', 'application/json');
+
+            HttpResponse profileRes = http.send(profileReq);
+            if (profileRes.getStatusCode() < 200 || profileRes.getStatusCode() >= 300) break;
+
             Map<String, Object> profileResponse =
                 (Map<String, Object>) JSON.deserializeUntyped(profileRes.getBody());
             List<Object> profileRecords = (List<Object>) profileResponse.get('records');
@@ -1177,11 +1217,16 @@ public without sharing class MetadataEngine {
                     profileMap.put(info.id, info);
                 }
             }
+
+            prDone = (profileResponse.get('done') == true);
+            if (!prDone) {
+                prEndpoint = 'callout:' + NAMED_CRED + (String) profileResponse.get('nextRecordsUrl');
+            }
         }
 
         String      userSoql = 'SELECT ProfileId, COUNT(Id) userCount FROM User WHERE IsActive = true GROUP BY ProfileId';
         HttpRequest userReq  = new HttpRequest();
-        userReq.setEndpoint('callout:Metadata_API/services/data/v60.0/query?q=' +
+        userReq.setEndpoint(BASE_URL + 'query?q=' +
             EncodingUtil.urlEncode(userSoql, 'UTF-8'));
         userReq.setMethod('GET');
         userReq.setHeader('Content-Type', 'application/json');
@@ -1210,6 +1255,9 @@ public without sharing class MetadataEngine {
         List<ProfileInfo> usedProfiles     = new List<ProfileInfo>();
         List<ProfileInfo> customProfiles   = new List<ProfileInfo>();
         List<ProfileInfo> standardProfiles = new List<ProfileInfo>();
+        List<ProfileInfo> filteredProfiles = new List<ProfileInfo>();
+
+        String nsL = String.isNotBlank(namespaceFilter) ? namespaceFilter.toLowerCase() : '';
 
         for (ProfileInfo info : profileMap.values()) {
             if (info.assignedUserCount == 0) {
@@ -1221,6 +1269,29 @@ public without sharing class MetadataEngine {
                 customProfiles.add(info);
             } else {
                 standardProfiles.add(info);
+            }
+
+            if (String.isNotBlank(namespaceFilter)) {
+                String  profNm = info.name == null ? '' : info.name.toLowerCase();
+                // Profiles have no namespacePrefix field — match by name convention only
+                // Same nextChar guard as Apex class logic:
+                // Prevents "EM" matching "EMployee" (lowercase next char = not a namespace separator)
+                Boolean matchesFilter = false;
+                if (profNm.startsWith(nsL)) {
+                    Integer nextIdx = nsL.length();
+                    if (nextIdx >= profNm.length()) {
+                        matchesFilter = true; // exact name match
+                    } else {
+                        String nextChar = info.name.substring(nextIdx, nextIdx + 1);
+                        // Only match if followed by '_' (NS_Name) or uppercase letter (NSName)
+                        if (nextChar.equals('_') || nextChar.equals(nextChar.toUpperCase())) {
+                            matchesFilter = true;
+                        }
+                    }
+                }
+                if (matchesFilter) {
+                    filteredProfiles.add(info);
+                }
             }
         }
 
@@ -1234,6 +1305,9 @@ public without sharing class MetadataEngine {
         summary.usedProfiles      = usedProfiles;
         summary.customProfiles    = customProfiles;
         summary.standardProfiles  = standardProfiles;
+        summary.filteredProfiles  = filteredProfiles;
+        summary.filteredTotal     = filteredProfiles.size();
+        summary.namespaceFilter   = namespaceFilter;
 
         return summary;
     }
@@ -1249,18 +1323,23 @@ public without sharing class MetadataEngine {
 
         Http http = new Http();
 
-        String      permSetSoql = 'SELECT Id, Name, Label, IsCustom, NamespacePrefix FROM PermissionSet ' +
-                                  'WHERE IsOwnedByProfile = false ORDER BY Label ASC';
-        HttpRequest permSetReq  = new HttpRequest();
-        permSetReq.setEndpoint('callout:Metadata_API/services/data/v60.0/query?q=' +
-            EncodingUtil.urlEncode(permSetSoql, 'UTF-8'));
-        permSetReq.setMethod('GET');
-        permSetReq.setHeader('Content-Type', 'application/json');
-
-        HttpResponse                   permSetRes = http.send(permSetReq);
+        String permSetSoql = 'SELECT Id, Name, Label, IsCustom, NamespacePrefix FROM PermissionSet ' +
+                             'WHERE IsOwnedByProfile = false ORDER BY Label ASC';
         Map<String, PermissionSetInfo> permSetMap = new Map<String, PermissionSetInfo>();
 
-        if (permSetRes.getStatusCode() >= 200 && permSetRes.getStatusCode() < 300) {
+        // Paginate through all pages — Salesforce REST API returns up to 2000 records per call
+        // and sets done=false + nextRecordsUrl when more pages exist.
+        String  psEndpoint = BASE_URL + 'query?q=' + EncodingUtil.urlEncode(permSetSoql, 'UTF-8');
+        Boolean psDone     = false;
+        while (!psDone) {
+            HttpRequest permSetReq = new HttpRequest();
+            permSetReq.setEndpoint(psEndpoint);
+            permSetReq.setMethod('GET');
+            permSetReq.setHeader('Content-Type', 'application/json');
+
+            HttpResponse permSetRes = http.send(permSetReq);
+            if (permSetRes.getStatusCode() < 200 || permSetRes.getStatusCode() >= 300) break;
+
             Map<String, Object> permSetResponse =
                 (Map<String, Object>) JSON.deserializeUntyped(permSetRes.getBody());
             List<Object> permSetRecords = (List<Object>) permSetResponse.get('records');
@@ -1280,11 +1359,16 @@ public without sharing class MetadataEngine {
                     permSetMap.put(info.id, info);
                 }
             }
+
+            psDone = (permSetResponse.get('done') == true);
+            if (!psDone) {
+                psEndpoint = 'callout:' + NAMED_CRED + (String) permSetResponse.get('nextRecordsUrl');
+            }
         }
 
         String      assignSoql = 'SELECT PermissionSetId, COUNT(Id) assignCount FROM PermissionSetAssignment GROUP BY PermissionSetId';
         HttpRequest assignReq  = new HttpRequest();
-        assignReq.setEndpoint('callout:Metadata_API/services/data/v60.0/query?q=' +
+        assignReq.setEndpoint(BASE_URL + 'query?q=' +
             EncodingUtil.urlEncode(assignSoql, 'UTF-8'));
         assignReq.setMethod('GET');
         assignReq.setHeader('Content-Type', 'application/json');
@@ -1328,8 +1412,25 @@ public without sharing class MetadataEngine {
             } else {
                 usedPermSets.add(info);
             }
-            if (nsLower != null && String.isNotBlank(info.namespacePrefix) &&
-                info.namespacePrefix.toLowerCase().contains(nsLower)) {
+            String  psNs   = info.namespacePrefix == null ? '' : info.namespacePrefix;
+            String  psNm   = info.name == null ? '' : info.name.toLowerCase();
+            // Step 1: match by NamespacePrefix field (package/managed components)
+            Boolean psMatch = nsLower != null && nsLower.equals(psNs.toLowerCase());
+            // Step 2: match by name convention — same nextChar guard as Apex class logic
+            // Prevents "EM" matching "EMployee" (lowercase next char = not a namespace separator)
+            if (!psMatch && nsLower != null && psNm.startsWith(nsLower)) {
+                Integer nextIdx = nsLower.length();
+                if (nextIdx >= psNm.length()) {
+                    psMatch = true; // exact name match
+                } else {
+                    String nextChar = info.name.substring(nextIdx, nextIdx + 1);
+                    // Only match if followed by '_' (NS_Name) or uppercase letter (NSName)
+                    if (nextChar.equals('_') || nextChar.equals(nextChar.toUpperCase())) {
+                        psMatch = true;
+                    }
+                }
+            }
+            if (nsLower != null && psMatch) {
                 filteredPermSets.add(info);
             }
         }
@@ -1342,6 +1443,8 @@ public without sharing class MetadataEngine {
         summary.withoutNamespace        = withoutNs;
         summary.filteredTotal           = filteredPermSets.size();
         summary.namespaceFilterApplied  = String.isNotBlank(namespaceFilter) ? namespaceFilter : 'None (showing all)';
+        summary.allPermSets             = new List<PermissionSetInfo>(usedPermSets);
+        summary.allPermSets.addAll(unusedPermSets);
         summary.unusedPermSets          = unusedPermSets;
         summary.usedPermSets            = usedPermSets;
         summary.filteredPermSets        = filteredPermSets;
@@ -1363,11 +1466,11 @@ public without sharing class MetadataEngine {
                         'ORDER BY DeveloperName ASC';
 
             HttpRequest req = new HttpRequest();
-            req.setEndpoint('callout:Metadata_API/services/data/v60.0/tooling/query?q=' +
+            req.setEndpoint(BASE_URL + 'tooling/query?q=' +
                 EncodingUtil.urlEncode(soql, 'UTF-8'));
             req.setMethod('GET');
             req.setHeader('Content-Type', 'application/json');
-            req.setTimeout(120000);
+            req.setTimeout(TIMEOUT_LONG);
 
             HttpResponse res = http.send(req);
 
@@ -1488,14 +1591,14 @@ public without sharing class MetadataEngine {
         Map<String, String> validObjectIds = new Map<String, String>();
 
         HttpRequest objReq = new HttpRequest();
-        objReq.setEndpoint('callout:Metadata_API/services/data/v60.0/tooling/query?q=' +
+        objReq.setEndpoint(BASE_URL + 'tooling/query?q=' +
             EncodingUtil.urlEncode(
                 'SELECT Id, DeveloperName FROM CustomObject ORDER BY DeveloperName ASC',
                 'UTF-8'
             ));
         objReq.setMethod('GET');
         objReq.setHeader('Content-Type', 'application/json');
-        objReq.setTimeout(120000);
+        objReq.setTimeout(TIMEOUT_LONG);
 
         HttpResponse objRes = http.send(objReq);
         if (objRes.getStatusCode() >= 200 && objRes.getStatusCode() < 300) {
@@ -1527,11 +1630,11 @@ public without sharing class MetadataEngine {
                     'ORDER BY TableEnumOrId, DeveloperName ASC';
 
         HttpRequest req = new HttpRequest();
-        req.setEndpoint('callout:Metadata_API/services/data/v60.0/tooling/query?q=' +
+        req.setEndpoint(BASE_URL + 'tooling/query?q=' +
             EncodingUtil.urlEncode(soql, 'UTF-8'));
         req.setMethod('GET');
         req.setHeader('Content-Type', 'application/json');
-        req.setTimeout(120000);
+        req.setTimeout(TIMEOUT_LONG);
 
         HttpResponse res = http.send(req);
 
@@ -1634,7 +1737,7 @@ public without sharing class MetadataEngine {
                       'FROM ValidationRule ORDER BY ValidationName ASC';
 
         HttpRequest req = new HttpRequest();
-        req.setEndpoint('callout:Metadata_API/services/data/v60.0/tooling/query?q=' +
+        req.setEndpoint(BASE_URL + 'tooling/query?q=' +
             EncodingUtil.urlEncode(soql, 'UTF-8'));
         req.setMethod('GET');
         req.setHeader('Content-Type', 'application/json');
@@ -1717,11 +1820,11 @@ public without sharing class MetadataEngine {
                     'WHERE DeveloperName = \'' + String.escapeSingleQuotes(cleanName) + '\' LIMIT 1';
 
         HttpRequest req = new HttpRequest();
-        req.setEndpoint('callout:Metadata_API/services/data/v60.0/tooling/query?q=' +
+        req.setEndpoint(BASE_URL + 'tooling/query?q=' +
             EncodingUtil.urlEncode(soql, 'UTF-8'));
         req.setMethod('GET');
         req.setHeader('Content-Type', 'application/json');
-        req.setTimeout(120000);
+        req.setTimeout(TIMEOUT_LONG);
 
         HttpResponse res = http.send(req);
 
@@ -1753,7 +1856,7 @@ public without sharing class MetadataEngine {
         // ── Step 2: If managed — find and uninstall the package ───
         if (isManaged) {
             HttpRequest pkgReq = new HttpRequest();
-            pkgReq.setEndpoint('callout:Metadata_API/services/data/v60.0/tooling/query?q=' +
+            pkgReq.setEndpoint(BASE_URL + 'tooling/query?q=' +
                 EncodingUtil.urlEncode(
                     'SELECT Id, SubscriberPackageId, SubscriberPackage.Name, SubscriberPackage.NamespacePrefix ' +
                     'FROM InstalledSubscriberPackage ' +
@@ -1762,7 +1865,7 @@ public without sharing class MetadataEngine {
                 ));
             pkgReq.setMethod('GET');
             pkgReq.setHeader('Content-Type', 'application/json');
-            pkgReq.setTimeout(30000);
+            pkgReq.setTimeout(TIMEOUT_SHORT);
 
             HttpResponse pkgRes = http.send(pkgReq);
 
@@ -1777,10 +1880,10 @@ public without sharing class MetadataEngine {
                     String              pkgName = (String) subPkg.get('Name');
 
                     HttpRequest uninstallReq = new HttpRequest();
-                    uninstallReq.setEndpoint('callout:Metadata_API/services/data/v60.0/tooling/sobjects/InstalledSubscriberPackage/' + pkgId);
+                    uninstallReq.setEndpoint(BASE_URL + 'tooling/sobjects/InstalledSubscriberPackage/' + pkgId);
                     uninstallReq.setMethod('DELETE');
                     uninstallReq.setHeader('Content-Type', 'application/json');
-                    uninstallReq.setTimeout(120000);
+                    uninstallReq.setTimeout(TIMEOUT_LONG);
 
                     HttpResponse uninstallRes = http.send(uninstallReq);
 
@@ -1819,11 +1922,11 @@ public without sharing class MetadataEngine {
             String header = EncodingUtil.base64Encode(Blob.valueOf('{"alg":"RS256","typ":"JWT"}'))
                 .replace('+', '-').replace('/', '_').replace('=', '');
 
-            Long   expTime = DateTime.now().addMinutes(5).getTime() / 1000;
+            Long   expTime = DateTime.now().addMinutes(JWT_EXPIRY_MIN).getTime() / 1000;
             String payload = EncodingUtil.base64Encode(Blob.valueOf(
                 '{"iss":"' + cred.ConsumerKey__c + '",' +
                 '"sub":"' + cred.Username__c + '",' +
-                '"aud":"https://login.salesforce.com",' +
+                '"aud":"' + LOGIN_URL + '",' +
                 '"exp":' + expTime + '}'
             )).replace('+', '-').replace('/', '_').replace('=', '');
 
@@ -1835,10 +1938,10 @@ public without sharing class MetadataEngine {
                 .replace('+', '-').replace('/', '_').replace('=', '');
 
             HttpRequest jwtReq = new HttpRequest();
-            jwtReq.setEndpoint('https://login.salesforce.com/services/oauth2/token');
+            jwtReq.setEndpoint(LOGIN_URL + '/services/oauth2/token');
             jwtReq.setMethod('POST');
             jwtReq.setHeader('Content-Type', 'application/x-www-form-urlencoded');
-            jwtReq.setTimeout(30000);
+            jwtReq.setTimeout(TIMEOUT_SHORT);
             jwtReq.setBody(
                 'grant_type=' + EncodingUtil.urlEncode('urn:ietf:params:oauth:grant-type:jwt-bearer', 'UTF-8') +
                 '&assertion='  + EncodingUtil.urlEncode(jwt, 'UTF-8')
@@ -1903,7 +2006,7 @@ public without sharing class MetadataEngine {
         del.setMethod('POST');
         del.setHeader('Content-Type', 'text/xml; charset=UTF-8');
         del.setHeader('SOAPAction', '""');
-        del.setTimeout(120000);
+        del.setTimeout(TIMEOUT_LONG);
         del.setBody(soapBody);
 
         HttpResponse dr = http.send(del);
@@ -1948,7 +2051,7 @@ public without sharing class MetadataEngine {
         String      soql = 'SELECT Id FROM LightningComponentBundle WHERE DeveloperName = \'' +
                            String.escapeSingleQuotes(componentName) + '\' LIMIT 1';
         HttpRequest req  = new HttpRequest();
-        req.setEndpoint('callout:Metadata_API/services/data/v60.0/tooling/query?q=' +
+        req.setEndpoint(BASE_URL + 'tooling/query?q=' +
             EncodingUtil.urlEncode(soql, 'UTF-8'));
         req.setMethod('GET');
         req.setHeader('Content-Type', 'application/json');
@@ -1971,7 +2074,7 @@ public without sharing class MetadataEngine {
 
         String      cId = (String)((Map<String, Object>) records[0]).get('Id');
         HttpRequest del = new HttpRequest();
-        del.setEndpoint('callout:Metadata_API/services/data/v60.0/tooling/sobjects/LightningComponentBundle/' + cId);
+        del.setEndpoint(BASE_URL + 'tooling/sobjects/LightningComponentBundle/' + cId);
         del.setMethod('DELETE');
         del.setHeader('Content-Type', 'application/json');
 
@@ -1999,7 +2102,7 @@ public without sharing class MetadataEngine {
         String      soql = 'SELECT Id FROM AuraDefinitionBundle WHERE DeveloperName = \'' +
                            String.escapeSingleQuotes(componentName) + '\' LIMIT 1';
         HttpRequest req  = new HttpRequest();
-        req.setEndpoint('callout:Metadata_API/services/data/v60.0/tooling/query?q=' +
+        req.setEndpoint(BASE_URL + 'tooling/query?q=' +
             EncodingUtil.urlEncode(soql, 'UTF-8'));
         req.setMethod('GET');
         req.setHeader('Content-Type', 'application/json');
@@ -2022,7 +2125,7 @@ public without sharing class MetadataEngine {
 
         String      cId = (String)((Map<String, Object>) records[0]).get('Id');
         HttpRequest del = new HttpRequest();
-        del.setEndpoint('callout:Metadata_API/services/data/v60.0/tooling/sobjects/AuraDefinitionBundle/' + cId);
+        del.setEndpoint(BASE_URL + 'tooling/sobjects/AuraDefinitionBundle/' + cId);
         del.setMethod('DELETE');
         del.setHeader('Content-Type', 'application/json');
 
@@ -2076,11 +2179,11 @@ public without sharing class MetadataEngine {
               'LIMIT 1';
 
         HttpRequest req = new HttpRequest();
-        req.setEndpoint('callout:Metadata_API/services/data/v60.0/tooling/query?q=' +
+        req.setEndpoint(BASE_URL + 'tooling/query?q=' +
             EncodingUtil.urlEncode(soql, 'UTF-8'));
         req.setMethod('GET');
         req.setHeader('Content-Type', 'application/json');
-        req.setTimeout(120000);
+        req.setTimeout(TIMEOUT_LONG);
 
         HttpResponse res = http.send(req);
 
@@ -2120,11 +2223,11 @@ public without sharing class MetadataEngine {
             String header = EncodingUtil.base64Encode(Blob.valueOf('{"alg":"RS256","typ":"JWT"}'))
                 .replace('+', '-').replace('/', '_').replace('=', '');
 
-            Long   expTime = DateTime.now().addMinutes(5).getTime() / 1000;
+            Long   expTime = DateTime.now().addMinutes(JWT_EXPIRY_MIN).getTime() / 1000;
             String payload = EncodingUtil.base64Encode(Blob.valueOf(
                 '{"iss":"' + cred.ConsumerKey__c + '",' +
                 '"sub":"' + cred.Username__c + '",' +
-                '"aud":"https://login.salesforce.com",' +
+                '"aud":"' + LOGIN_URL + '",' +
                 '"exp":' + expTime + '}'
             )).replace('+', '-').replace('/', '_').replace('=', '');
 
@@ -2136,10 +2239,10 @@ public without sharing class MetadataEngine {
                 .replace('+', '-').replace('/', '_').replace('=', '');
 
             HttpRequest jwtReq = new HttpRequest();
-            jwtReq.setEndpoint('https://login.salesforce.com/services/oauth2/token');
+            jwtReq.setEndpoint(LOGIN_URL + '/services/oauth2/token');
             jwtReq.setMethod('POST');
             jwtReq.setHeader('Content-Type', 'application/x-www-form-urlencoded');
-            jwtReq.setTimeout(30000);
+            jwtReq.setTimeout(TIMEOUT_SHORT);
             jwtReq.setBody(
                 'grant_type=' + EncodingUtil.urlEncode('urn:ietf:params:oauth:grant-type:jwt-bearer', 'UTF-8') +
                 '&assertion='  + EncodingUtil.urlEncode(jwt, 'UTF-8')
@@ -2204,7 +2307,7 @@ public without sharing class MetadataEngine {
         del.setMethod('POST');
         del.setHeader('Content-Type', 'text/xml; charset=UTF-8');
         del.setHeader('SOAPAction', '""');
-        del.setTimeout(120000);
+        del.setTimeout(TIMEOUT_LONG);
         del.setBody(soapBody);
 
         HttpResponse dr = http.send(del);
@@ -2253,7 +2356,7 @@ public without sharing class MetadataEngine {
                       'LIMIT 1';
 
         HttpRequest req = new HttpRequest();
-        req.setEndpoint('callout:Metadata_API/services/data/v60.0/tooling/query?q=' +
+        req.setEndpoint(BASE_URL + 'tooling/query?q=' +
             EncodingUtil.urlEncode(soql, 'UTF-8'));
         req.setMethod('GET');
         req.setHeader('Content-Type', 'application/json');
@@ -2276,7 +2379,7 @@ public without sharing class MetadataEngine {
 
         String      rId = (String)((Map<String, Object>) records[0]).get('Id');
         HttpRequest del = new HttpRequest();
-        del.setEndpoint('callout:Metadata_API/services/data/v60.0/tooling/sobjects/ValidationRule/' + rId);
+        del.setEndpoint(BASE_URL + 'tooling/sobjects/ValidationRule/' + rId);
         del.setMethod('DELETE');
         del.setHeader('Content-Type', 'application/json');
 
@@ -2304,7 +2407,7 @@ public without sharing class MetadataEngine {
         String      lookSoql = 'SELECT Id, Label FROM PermissionSet WHERE Name = \'' +
                                String.escapeSingleQuotes(permSetName) + '\' AND IsOwnedByProfile = false LIMIT 1';
         HttpRequest lReq     = new HttpRequest();
-        lReq.setEndpoint('callout:Metadata_API/services/data/v60.0/query?q=' +
+        lReq.setEndpoint(BASE_URL + 'query?q=' +
             EncodingUtil.urlEncode(lookSoql, 'UTF-8'));
         lReq.setMethod('GET');
         lReq.setHeader('Content-Type', 'application/json');
@@ -2330,7 +2433,7 @@ public without sharing class MetadataEngine {
 
         String      aSoql = 'SELECT Id FROM PermissionSetAssignment WHERE PermissionSetId = \'' + psId + '\'';
         HttpRequest aReq  = new HttpRequest();
-        aReq.setEndpoint('callout:Metadata_API/services/data/v60.0/query?q=' +
+        aReq.setEndpoint(BASE_URL + 'query?q=' +
             EncodingUtil.urlEncode(aSoql, 'UTF-8'));
         aReq.setMethod('GET');
         aReq.setHeader('Content-Type', 'application/json');
@@ -2344,7 +2447,7 @@ public without sharing class MetadataEngine {
                 for (Object o : aRecs) {
                     String      aId   = (String)((Map<String, Object>) o).get('Id');
                     HttpRequest dAReq = new HttpRequest();
-                    dAReq.setEndpoint('callout:Metadata_API/services/data/v60.0/sobjects/PermissionSetAssignment/' + aId);
+                    dAReq.setEndpoint(BASE_URL + 'sobjects/PermissionSetAssignment/' + aId);
                     dAReq.setMethod('DELETE');
                     dAReq.setHeader('Content-Type', 'application/json');
 
@@ -2357,7 +2460,7 @@ public without sharing class MetadataEngine {
         }
 
         HttpRequest delReq = new HttpRequest();
-        delReq.setEndpoint('callout:Metadata_API/services/data/v60.0/sobjects/PermissionSet/' + psId);
+        delReq.setEndpoint(BASE_URL + 'sobjects/PermissionSet/' + psId);
         delReq.setMethod('DELETE');
         delReq.setHeader('Content-Type', 'application/json');
 
@@ -2386,7 +2489,7 @@ public without sharing class MetadataEngine {
         String      pSoql = 'SELECT Id FROM Profile WHERE Name = \'' +
                             String.escapeSingleQuotes(profileName) + '\' LIMIT 1';
         HttpRequest pReq  = new HttpRequest();
-        pReq.setEndpoint('callout:Metadata_API/services/data/v60.0/query?q=' +
+        pReq.setEndpoint(BASE_URL + 'query?q=' +
             EncodingUtil.urlEncode(pSoql, 'UTF-8'));
         pReq.setMethod('GET');
         pReq.setHeader('Content-Type', 'application/json');
@@ -2412,7 +2515,7 @@ public without sharing class MetadataEngine {
 
         String      uSoql = 'SELECT Id FROM User WHERE ProfileId = \'' + profileId + '\' AND IsActive = true LIMIT 1';
         HttpRequest uReq  = new HttpRequest();
-        uReq.setEndpoint('callout:Metadata_API/services/data/v60.0/query?q=' +
+        uReq.setEndpoint(BASE_URL + 'query?q=' +
             EncodingUtil.urlEncode(uSoql, 'UTF-8'));
         uReq.setMethod('GET');
         uReq.setHeader('Content-Type', 'application/json');
@@ -2435,7 +2538,7 @@ public without sharing class MetadataEngine {
                 String      fSoql = 'SELECT Id FROM Profile WHERE Name = \'' +
                                     String.escapeSingleQuotes(fallbackProfileName) + '\' LIMIT 1';
                 HttpRequest fReq  = new HttpRequest();
-                fReq.setEndpoint('callout:Metadata_API/services/data/v60.0/query?q=' +
+                fReq.setEndpoint(BASE_URL + 'query?q=' +
                     EncodingUtil.urlEncode(fSoql, 'UTF-8'));
                 fReq.setMethod('GET');
                 fReq.setHeader('Content-Type', 'application/json');
@@ -2453,7 +2556,7 @@ public without sharing class MetadataEngine {
 
                 String      allUSoql = 'SELECT Id FROM User WHERE ProfileId = \'' + profileId + '\' AND IsActive = true';
                 HttpRequest allUReq  = new HttpRequest();
-                allUReq.setEndpoint('callout:Metadata_API/services/data/v60.0/query?q=' +
+                allUReq.setEndpoint(BASE_URL + 'query?q=' +
                     EncodingUtil.urlEncode(allUSoql, 'UTF-8'));
                 allUReq.setMethod('GET');
                 allUReq.setHeader('Content-Type', 'application/json');
@@ -2465,7 +2568,7 @@ public without sharing class MetadataEngine {
                         for (Object o : allURecs) {
                             String      uid      = (String)((Map<String, Object>) o).get('Id');
                             HttpRequest patchReq = new HttpRequest();
-                            patchReq.setEndpoint('callout:Metadata_API/services/data/v60.0/sobjects/User/' + uid);
+                            patchReq.setEndpoint(BASE_URL + 'sobjects/User/' + uid);
                             patchReq.setMethod('PATCH');
                             patchReq.setHeader('Content-Type', 'application/json');
                             patchReq.setBody('{"ProfileId":"' + fallbackId + '"}');
@@ -2492,11 +2595,11 @@ public without sharing class MetadataEngine {
             String header = EncodingUtil.base64Encode(Blob.valueOf('{"alg":"RS256","typ":"JWT"}'))
                 .replace('+', '-').replace('/', '_').replace('=', '');
 
-            Long   expTime = DateTime.now().addMinutes(5).getTime() / 1000;
+            Long   expTime = DateTime.now().addMinutes(JWT_EXPIRY_MIN).getTime() / 1000;
             String payload = EncodingUtil.base64Encode(Blob.valueOf(
                 '{"iss":"' + cred.ConsumerKey__c + '",' +
                 '"sub":"' + cred.Username__c + '",' +
-                '"aud":"https://login.salesforce.com",' +
+                '"aud":"' + LOGIN_URL + '",' +
                 '"exp":' + expTime + '}'
             )).replace('+', '-').replace('/', '_').replace('=', '');
 
@@ -2508,10 +2611,10 @@ public without sharing class MetadataEngine {
                 .replace('+', '-').replace('/', '_').replace('=', '');
 
             HttpRequest jwtReq = new HttpRequest();
-            jwtReq.setEndpoint('https://login.salesforce.com/services/oauth2/token');
+            jwtReq.setEndpoint(LOGIN_URL + '/services/oauth2/token');
             jwtReq.setMethod('POST');
             jwtReq.setHeader('Content-Type', 'application/x-www-form-urlencoded');
-            jwtReq.setTimeout(30000);
+            jwtReq.setTimeout(TIMEOUT_SHORT);
             jwtReq.setBody(
                 'grant_type=' + EncodingUtil.urlEncode('urn:ietf:params:oauth:grant-type:jwt-bearer', 'UTF-8') +
                 '&assertion='  + EncodingUtil.urlEncode(jwt, 'UTF-8')
@@ -2567,7 +2670,7 @@ public without sharing class MetadataEngine {
         delReq.setMethod('POST');
         delReq.setHeader('Content-Type', 'text/xml; charset=UTF-8');
         delReq.setHeader('SOAPAction', '""');
-        delReq.setTimeout(120000);
+        delReq.setTimeout(TIMEOUT_LONG);
         delReq.setBody(soapBody);
 
         HttpResponse delRes = http.send(delReq);

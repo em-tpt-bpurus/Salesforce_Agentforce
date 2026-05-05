@@ -95,4 +95,8 @@
         <apexClass>OrgCleanupAgentAction</apexClass>
         <enabled>true</enabled>
     </classAccesses>
+    <classAccesses>
+        <apexClass>MetadataConstants</apexClass>
+        <enabled>true</enabled>
+    </classAccesses>
 </PermissionSet>
