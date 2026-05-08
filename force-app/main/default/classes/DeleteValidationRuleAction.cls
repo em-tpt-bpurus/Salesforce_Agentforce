@@ -36,4 +36,17 @@ public without sharing class DeleteValidationRuleAction {
         out.success = r.success; out.message = r.message;
         return out;
     }
+
+    // ── Mass delete: called by LWC — names must be "Object.RuleName" format ──
+    @AuraEnabled(cacheable=false)
+    public static MetadataEngine.MassDeleteResult massDeleteValidationRulesDirect(List<String> dotNames) {
+        if (dotNames == null || dotNames.isEmpty()) {
+            MetadataEngine.MassDeleteResult r = new MetadataEngine.MassDeleteResult();
+            r.totalRequested = 0; r.successCount = 0; r.failureCount = 0;
+            r.succeeded = new List<String>(); r.failed = new List<String>();
+            r.summary = 'No validation rule names provided.';
+            return r;
+        }
+        return MetadataEngine.massDeleteValidationRules(dotNames);
+    }
 }

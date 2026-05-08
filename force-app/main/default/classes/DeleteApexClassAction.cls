@@ -38,4 +38,20 @@ public without sharing class DeleteApexClassAction {
         }
         return MetadataEngine.deleteApexClassByName(apexClassName.trim());
     }
+
+    // ── Mass delete: called by LWC for bulk operations ────────
+    @AuraEnabled(cacheable=false)
+    public static MetadataEngine.MassDeleteResult massDeleteApexClassesDirect(List<String> apexClassNames) {
+        if (apexClassNames == null || apexClassNames.isEmpty()) {
+            MetadataEngine.MassDeleteResult r = new MetadataEngine.MassDeleteResult();
+            r.totalRequested = 0;
+            r.successCount   = 0;
+            r.failureCount   = 0;
+            r.succeeded      = new List<String>();
+            r.failed         = new List<String>();
+            r.summary        = 'No Apex class names provided.';
+            return r;
+        }
+        return MetadataEngine.massDeleteApexClasses(apexClassNames);
+    }
 }

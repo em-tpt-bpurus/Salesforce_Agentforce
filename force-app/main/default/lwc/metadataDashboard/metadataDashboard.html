@@ -520,9 +520,37 @@
                             <div class={cardClassTotal} data-filter="total" onclick={handleStatCardClick} title="Click to filter"><div class="stat-value">{lwcTotalDisplay}</div><div class="stat-label">Total LWC</div></div>
                             <div class={cardClassWithNs} data-filter="withNs" onclick={handleStatCardClick} title="Click to filter"><div class="stat-dot dot-blue"></div><div class="stat-value">{lwcWithNsDisplay}</div><div class="stat-label">With Namespace</div></div>
                             <div class={cardClassNoNs} data-filter="noNs" onclick={handleStatCardClick} title="Click to filter"><div class="stat-dot dot-gray"></div><div class="stat-value">{lwcNoNsDisplay}</div><div class="stat-label">No Namespace</div></div>
+                            <div class={cardClassUnref} data-filter="unreferenced" onclick={handleStatCardClick} title="Click to filter"><div class="stat-dot dot-orange"></div><div class="stat-value">{lwcUnreferencedDisplay}</div><div class="stat-label">Unreferenced</div></div>
                         </div>
+                        <template if:true={showUnreferencedSection}>
+                        <div class="list-section list-section-warn">
+                            <div class="list-header">
+                                <span class="list-title">Unreferenced LWC Components</span>
+                                <span class="list-count orange">{lwcUnreferencedDisplay}</span>
+                                <span class="delete-badge">Not used in any page</span>
+                            </div>
+                            <template if:true={unreferencedLwcDisplayList.length}>
+                                <ul class="metadata-list">
+                                    <template for:each={unreferencedLwcDisplayList} for:item="cmp">
+                                        <li key={cmp.index} class="list-item list-item-warn">
+                                            <span class="status-dot dot-orange"></span>
+                                            <span class="item-index">{cmp.index}.</span>
+                                            <div class="item-detail">
+                                                <span class="item-name">{cmp.name}</span>
+                                                <span class="item-meta">{cmp.meta}</span>
+                                            </div>
+                                            <button class="agent-delete-btn" data-type="lwc" data-name={cmp.name} onclick={handleAgentDeleteFromList} title="Ask agent to delete">
+                                                <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M3 4h10M5 4V3h6v1M6 7v5M10 7v5M4 4l1 9h6l1-9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                                            </button>
+                                        </li>
+                                    </template>
+                                </ul>
+                            </template>
+                            <template if:false={unreferencedLwcDisplayList.length}><p class="empty-state">No unreferenced LWC components found matching {nsActiveFilterLabel}.</p></template>
+                        </div>
+                        </template>
                         <div class="list-section">
-                            <div class="list-header"><span class="list-title">LWC Components — {nsFilterLabel}</span><span class="list-count blue">{lwcDisplayList.length}</span></div>
+                            <div class="list-header"><span class="list-title">All LWC Components — {nsFilterLabel}</span><span class="list-count blue">{lwcDisplayList.length}</span></div>
                             <template if:true={lwcDisplayList.length}><ul class="metadata-list"><template for:each={lwcDisplayList} for:item="cmp"><li key={cmp.index} class="list-item"><span class="status-dot dot-blue"></span><span class="item-index">{cmp.index}.</span><div class="item-detail"><span class="item-name">{cmp.name}</span><span class="item-meta">{cmp.meta}</span></div></li></template></ul></template>
                             <template if:false={lwcDisplayList.length}><p class="empty-state">No LWC components found matching {nsActiveFilterLabel}.</p></template>
                         </div>
@@ -537,9 +565,37 @@
                             <div class={cardClassTotal} data-filter="total" onclick={handleStatCardClick} title="Click to filter"><div class="stat-value">{auraTotalDisplay}</div><div class="stat-label">Total Aura</div></div>
                             <div class={cardClassWithNs} data-filter="withNs" onclick={handleStatCardClick} title="Click to filter"><div class="stat-dot dot-blue"></div><div class="stat-value">{auraWithNsDisplay}</div><div class="stat-label">With Namespace</div></div>
                             <div class={cardClassNoNs} data-filter="noNs" onclick={handleStatCardClick} title="Click to filter"><div class="stat-dot dot-gray"></div><div class="stat-value">{auraNoNsDisplay}</div><div class="stat-label">No Namespace</div></div>
+                            <div class={cardClassUnref} data-filter="unreferenced" onclick={handleStatCardClick} title="Click to filter"><div class="stat-dot dot-orange"></div><div class="stat-value">{auraUnreferencedDisplay}</div><div class="stat-label">Unreferenced</div></div>
                         </div>
+                        <template if:true={showUnreferencedSection}>
+                        <div class="list-section list-section-warn">
+                            <div class="list-header">
+                                <span class="list-title">Unreferenced Aura Components</span>
+                                <span class="list-count orange">{auraUnreferencedDisplay}</span>
+                                <span class="delete-badge">Not used in any app</span>
+                            </div>
+                            <template if:true={unreferencedAuraDisplayList.length}>
+                                <ul class="metadata-list">
+                                    <template for:each={unreferencedAuraDisplayList} for:item="cmp">
+                                        <li key={cmp.index} class="list-item list-item-warn">
+                                            <span class="status-dot dot-orange"></span>
+                                            <span class="item-index">{cmp.index}.</span>
+                                            <div class="item-detail">
+                                                <span class="item-name">{cmp.name}</span>
+                                                <span class="item-meta">{cmp.meta}</span>
+                                            </div>
+                                            <button class="agent-delete-btn" data-type="aura" data-name={cmp.name} onclick={handleAgentDeleteFromList} title="Ask agent to delete">
+                                                <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M3 4h10M5 4V3h6v1M6 7v5M10 7v5M4 4l1 9h6l1-9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                                            </button>
+                                        </li>
+                                    </template>
+                                </ul>
+                            </template>
+                            <template if:false={unreferencedAuraDisplayList.length}><p class="empty-state">No unreferenced Aura components found matching {nsActiveFilterLabel}.</p></template>
+                        </div>
+                        </template>
                         <div class="list-section">
-                            <div class="list-header"><span class="list-title">Aura Components — {nsFilterLabel}</span><span class="list-count blue">{auraDisplayList.length}</span></div>
+                            <div class="list-header"><span class="list-title">All Aura Components — {nsFilterLabel}</span><span class="list-count blue">{auraDisplayList.length}</span></div>
                             <template if:true={auraDisplayList.length}><ul class="metadata-list"><template for:each={auraDisplayList} for:item="cmp"><li key={cmp.index} class="list-item"><span class="status-dot dot-blue"></span><span class="item-index">{cmp.index}.</span><div class="item-detail"><span class="item-name">{cmp.name}</span><span class="item-meta">{cmp.meta}</span></div></li></template></ul></template>
                             <template if:false={auraDisplayList.length}><p class="empty-state">No Aura components found matching {nsActiveFilterLabel}.</p></template>
                         </div>
@@ -606,7 +662,35 @@
                             <div class={cardClassTotal} data-filter="total" onclick={handleStatCardClick} title="Click to filter"><div class="stat-value">{fieldTotalDisplay}</div><div class="stat-label">Total Fields</div></div>
                             <div class={cardClassWithNs} data-filter="withNs" onclick={handleStatCardClick} title="Click to filter"><div class="stat-dot dot-blue"></div><div class="stat-value">{fieldWithNsDisplay}</div><div class="stat-label">With Namespace</div></div>
                             <div class={cardClassNoNs} data-filter="noNs" onclick={handleStatCardClick} title="Click to filter"><div class="stat-dot dot-gray"></div><div class="stat-value">{fieldNoNsDisplay}</div><div class="stat-label">No Namespace</div></div>
+                            <div class={cardClassEmpty} data-filter="empty" onclick={handleStatCardClick} title="Click to filter"><div class="stat-dot dot-orange"></div><div class="stat-value">{fieldEmptyDisplay}</div><div class="stat-label">No Data</div></div>
                         </div>
+                        <template if:true={showEmptySection}>
+                        <div class="list-section list-section-warn">
+                            <div class="list-header">
+                                <span class="list-title">Fields With No Data</span>
+                                <span class="list-count orange">{fieldEmptyDisplay}</span>
+                                <span class="delete-badge">All values null</span>
+                            </div>
+                            <template if:true={emptyFieldDisplayList.length}>
+                                <ul class="metadata-list">
+                                    <template for:each={emptyFieldDisplayList} for:item="fld">
+                                        <li key={fld.index} class="list-item list-item-warn">
+                                            <span class="status-dot dot-orange"></span>
+                                            <span class="item-index">{fld.index}.</span>
+                                            <div class="item-detail">
+                                                <span class="item-name">{fld.name}</span>
+                                                <span class="item-meta">{fld.meta}</span>
+                                            </div>
+                                            <button class="agent-delete-btn" data-type="field" data-name={fld.name} onclick={handleAgentDeleteFromList} title="Ask agent to delete">
+                                                <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M3 4h10M5 4V3h6v1M6 7v5M10 7v5M4 4l1 9h6l1-9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                                            </button>
+                                        </li>
+                                    </template>
+                                </ul>
+                            </template>
+                            <template if:false={emptyFieldDisplayList.length}><p class="empty-state">No empty fields found matching {nsActiveFilterLabel}.</p></template>
+                        </div>
+                        </template>
                         <div class="list-section">
                             <div class="list-header"><span class="list-title">Custom Fields — {nsFilterLabel}</span><span class="list-count blue">{fieldDisplayList.length}</span></div>
                             <template if:true={fieldDisplayList.length}><ul class="metadata-list"><template for:each={fieldDisplayList} for:item="fld"><li key={fld.index} class="list-item"><span class="status-dot dot-blue"></span><span class="item-index">{fld.index}.</span><div class="item-detail"><span class="item-name">{fld.name}</span><span class="item-meta">{fld.meta}</span></div></li></template></ul></template>
@@ -623,7 +707,35 @@
                             <div class={cardClassTotal} data-filter="total" onclick={handleStatCardClick} title="Click to filter"><div class="stat-value">{objectTotalDisplay}</div><div class="stat-label">Total Objects</div></div>
                             <div class={cardClassWithNs} data-filter="withNs" onclick={handleStatCardClick} title="Click to filter"><div class="stat-dot dot-blue"></div><div class="stat-value">{objectWithNsDisplay}</div><div class="stat-label">With Namespace</div></div>
                             <div class={cardClassNoNs} data-filter="noNs" onclick={handleStatCardClick} title="Click to filter"><div class="stat-dot dot-gray"></div><div class="stat-value">{objectNoNsDisplay}</div><div class="stat-label">No Namespace</div></div>
+                            <div class={cardClassEmpty} data-filter="empty" onclick={handleStatCardClick} title="Click to filter"><div class="stat-dot dot-orange"></div><div class="stat-value">{objectEmptyDisplay}</div><div class="stat-label">Empty (0 Records)</div></div>
                         </div>
+                        <template if:true={showEmptySection}>
+                        <div class="list-section list-section-warn">
+                            <div class="list-header">
+                                <span class="list-title">Empty Custom Objects</span>
+                                <span class="list-count orange">{objectEmptyDisplay}</span>
+                                <span class="delete-badge">0 records</span>
+                            </div>
+                            <template if:true={emptyObjectDisplayList.length}>
+                                <ul class="metadata-list">
+                                    <template for:each={emptyObjectDisplayList} for:item="obj">
+                                        <li key={obj.index} class="list-item list-item-warn">
+                                            <span class="status-dot dot-orange"></span>
+                                            <span class="item-index">{obj.index}.</span>
+                                            <div class="item-detail">
+                                                <span class="item-name">{obj.name}</span>
+                                                <span class="item-meta">{obj.meta}</span>
+                                            </div>
+                                            <button class="agent-delete-btn" data-type="object" data-name={obj.name} onclick={handleAgentDeleteFromList} title="Ask agent to delete">
+                                                <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M3 4h10M5 4V3h6v1M6 7v5M10 7v5M4 4l1 9h6l1-9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                                            </button>
+                                        </li>
+                                    </template>
+                                </ul>
+                            </template>
+                            <template if:false={emptyObjectDisplayList.length}><p class="empty-state">No empty custom objects found matching {nsActiveFilterLabel}.</p></template>
+                        </div>
+                        </template>
                         <div class="list-section">
                             <div class="list-header"><span class="list-title">Custom Objects — {nsFilterLabel}</span><span class="list-count blue">{objectDisplayList.length}</span></div>
                             <template if:true={objectDisplayList.length}><ul class="metadata-list"><template for:each={objectDisplayList} for:item="obj"><li key={obj.index} class="list-item"><span class="status-dot dot-blue"></span><span class="item-index">{obj.index}.</span><div class="item-detail"><span class="item-name">{obj.name}</span><span class="item-meta">{obj.meta}</span></div></li></template></ul></template>

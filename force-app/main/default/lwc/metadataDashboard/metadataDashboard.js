@@ -13,16 +13,26 @@ import getValidationRuleSummary from '@salesforce/apex/ValidationRuleAgentAction
 // Agent actions — new backend class
 import handleAgentQuery         from '@salesforce/apex/OrgCleanupAgentAction.handleAgentQuery';
 import deleteApexClass          from '@salesforce/apex/DeleteApexClassAction.deleteApexClassDirect';
+import massDeleteApexClasses    from '@salesforce/apex/DeleteApexClassAction.massDeleteApexClassesDirect';
 import saveToOrgFiles           from '@salesforce/apex/ExportMetadataAction.saveToFiles';
 import deleteFlow               from '@salesforce/apex/DeleteFlowAction.deleteFlowDirect';
+import massDeleteFlows          from '@salesforce/apex/DeleteFlowAction.massDeleteFlowsDirect';
 import deleteTrigger            from '@salesforce/apex/DeleteTriggerAction.deleteTriggerDirect';
+import massDeleteTriggers       from '@salesforce/apex/DeleteTriggerAction.massDeleteTriggersDirect';
 import deleteLwc                from '@salesforce/apex/DeleteLwcAction.deleteLwcFromLWC';
+import massDeleteLwc            from '@salesforce/apex/DeleteLwcAction.massDeleteLwcDirect';
 import deleteAura               from '@salesforce/apex/DeleteAuraAction.deleteAuraFromLWC';
+import massDeleteAura           from '@salesforce/apex/DeleteAuraAction.massDeleteAuraDirect';
 import deleteCustomField        from '@salesforce/apex/DeleteCustomFieldAction.deleteFieldFromLWC';
+import massDeleteCustomFields   from '@salesforce/apex/DeleteCustomFieldAction.massDeleteCustomFieldsDirect';
 import deleteCustomObject       from '@salesforce/apex/DeleteCustomObjectAction.deleteObjectFromLWC';
+import massDeleteCustomObjects  from '@salesforce/apex/DeleteCustomObjectAction.massDeleteCustomObjectsDirect';
 import deletePermSet            from '@salesforce/apex/DeletePermissionSetAction.deletePermSetFromLWC';
+import massDeletePermSets       from '@salesforce/apex/DeletePermissionSetAction.massDeletePermSetsDirect';
 import deactivateProfile        from '@salesforce/apex/DeactivateProfileAction.deactivateProfileFromLWC';
+import massDeactivateProfiles   from '@salesforce/apex/DeactivateProfileAction.massDeactivateProfilesDirect';
 import deleteValidationRule     from '@salesforce/apex/DeleteValidationRuleAction.deleteVRFromLWC';
+import massDeleteValidationRules from '@salesforce/apex/DeleteValidationRuleAction.massDeleteValidationRulesDirect';
 
 // ─────────────────────────────────────────────────────────────
 // CONSTANTS — single source of truth for all magic strings
@@ -44,16 +54,18 @@ const TAB = {
 
 /** Stat-card filter keys */
 const FILTER = {
-    ALL      : 'all',
-    TOTAL    : 'total',
-    ACTIVE   : 'active',
-    INACTIVE : 'inactive',
-    USED     : 'used',
-    UNUSED   : 'unused',
-    STANDARD : 'standard',
-    TEST     : 'test',
-    WITH_NS  : 'withNs',
-    NO_NS    : 'noNs'
+    ALL          : 'all',
+    TOTAL        : 'total',
+    ACTIVE       : 'active',
+    INACTIVE     : 'inactive',
+    USED         : 'used',
+    UNUSED       : 'unused',
+    STANDARD     : 'standard',
+    TEST         : 'test',
+    WITH_NS      : 'withNs',
+    NO_NS        : 'noNs',
+    EMPTY        : 'empty',
+    UNREFERENCED : 'unreferenced'
 };
 
 /** Export format keys */
@@ -123,6 +135,8 @@ export default class MetadataDashboard extends LightningElement {
     get showUnassignedSection() { return this.activeCardFilter === FILTER.ALL || this.activeCardFilter === FILTER.TOTAL || this.activeCardFilter === FILTER.UNUSED;   }
     get showWithNsSection()     { return this.activeCardFilter === FILTER.ALL || this.activeCardFilter === FILTER.TOTAL || this.activeCardFilter === FILTER.WITH_NS;   }
     get showNoNsSection()       { return this.activeCardFilter === FILTER.ALL || this.activeCardFilter === FILTER.TOTAL || this.activeCardFilter === FILTER.NO_NS;     }
+    get showEmptySection()      { return this.activeCardFilter === FILTER.ALL || this.activeCardFilter === FILTER.TOTAL || this.activeCardFilter === FILTER.EMPTY;        }
+    get showUnreferencedSection(){ return this.activeCardFilter === FILTER.ALL || this.activeCardFilter === FILTER.TOTAL || this.activeCardFilter === FILTER.UNREFERENCED; }
     @track isLoading    = false;
     @track exportModalOpen   = false;
     @track exportFormat      = FORMAT.CSV; // 'csv' | 'json' | 'txt'
@@ -148,10 +162,12 @@ export default class MetadataDashboard extends LightningElement {
                                filteredCount: '—', namespaceFilterApplied: '—', filteredTriggers: '' };
     @track lwcSummary     = { totalCount: '—', withNamespaceCount: '—', withoutNamespaceCount: '—',
                                filteredCount: '—', namespaceFilterApplied: '—',
-                               allComponents: '', filteredComponents: '' };
+                               allComponents: '', filteredComponents: '',
+                               unreferencedCount: '0', unreferencedComponents: '' };
     @track auraSummary    = { totalCount: '—', withNamespaceCount: '—', withoutNamespaceCount: '—',
                                filteredCount: '—', namespaceFilterApplied: '—',
-                               allComponents: '', filteredComponents: '' };
+                               allComponents: '', filteredComponents: '',
+                               unreferencedCount: '0', unreferencedComponents: '' };
     @track profileSummary   = { totalCount: '—', usedCount: '—', unusedCount: '—',
                                  usedProfiles: '', unusedProfiles: '',
                                  filteredCount: '—', namespaceFilterApplied: '—', filteredProfiles: '' };
@@ -160,10 +176,12 @@ export default class MetadataDashboard extends LightningElement {
                                  filteredCount: '—', namespaceFilterApplied: '—', filteredPermSets: '' };
     @track fieldSummary     = { totalCount: '—', withNamespaceCount: '—', withoutNamespaceCount: '—',
                                  filteredCount: '—', namespaceFilterApplied: '—',
-                                 allFields: '', filteredFields: '' };
+                                 allFields: '', filteredFields: '',
+                                 emptyCount: '0', emptyFields: '' };
     @track objectSummary    = { totalCount: '—', withNamespaceCount: '—', withoutNamespaceCount: '—',
                                  filteredCount: '—', namespaceFilterApplied: '—',
-                                 allObjects: '', filteredObjects: '' };
+                                 allObjects: '', filteredObjects: '',
+                                 emptyCount: '0', emptyObjects: '' };
     @track vrSummary        = { totalCount: '—', activeCount: '—', inactiveCount: '—',
                                  filteredCount: '—', namespaceFilterApplied: '—',
                                  activeRules: '', inactiveRules: '', filteredRules: '' };
@@ -189,6 +207,7 @@ export default class MetadataDashboard extends LightningElement {
 
     // Pending delete confirmation: { type, name }
     _pendingDelete = null;
+    _pendingMassDelete = null; // { type, names: [] } — waiting for mass delete confirmation
     _pendingTypeSelect = null; // { name, matches: [{type, label}] } — waiting for user to pick a type
 
     connectedCallback() {
@@ -391,6 +410,25 @@ export default class MetadataDashboard extends LightningElement {
             this._pendingDelete = null;
         }
 
+        // ── Check if this is a mass delete confirmation ───────
+        if (this._pendingMassDelete) {
+            const lower = query.toLowerCase();
+            if (CONFIRM_YES.has(lower)) {
+                const { type, names } = this._pendingMassDelete;
+                this._pendingMassDelete = null;
+                this._removeMessage(typingId);
+                this._executeMassDelete(type, names);
+                return;
+            } else if (CONFIRM_NO.has(lower)) {
+                this._pendingMassDelete = null;
+                this._removeMessage(typingId);
+                this.agentIsProcessing = false;
+                this._addAgentMsg('Mass deletion cancelled. Let me know if you need anything else.');
+                return;
+            }
+            this._pendingMassDelete = null;
+        }
+
         // ── Parse intent ─────────────────────────────────────
         const intent = this._parseIntent(query);
 
@@ -398,6 +436,13 @@ export default class MetadataDashboard extends LightningElement {
             this._removeMessage(typingId);
             this.agentIsProcessing = false;
             this._handleDeleteIntent(intent);
+            return;
+        }
+
+        if (intent.action === 'mass-delete') {
+            this._removeMessage(typingId);
+            this.agentIsProcessing = false;
+            this._handleMassDeleteIntent(intent);
             return;
         }
 
@@ -450,9 +495,19 @@ export default class MetadataDashboard extends LightningElement {
             // Extract name — skip type keyword, supports dotted names and __c suffix
             // Order matters: longer phrases first
             const nameMatch = query.match(
-                /delete\s+(?:custom\s+field|custom\s+object|validation\s+rule|val\s+rule|permission\s+sets|permission\s+set|perm\s+sets|perm\s+set|permsets|permset|apex\s+class|lightning\s+web\s+component|apex|flow|trigger|lwc|aura|field|object|profile|vr)?\s*([A-Za-z0-9_.\s]+?)(?:\s*$)/i
+                /delete\s+(?:custom\s+field|custom\s+object|validation\s+rule|val\s+rule|permission\s+sets|permission\s+set|perm\s+sets|perm\s+set|permsets|permset|apex\s+class|lightning\s+web\s+component|apex|flow|trigger|lwc|aura|field|object|profile|vr)?\s*([A-Za-z0-9_.,\s]+?)(?:\s*$)/i
             );
-            const name = nameMatch ? nameMatch[1].trim().replace(/\s+/g, '_') : null;
+            const rawName = nameMatch ? nameMatch[1].trim() : null;
+
+            // ── Mass delete: detect comma-separated names ─────
+            if (rawName && rawName.includes(',')) {
+                const names = rawName.split(',').map(n => n.trim().replace(/\s+/g, '_')).filter(Boolean);
+                if (names.length > 1) {
+                    return { action: 'mass-delete', type, names };
+                }
+            }
+
+            const name = rawName ? rawName.replace(/\s+/g, '_') : null;
 
             // Auto-detect object type from __c suffix if no explicit type keyword
             if (type === null && name && name.toLowerCase().endsWith('__c')) {
@@ -652,8 +707,12 @@ export default class MetadataDashboard extends LightningElement {
                     // Refresh relevant tab
                     this._refreshAfterDelete(type);
                 } else {
-                    const msg = result ? result.message : 'Unknown error.';
-                    this._addAgentMsg(`Could not delete ${name}: ${msg}`, false, true);
+                    // Show result.message directly — it already contains full details
+                    // (reference list, safety status, or production guard explanation)
+                    const msg = (result && result.message && result.message.trim())
+                        ? result.message
+                        : `Could not delete ${name}: Unknown error.`;
+                    this._addAgentMsg(msg, false, true);
                 }
             })
             .catch(err => {
@@ -677,6 +736,105 @@ export default class MetadataDashboard extends LightningElement {
         if (type === META_TYPE.PERMSET) { this._permSetsLoaded = false; if (this.activeTab === TAB.PERMSETS) this._loadPermSets(); }
         if (type === META_TYPE.PROFILE) { this._profilesLoaded = false; this._loadProfiles(); }
         if (type === META_TYPE.VR)      { this._vrLoaded       = false; if (this.activeTab === TAB.VR)       this._loadVr();       }
+    }
+
+    // ── Mass delete intent: show confirmation message ─────────
+    _handleMassDeleteIntent(intent) {
+        const { type, names } = intent;
+
+        if (!names || names.length === 0) {
+            this._addAgentMsg('No component names detected. Please use comma-separated names.\nExamples:\n  "delete apex ClassA, ClassB, ClassC"\n  "delete flow Flow1, Flow2"\n  "delete field Account.Field1__c, Account.Field2__c"');
+            return;
+        }
+
+        const typeLabels = {
+            [META_TYPE.APEX]    : 'Apex Class',
+            [META_TYPE.FLOW]    : 'Flow',
+            [META_TYPE.TRIGGER] : 'Trigger',
+            [META_TYPE.LWC]     : 'LWC Component',
+            [META_TYPE.AURA]    : 'Aura Component',
+            [META_TYPE.PERMSET] : 'Permission Set',
+            [META_TYPE.PROFILE] : 'Profile',
+            [META_TYPE.FIELD]   : 'Custom Field',
+            [META_TYPE.OBJECT]  : 'Custom Object',
+            [META_TYPE.VR]      : 'Validation Rule',
+        };
+
+        const typeLabel = typeLabels[type] || type;
+        const nameList  = names.map((n, i) => `  ${i + 1}. ${n}`).join('\n');
+
+        // Extra hint for dot-notation types
+        let hint = '';
+        if (type === META_TYPE.FIELD) hint = '\n⚠️ Format required: ObjectName.FieldName';
+        if (type === META_TYPE.VR)    hint = '\n⚠️ Format required: ObjectName.RuleName';
+        if (type === META_TYPE.PROFILE) hint = `\n⚠️ Users will be moved to the default fallback profile.`;
+
+        this._pendingMassDelete = { type, names };
+        this._addAgentMsg(
+            `⚠️ Mass Delete Confirmation\n\n` +
+            `You are about to delete ${names.length} ${typeLabel}(s):${hint}\n${nameList}\n\n` +
+            `This action cannot be undone. Reply "yes" to confirm or "no" to cancel.`
+        );
+    }
+
+    // ── Execute mass delete ───────────────────────────────────
+    _executeMassDelete(type, names) {
+        const typingId = this._addTypingIndicator();
+        this.agentIsProcessing = true;
+
+        let massDeletePromise;
+
+        if (type === META_TYPE.APEX) {
+            massDeletePromise = massDeleteApexClasses({ apexClassNames: names });
+        } else if (type === META_TYPE.FLOW) {
+            massDeletePromise = massDeleteFlows({ flowApiNames: names });
+        } else if (type === META_TYPE.TRIGGER) {
+            massDeletePromise = massDeleteTriggers({ triggerNames: names });
+        } else if (type === META_TYPE.LWC) {
+            massDeletePromise = massDeleteLwc({ componentNames: names });
+        } else if (type === META_TYPE.AURA) {
+            massDeletePromise = massDeleteAura({ componentNames: names });
+        } else if (type === META_TYPE.PERMSET) {
+            massDeletePromise = massDeletePermSets({ permSetNames: names });
+        } else if (type === META_TYPE.PROFILE) {
+            massDeletePromise = massDeactivateProfiles({ profileNames: names });
+        } else if (type === META_TYPE.OBJECT) {
+            massDeletePromise = massDeleteCustomObjects({ objectNames: names });
+        } else if (type === META_TYPE.FIELD) {
+            // names are in "Object.Field" format
+            massDeletePromise = massDeleteCustomFields({ dotNames: names });
+        } else if (type === META_TYPE.VR) {
+            // names are in "Object.RuleName" format
+            massDeletePromise = massDeleteValidationRules({ dotNames: names });
+        } else {
+            this._removeMessage(typingId);
+            this.agentIsProcessing = false;
+            this._addAgentMsg(`Mass deletion of "${type}" is not supported.`, false, true);
+            return;
+        }
+
+        massDeletePromise
+            .then(result => {
+                this._removeMessage(typingId);
+                let msg = `✅ Mass Delete Complete\n\n${result.summary}`;
+                if (result.succeeded && result.succeeded.length > 0) {
+                    msg += `\n\n✔ Deleted (${result.successCount}):\n` +
+                           result.succeeded.map(n => `  • ${n}`).join('\n');
+                }
+                if (result.failed && result.failed.length > 0) {
+                    msg += `\n\n✘ Failed (${result.failureCount}):\n` +
+                           result.failed.map(n => `  • ${n}`).join('\n');
+                }
+                this._addAgentMsg(msg, false, result.failureCount > 0);
+                this._refreshAfterDelete(type);
+            })
+            .catch(err => {
+                this._removeMessage(typingId);
+                this._addAgentMsg('Mass delete failed: ' + this._errorMsg(err), false, true);
+            })
+            .finally(() => {
+                this.agentIsProcessing = false;
+            });
     }
 
     // ── Navigate dashboard tab based on query intent ─────────
@@ -808,6 +966,8 @@ export default class MetadataDashboard extends LightningElement {
     get cardClassFlowTotal(){ return 'stat-card stat-total'    + (this.activeCardFilter === FILTER.TOTAL    ? ' stat-card--active' : '') + ' stat-card--clickable'; }
     get cardClassWithNs()   { return 'stat-card'               + (this.activeCardFilter === FILTER.WITH_NS   ? ' stat-card--active' : '') + ' stat-card--clickable'; }
     get cardClassNoNs()     { return 'stat-card'               + (this.activeCardFilter === FILTER.NO_NS     ? ' stat-card--active' : '') + ' stat-card--clickable'; }
+    get cardClassEmpty()    { return 'stat-card stat-inactive'  + (this.activeCardFilter === FILTER.EMPTY        ? ' stat-card--active' : '') + ' stat-card--clickable'; }
+    get cardClassUnref()    { return 'stat-card stat-inactive'  + (this.activeCardFilter === FILTER.UNREFERENCED ? ' stat-card--active' : '') + ' stat-card--clickable'; }
 
     // Namespace-based filtered lists for LWC / Aura / Fields / Objects
 
@@ -860,28 +1020,36 @@ export default class MetadataDashboard extends LightningElement {
     // Computed display lists based on active filter
     get lwcDisplayList()    {
         let list = this.allLwcList;
-        if (this.activeCardFilter === FILTER.WITH_NS) list = this.lwcWithNsList;
-        if (this.activeCardFilter === FILTER.NO_NS)   list = this.lwcNoNsList;
+        if (this.activeCardFilter === FILTER.WITH_NS)      list = this.lwcWithNsList;
+        if (this.activeCardFilter === FILTER.NO_NS)        list = this.lwcNoNsList;
+        if (this.activeCardFilter === FILTER.UNREFERENCED) list = this.unreferencedLwcList;
         return this._clientNsFilter(list);
     }
     get auraDisplayList()   {
         let list = this.allAuraList;
-        if (this.activeCardFilter === FILTER.WITH_NS) list = this.auraWithNsList;
-        if (this.activeCardFilter === FILTER.NO_NS)   list = this.auraNoNsList;
+        if (this.activeCardFilter === FILTER.WITH_NS)      list = this.auraWithNsList;
+        if (this.activeCardFilter === FILTER.NO_NS)        list = this.auraNoNsList;
+        if (this.activeCardFilter === FILTER.UNREFERENCED) list = this.unreferencedAuraList;
         return this._clientNsFilter(list);
     }
     get fieldDisplayList()  {
         let list = this.allFieldList;
         if (this.activeCardFilter === FILTER.WITH_NS) list = this.fieldWithNsList;
         if (this.activeCardFilter === FILTER.NO_NS)   list = this.fieldNoNsList;
+        if (this.activeCardFilter === FILTER.EMPTY)   list = this.emptyFieldList;
         return this._clientNsFilter(list);
     }
     get objectDisplayList() {
         let list = this.allObjectList;
         if (this.activeCardFilter === FILTER.WITH_NS) list = this.objectWithNsList;
         if (this.activeCardFilter === FILTER.NO_NS)   list = this.objectNoNsList;
+        if (this.activeCardFilter === FILTER.EMPTY)   list = this.emptyObjectList;
         return this._clientNsFilter(list);
     }
+    get unreferencedLwcDisplayList()  { return this._clientNsFilter(this.unreferencedLwcList);  }
+    get unreferencedAuraDisplayList() { return this._clientNsFilter(this.unreferencedAuraList); }
+    get emptyFieldDisplayList()       { return this._clientNsFilter(this.emptyFieldList);        }
+    get emptyObjectDisplayList()      { return this._clientNsFilter(this.emptyObjectList);       }
 
     // ────────────────────────────────────────────────────────
     // CLIENT-SIDE NAMESPACE FILTER HELPER
@@ -2085,18 +2253,22 @@ export default class MetadataDashboard extends LightningElement {
     get activeTriggerList()       { return this._parseDetailedList(this.triggerSummary.activeTriggers);   }
     get inactiveTriggerList()     { return this._parseDetailedList(this.triggerSummary.inactiveTriggers); }
     get unusedTriggerList()       { return this._parseDetailedList(this.triggerSummary.unusedTriggers);   }
-    get allLwcList()              { return this._parseDetailedList(this.lwcSummary.allComponents);        }
-    get filteredLwcList()         { return this._parseDetailedList(this.lwcSummary.filteredComponents);   }
-    get allAuraList()             { return this._parseDetailedList(this.auraSummary.allComponents);       }
-    get filteredAuraList()        { return this._parseDetailedList(this.auraSummary.filteredComponents);  }
+    get allLwcList()              { return this._parseDetailedList(this.lwcSummary.allComponents);               }
+    get filteredLwcList()         { return this._parseDetailedList(this.lwcSummary.filteredComponents);          }
+    get unreferencedLwcList()     { return this._parseDetailedList(this.lwcSummary.unreferencedComponents);      }
+    get allAuraList()             { return this._parseDetailedList(this.auraSummary.allComponents);              }
+    get filteredAuraList()        { return this._parseDetailedList(this.auraSummary.filteredComponents);         }
+    get unreferencedAuraList()    { return this._parseDetailedList(this.auraSummary.unreferencedComponents);     }
     get usedProfileList()         { return this._parseDetailedList(this.profileSummary.usedProfiles);     }
     get unusedProfileList()       { return this._parseDetailedList(this.profileSummary.unusedProfiles);   }
     get usedPermSetList()         { return this._parseDetailedList(this.permSetSummary.usedPermSets);     }
     get unusedPermSetList()       { return this._parseDetailedList(this.permSetSummary.unusedPermSets);   }
-    get allFieldList()            { return this._parseDetailedList(this.fieldSummary.allFields);          }
-    get filteredFieldList()       { return this._parseDetailedList(this.fieldSummary.filteredFields);     }
-    get allObjectList()           { return this._parseDetailedList(this.objectSummary.allObjects);        }
-    get filteredObjectList()      { return this._parseDetailedList(this.objectSummary.filteredObjects);   }
+    get allFieldList()            { return this._parseDetailedList(this.fieldSummary.allFields);                 }
+    get filteredFieldList()       { return this._parseDetailedList(this.fieldSummary.filteredFields);            }
+    get emptyFieldList()          { return this._parseDetailedList(this.fieldSummary.emptyFields);               }
+    get allObjectList()           { return this._parseDetailedList(this.objectSummary.allObjects);               }
+    get filteredObjectList()      { return this._parseDetailedList(this.objectSummary.filteredObjects);          }
+    get emptyObjectList()         { return this._parseDetailedList(this.objectSummary.emptyObjects);             }
     get activeVrList()            { return this._parseDetailedList(this.vrSummary.activeRules);           }
     get inactiveVrList()          { return this._parseDetailedList(this.vrSummary.inactiveRules);         }
     get filteredVrList()          { return this._parseDetailedList(this.vrSummary.filteredRules);         }
@@ -2127,14 +2299,16 @@ export default class MetadataDashboard extends LightningElement {
     get triggerUnusedDisplay()   { return this.nsFilterInput ? this.unusedTriggerDisplayList.length   : this.triggerSummary.unusedCount;   }
 
     // LWC
-    get lwcTotalDisplay()   { return this.nsFilterInput ? this.lwcDisplayList.length  : this.lwcSummary.totalCount;            }
-    get lwcWithNsDisplay()  { return this.nsFilterInput ? this._filterWithNs(this.lwcDisplayList).length  : this.lwcSummary.withNamespaceCount;    }
-    get lwcNoNsDisplay()    { return this.nsFilterInput ? this._filterNoNs(this.lwcDisplayList).length    : this.lwcSummary.withoutNamespaceCount; }
+    get lwcTotalDisplay()        { return this.nsFilterInput ? this.lwcDisplayList.length  : this.lwcSummary.totalCount;            }
+    get lwcWithNsDisplay()       { return this.nsFilterInput ? this._filterWithNs(this.lwcDisplayList).length  : this.lwcSummary.withNamespaceCount;    }
+    get lwcNoNsDisplay()         { return this.nsFilterInput ? this._filterNoNs(this.lwcDisplayList).length    : this.lwcSummary.withoutNamespaceCount; }
+    get lwcUnreferencedDisplay() { return this.nsFilterInput ? this.unreferencedLwcDisplayList.length : this.lwcSummary.unreferencedCount; }
 
     // AURA
-    get auraTotalDisplay()  { return this.nsFilterInput ? this.auraDisplayList.length : this.auraSummary.totalCount;            }
-    get auraWithNsDisplay() { return this.nsFilterInput ? this._filterWithNs(this.auraDisplayList).length : this.auraSummary.withNamespaceCount;    }
-    get auraNoNsDisplay()   { return this.nsFilterInput ? this._filterNoNs(this.auraDisplayList).length   : this.auraSummary.withoutNamespaceCount; }
+    get auraTotalDisplay()        { return this.nsFilterInput ? this.auraDisplayList.length : this.auraSummary.totalCount;            }
+    get auraWithNsDisplay()       { return this.nsFilterInput ? this._filterWithNs(this.auraDisplayList).length : this.auraSummary.withNamespaceCount;    }
+    get auraNoNsDisplay()         { return this.nsFilterInput ? this._filterNoNs(this.auraDisplayList).length   : this.auraSummary.withoutNamespaceCount; }
+    get auraUnreferencedDisplay() { return this.nsFilterInput ? this.unreferencedAuraDisplayList.length : this.auraSummary.unreferencedCount; }
 
     // PROFILES
     get profileTotalDisplay()    { return this.nsFilterInput ? (this.usedProfileDisplayList.length + this.unusedProfileDisplayList.length) : this.profileSummary.totalCount; }
@@ -2150,11 +2324,13 @@ export default class MetadataDashboard extends LightningElement {
     get fieldTotalDisplay()   { return this.nsFilterInput ? this.fieldDisplayList.length  : this.fieldSummary.totalCount;            }
     get fieldWithNsDisplay()  { return this.nsFilterInput ? this._filterWithNs(this.fieldDisplayList).length  : this.fieldSummary.withNamespaceCount;    }
     get fieldNoNsDisplay()    { return this.nsFilterInput ? this._filterNoNs(this.fieldDisplayList).length    : this.fieldSummary.withoutNamespaceCount; }
+    get fieldEmptyDisplay()   { return this.nsFilterInput ? this.emptyFieldDisplayList.length : this.fieldSummary.emptyCount; }
 
     // OBJECTS
     get objectTotalDisplay()  { return this.nsFilterInput ? this.objectDisplayList.length : this.objectSummary.totalCount;            }
     get objectWithNsDisplay() { return this.nsFilterInput ? this._filterWithNs(this.objectDisplayList).length : this.objectSummary.withNamespaceCount;    }
     get objectNoNsDisplay()   { return this.nsFilterInput ? this._filterNoNs(this.objectDisplayList).length   : this.objectSummary.withoutNamespaceCount; }
+    get objectEmptyDisplay()  { return this.nsFilterInput ? this.emptyObjectDisplayList.length : this.objectSummary.emptyCount; }
 
     // VR
     get vrTotalDisplay()    { return this.nsFilterInput ? (this.activeVrDisplayList.length + this.inactiveVrDisplayList.length) : this.vrSummary.totalCount;    }

@@ -56,7 +56,7 @@ public without sharing class DeleteCustomObjectAction {
 
         try {
             MetadataEngine.DeleteResult r = MetadataEngine.deleteCustomObjectByName(
-                objectName.trim().replace(' ', '_') // ← space to underscore
+                objectName.trim().replace(' ', '_')
             );
             out.success = r.success;
             out.message = r.message;
@@ -66,5 +66,18 @@ public without sharing class DeleteCustomObjectAction {
         }
 
         return out;
+    }
+
+    // ── Mass delete: called by LWC for bulk operations ────────
+    @AuraEnabled(cacheable=false)
+    public static MetadataEngine.MassDeleteResult massDeleteCustomObjectsDirect(List<String> objectNames) {
+        if (objectNames == null || objectNames.isEmpty()) {
+            MetadataEngine.MassDeleteResult r = new MetadataEngine.MassDeleteResult();
+            r.totalRequested = 0; r.successCount = 0; r.failureCount = 0;
+            r.succeeded = new List<String>(); r.failed = new List<String>();
+            r.summary = 'No object names provided.';
+            return r;
+        }
+        return MetadataEngine.massDeleteCustomObjects(objectNames);
     }
 }

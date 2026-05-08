@@ -1,4 +1,4 @@
-@SuppressWarnings('PMD.ExcessiveClassLength,PMD.NcssMethodCount,PMD.AvoidDeeplyNestedIfStmts,PMD.CognitiveComplexity,PMD.NcssTypeCount,PMD.EmptyStatementBlock,PMD.IfStmtsMustUseBraces,PMD.IfElseStmtsMustUseBraces,PMD.ApexCRUDViolation')
+@SuppressWarnings('PMD.ExcessiveClassLength,PMD.NcssMethodCount,PMD.AvoidDeeplyNestedIfStmts,PMD.CognitiveComplexity,PMD.NcssTypeCount,PMD.EmptyStatementBlock,PMD.IfStmtsMustUseBraces,PMD.IfElseStmtsMustUseBraces,PMD.ApexCRUDViolation,PMD.EmptyCatchBlock,PMD.OperationWithLimitsInLoop,PMD.ApexSOQLInjection,PMD.ExcessivePublicCount,PMD.LocalVariableNamingConventions')
 public without sharing class MetadataEngine {
 
     // ===============================
@@ -35,6 +35,11 @@ public without sharing class MetadataEngine {
         @AuraEnabled public String  processType;
         @AuraEnabled public Boolean isActive;
         @AuraEnabled public String  namespacePrefix;
+        // Enhanced fields
+        @AuraEnabled public Boolean isManagedPackage;  // Namespace present → never delete
+        @AuraEnabled public Boolean isCalledByFlow;    // Referenced by another Flow (subflow)
+        @AuraEnabled public Boolean isScheduled;       // ScheduledFlow = has its own trigger
+        @AuraEnabled public String  safetyStatus;      // IN_USE / SCHEDULED / MANAGED / INACTIVE / SAFE_TO_REVIEW
     }
 
     public class FlowSummary {
@@ -60,6 +65,12 @@ public without sharing class MetadataEngine {
         public Integer linesOfCode;
         public String  lastModifiedDate;
         public String  namespacePrefix;
+        // Enhanced fields
+        public Boolean isTestClass;       // Has @IsTest annotation
+        public Boolean isManagedPackage;  // Namespace present → never delete
+        public Boolean isInvocable;       // Has @InvocableMethod → called by Flow/Process
+        public Boolean isAuraEnabled;     // Has @AuraEnabled → called by LWC/Aura
+        public String  safetyStatus;      // IN_USE / TEST_CLASS / MANAGED / SAFE_TO_REVIEW
     }
 
     public class ApexSummary {
@@ -85,23 +96,42 @@ public without sharing class MetadataEngine {
         @AuraEnabled public String  message;
     }
 
+    // ── Mass delete result wrapper ─────────────────────────────
+    public class MassDeleteResult {
+        @AuraEnabled public Integer          totalRequested;
+        @AuraEnabled public Integer          successCount;
+        @AuraEnabled public Integer          failureCount;
+        @AuraEnabled public List<String>     succeeded;
+        @AuraEnabled public List<String>     failed;
+        @AuraEnabled public String           summary;
+    }
+
     // ===============================
     // WRAPPERS — LWC COMPONENTS
     // ===============================
     public class LwcComponentInfo {
-        public String id;
-        public String name;
-        public String namespacePrefix;
-        public String lastModifiedDate;
-        public String apiVersion;
+        public String  id;
+        public String  name;
+        public String  namespacePrefix;
+        public String  lastModifiedDate;
+        public String  apiVersion;
+        public Boolean isReferenced;
+        public String  referencedBy;
+        // Enhanced detection fields
+        public String  referenceSource;   // WHERE it was found: FlexiPage / LWC / Aura / Flow / Tab
+        public Boolean isExposedTab;      // Has a custom tab → likely an entry point
+        public Boolean isManagedPackage;  // Namespace != org namespace → never delete
+        public String  safetyStatus;      // SAFE_TO_REVIEW / ENTRY_POINT / MANAGED / IN_USE
     }
 
     public class LwcSummary {
         public Integer                total;
         public Integer                withNamespace;
         public Integer                withoutNamespace;
+        public Integer                unreferencedCount;
         public List<LwcComponentInfo> allComponents;
         public List<LwcComponentInfo> filteredComponents;
+        public List<LwcComponentInfo> unreferencedComponents;
         public String                 namespaceFilter;
     }
 
@@ -109,19 +139,29 @@ public without sharing class MetadataEngine {
     // WRAPPERS — AURA COMPONENTS
     // ===============================
     public class AuraComponentInfo {
-        public String id;
-        public String name;
-        public String namespacePrefix;
-        public String lastModifiedDate;
-        public String apiVersion;
+        public String  id;
+        public String  name;
+        public String  namespacePrefix;
+        public String  lastModifiedDate;
+        public String  apiVersion;
+        public Boolean isReferenced;
+        public String  referencedBy;
+        // Enhanced detection fields
+        public String  referenceSource;   // WHERE it was found: Aura markup / FlexiPage / Flow / Tab
+        public Boolean isTopLevelApp;     // DefType=APPLICATION → entry point via URL, never unreferenced
+        public Boolean isExposedTab;      // Has a custom tab → entry point
+        public Boolean isManagedPackage;  // Namespace != org namespace → never delete
+        public String  safetyStatus;      // SAFE_TO_REVIEW / ENTRY_POINT / MANAGED / IN_USE
     }
 
     public class AuraSummary {
         public Integer                 total;
         public Integer                 withNamespace;
         public Integer                 withoutNamespace;
+        public Integer                 unreferencedCount;
         public List<AuraComponentInfo> allComponents;
         public List<AuraComponentInfo> filteredComponents;
+        public List<AuraComponentInfo> unreferencedComponents;
         public String                  namespaceFilter;
     }
 
@@ -134,6 +174,9 @@ public without sharing class MetadataEngine {
         public String  userLicenseName;
         public Integer assignedUserCount;
         public Boolean isCustom;
+        // Enhanced fields
+        public Boolean isSystemProfile;  // System Admin / Guest / Chatter → never delete
+        public String  safetyStatus;     // IN_USE / SYSTEM / UNASSIGNED / SAFE_TO_REVIEW
     }
 
     public class ProfileSummary {
@@ -161,6 +204,9 @@ public without sharing class MetadataEngine {
         public Boolean isCustom;
         public Integer assignmentCount;
         public String  namespacePrefix;
+        // Enhanced fields
+        public Boolean isManagedPackage;  // Namespace present → never delete
+        public String  safetyStatus;      // IN_USE / MANAGED / SAFE_TO_REVIEW
     }
 
     public class PermissionSetSummary {
@@ -181,20 +227,28 @@ public without sharing class MetadataEngine {
     // WRAPPERS — CUSTOM FIELDS
     // ===============================
     public class CustomFieldInfo {
-        public String id;
-        public String name;
-        public String objectName;
-        public String dataType;
-        public String namespacePrefix;
-        public String lastModifiedDate;
+        public String  id;
+        public String  name;
+        public String  objectName;
+        public String  dataType;
+        public String  namespacePrefix;
+        public String  lastModifiedDate;
+        public Boolean hasData;
+        public Integer nonNullCount;
+        // Enhanced fields
+        public Boolean isManagedPackage;   // Namespace present → never delete
+        public Boolean isRequiredField;    // Required fields should not be deleted blindly
+        public String  safetyStatus;       // IN_USE / MANAGED / HAS_DATA / SAFE_TO_REVIEW
     }
 
     public class CustomFieldSummary {
         public Integer               total;
         public Integer               withNamespace;
         public Integer               withoutNamespace;
+        public Integer               emptyCount;
         public List<CustomFieldInfo> allFields;
         public List<CustomFieldInfo> filteredFields;
+        public List<CustomFieldInfo> emptyFields;
         public String                namespaceFilter;
     }
 
@@ -202,19 +256,27 @@ public without sharing class MetadataEngine {
     // WRAPPERS — CUSTOM OBJECTS
     // ===============================
     public class CustomObjectInfo {
-        public String id;
-        public String name;
-        public String label;
-        public String namespacePrefix;
-        public String lastModifiedDate;
+        public String  id;
+        public String  name;
+        public String  label;
+        public String  namespacePrefix;
+        public String  lastModifiedDate;
+        public Integer recordCount;
+        public Boolean isEmpty;
+        // Enhanced fields
+        public Boolean isManagedPackage;   // Namespace present → never delete
+        public Boolean isReferencedByCode; // Found in MetadataComponentDependency
+        public String  safetyStatus;       // IN_USE / MANAGED / HAS_DATA / SAFE_TO_REVIEW
     }
 
     public class CustomObjectSummary {
         public Integer                total;
         public Integer                withNamespace;
         public Integer                withoutNamespace;
+        public Integer                emptyCount;
         public List<CustomObjectInfo> allObjects;
         public List<CustomObjectInfo> filteredObjects;
+        public List<CustomObjectInfo> emptyObjects;
         public String                 namespaceFilter;
     }
 
@@ -229,6 +291,9 @@ public without sharing class MetadataEngine {
         public String  errorMessage;
         public String  namespacePrefix;
         public String  lastModifiedDate;
+        // Enhanced fields
+        public Boolean isManagedPackage;  // Namespace present → never delete
+        public String  safetyStatus;      // IN_USE / INACTIVE / MANAGED / SAFE_TO_REVIEW
     }
 
     public class ValidationRuleSummary {
@@ -252,6 +317,11 @@ public without sharing class MetadataEngine {
         public Integer linesOfCode;
         public String  lastModifiedDate;
         public String  namespacePrefix;
+        // Enhanced fields
+        public Boolean isManagedPackage;  // Namespace present → never delete
+        public Boolean hasHandlerClass;   // References a handler/helper Apex class
+        public Boolean isInDependency;    // Found in MetadataComponentDependency
+        public String  safetyStatus;      // IN_USE / INACTIVE / EMPTY / MANAGED / SAFE_TO_REVIEW
     }
 
     public class TriggerSummary {
@@ -310,7 +380,6 @@ public without sharing class MetadataEngine {
                     String flowLabel = label + ' [' + procType + '] (' + apiName + ')' +
                                        (String.isNotBlank(nsPrefix) ? ' [ns:' + nsPrefix + ']' : '');
 
-                    // Populate rich FlowInfo object for export
                     MetadataEngine.FlowInfo fi = new MetadataEngine.FlowInfo();
                     fi.apiName        = apiName;
                     fi.label          = label;
@@ -343,6 +412,53 @@ public without sharing class MetadataEngine {
             }
         }
 
+        Set<String> subflowRefs = new Set<String>();
+        try {
+            String depSoql = 'SELECT RefMetadataComponentName FROM MetadataComponentDependency ' +
+                             'WHERE RefMetadataComponentType = \'Flow\'';
+            HttpRequest depReq = new HttpRequest();
+            depReq.setEndpoint(BASE_URL + 'tooling/query?q=' + EncodingUtil.urlEncode(depSoql, 'UTF-8'));
+            depReq.setMethod('GET');
+            depReq.setHeader('Content-Type', 'application/json');
+            depReq.setTimeout(TIMEOUT_LONG);
+            HttpResponse depRes = http.send(depReq);
+            if (depRes.getStatusCode() >= 200 && depRes.getStatusCode() < 300) {
+                Map<String, Object> depBody    = (Map<String, Object>) JSON.deserializeUntyped(depRes.getBody());
+                List<Object>        depRecords = (List<Object>) depBody.get('records');
+                if (depRecords != null) {
+                    for (Object r : depRecords) {
+                        Map<String, Object> row     = (Map<String, Object>) r;
+                        String              refName = (String) row.get('RefMetadataComponentName');
+                        if (String.isNotBlank(refName)) subflowRefs.add(refName.toLowerCase());
+                    }
+                }
+            }
+        } catch (Exception ex) { System.debug(LoggingLevel.WARN, 'subflow check failed — continue: ' + ex.getMessage()); }
+
+        for (MetadataEngine.FlowInfo fi : allFlowObjects) {
+            Boolean isManaged   = String.isNotBlank(fi.namespacePrefix);
+            Boolean isSubflow   = subflowRefs.contains((fi.apiName != null ? fi.apiName : '').toLowerCase());
+            Boolean isScheduled = 'ScheduledFlow'.equalsIgnoreCase(fi.processType) ||
+                                  'AutoLaunchedFlow'.equalsIgnoreCase(fi.processType) ||
+                                  'RecordTriggeredFlow'.equalsIgnoreCase(fi.processType);
+
+            fi.isManagedPackage = isManaged;
+            fi.isCalledByFlow   = isSubflow;
+            fi.isScheduled      = isScheduled;
+
+            if (isManaged) {
+                fi.safetyStatus = 'MANAGED';
+            } else if (!fi.isActive) {
+                fi.safetyStatus = 'INACTIVE';
+            } else if (isScheduled) {
+                fi.safetyStatus = 'SCHEDULED';
+            } else if (isSubflow) {
+                fi.safetyStatus = 'IN_USE';
+            } else {
+                fi.safetyStatus = 'SAFE_TO_REVIEW';
+            }
+        }
+
         FlowSummary summary           = new FlowSummary();
         summary.active                = activeFlows.size();
         summary.inactive              = inactiveFlows.size();
@@ -359,12 +475,67 @@ public without sharing class MetadataEngine {
     }
 
     // ===============================
+    // SAFETY CHECK HELPER
+    // ===============================
+    private static DeleteResult checkSafetyBeforeDelete(String safetyStatus, String componentLabel) {
+        if (String.isBlank(safetyStatus)) return null;
+        String s = safetyStatus.toUpperCase();
+        DeleteResult block = new DeleteResult();
+        if (s == 'MANAGED') {
+            block.success = false;
+            block.message = '🚫 Blocked: "' + componentLabel + '" belongs to a managed package and cannot be deleted from this org.';
+            return block;
+        }
+        if (s == 'ENTRY_POINT') {
+            block.success = false;
+            block.message = '🚫 Blocked: "' + componentLabel + '" is an entry point (custom tab or top-level app) and is actively in use.';
+            return block;
+        }
+        if (s == 'IN_USE') {
+            block.success = false;
+            block.message = '🚫 Blocked: "' + componentLabel + '" is currently in use (referenced by another component, flow, or active user). Remove all references first.';
+            return block;
+        }
+        if (s == 'SYSTEM') {
+            block.success = false;
+            block.message = '🚫 Blocked: "' + componentLabel + '" is a system profile and cannot be deleted.';
+            return block;
+        }
+        if (s == 'HAS_DATA') {
+            block.success = false;
+            block.message = '🚫 Blocked: "' + componentLabel + '" contains data records or populated field values. Deleting it will permanently destroy that data. Remove or migrate all data first, then retry.';
+            return block;
+        }
+        return null;
+    }
+    // ===============================
     // DELETE FLOW BY API NAME
     // ===============================
     public static DeleteResult deleteFlowByApiName(String apiName) {
+        // ── Reference check FIRST — before production guard ──
+        ReferenceResult flowRefs = getReferencesFor(apiName, 'Flow');
+        if (flowRefs.hasReferences) {
+            DeleteResult blocked = new DeleteResult();
+            blocked.success = false;
+            String msg = '\U0001f6ab Cannot delete "' + apiName + '" \u2014 it is referenced by ' + flowRefs.referenceCount + ' component(s).\n\n';
+            msg += '\U0001f4cb REFERENCES BLOCKING DELETE (' + flowRefs.referenceCount + ' found):\n';
+            msg += '\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n';
+            Integer flowIdx = 1;
+            for (ReferenceItem ref : flowRefs.references) {
+                msg += flowIdx++ + '. ' + ref.name + '\n';
+                msg += '   Type         : ' + ref.type + '\n';
+                msg += '   Relationship : ' + ref.relationship + '\n\n';
+            }
+            msg += '\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n';
+            msg += '\U0001f4a1 Remove "' + apiName + '" from the above component(s) first, then retry.';
+            blocked.message = msg;
+            return blocked;
+        }
 
+        // ── Production guard \u2014 only fires if no references block ──
         Http         http   = new Http();
         DeleteResult result = new DeleteResult();
+
 
         String lookupSoql = 'SELECT Id, DurableId, Label, ApiName, IsActive ' +
                             'FROM FlowDefinitionView ' +
@@ -399,6 +570,15 @@ public without sharing class MetadataEngine {
         String              durableId = (String)  flowDef.get('DurableId');
         Boolean             isActive  = (Boolean) flowDef.get('IsActive');
         String              flowLabel = (String)  flowDef.get('Label');
+
+        FlowSummary flowCheck = getFlows(null);
+        for (FlowInfo fi : flowCheck.allFlowObjects) {
+            if (apiName.equalsIgnoreCase(fi.apiName)) {
+                DeleteResult blocked = checkSafetyBeforeDelete(fi.safetyStatus, flowLabel);
+                if (blocked != null) return blocked;
+                break;
+            }
+        }
 
         if (isActive) {
             HttpRequest deactivateReq = new HttpRequest();
@@ -473,6 +653,32 @@ public without sharing class MetadataEngine {
         }
 
         return result;
+    }
+
+    // ── Mass delete flows ──────────────────────────────────────
+    public static MassDeleteResult massDeleteFlows(List<String> apiNames) {
+        MassDeleteResult mass = new MassDeleteResult();
+        mass.totalRequested = apiNames.size();
+        mass.successCount   = 0;
+        mass.failureCount   = 0;
+        mass.succeeded      = new List<String>();
+        mass.failed         = new List<String>();
+
+        for (String apiName : apiNames) {
+            if (String.isBlank(apiName)) continue;
+            DeleteResult r = deleteFlowByApiName(apiName.trim());
+            if (r.success) {
+                mass.successCount++;
+                mass.succeeded.add(apiName.trim());
+            } else {
+                mass.failureCount++;
+                mass.failed.add(apiName.trim() + ' (' + r.message + ')');
+            }
+        }
+
+        mass.summary = 'Mass delete complete: ' + mass.successCount + ' succeeded, ' +
+                       mass.failureCount + ' failed out of ' + mass.totalRequested + ' requested.';
+        return mass;
     }
 
     // ===============================
@@ -669,6 +875,71 @@ public without sharing class MetadataEngine {
             }
         }
 
+        Set<String> invocableClasses   = new Set<String>();
+        Set<String> auraEnabledClasses = new Set<String>();
+        try {
+            String annSoql = 'SELECT Id, Name, SymbolTable FROM ApexClass WHERE NamespacePrefix = null';
+            HttpRequest annReq = new HttpRequest();
+            annReq.setEndpoint(BASE_URL + 'tooling/query?q=' + EncodingUtil.urlEncode(annSoql, 'UTF-8'));
+            annReq.setMethod('GET');
+            annReq.setHeader('Content-Type', 'application/json');
+            HttpResponse annRes = http.send(annReq);
+            if (annRes.getStatusCode() >= 200 && annRes.getStatusCode() < 300) {
+                Map<String, Object> annBody    = (Map<String, Object>) JSON.deserializeUntyped(annRes.getBody());
+                List<Object>        annRecords = (List<Object>) annBody.get('records');
+                if (annRecords != null) {
+                    for (Object r : annRecords) {
+                        Map<String, Object> rec = (Map<String, Object>) r;
+                        String clsName = (String) rec.get('Name');
+                        Object stObj   = rec.get('SymbolTable');
+                        if (stObj == null || clsName == null) continue;
+                        Map<String, Object> st      = (Map<String, Object>) stObj;
+                        List<Object>        methods = (List<Object>) st.get('methods');
+                        if (methods == null) continue;
+                        for (Object mObj : methods) {
+                            Map<String, Object> m    = (Map<String, Object>) mObj;
+                            List<Object>        anns = (List<Object>) m.get('annotations');
+                            if (anns == null) continue;
+                            for (Object aObj : anns) {
+                                Map<String, Object> ann  = (Map<String, Object>) aObj;
+                                String              aName = (String) ann.get('name');
+                                if ('InvocableMethod'.equalsIgnoreCase(aName)) invocableClasses.add(clsName);
+                                if ('AuraEnabled'.equalsIgnoreCase(aName))     auraEnabledClasses.add(clsName);
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (Exception ex) { System.debug(LoggingLevel.WARN, 'annotation scan failed — continue: ' + ex.getMessage()); }
+
+        for (String clsName : allClassMap.keySet()) {
+            ApexClassInfo info   = allClassMap.get(clsName);
+            Boolean isManaged    = String.isNotBlank(info.namespacePrefix);
+            Boolean isTest       = clsName.endsWith('Test') || clsName.endsWith('Tests');
+            Boolean isInvocable  = invocableClasses.contains(clsName);
+            Boolean isAura       = auraEnabledClasses.contains(clsName);
+            Boolean isUsed       = referencedNames.contains(clsName);
+
+            info.isManagedPackage = isManaged;
+            info.isTestClass      = isTest;
+            info.isInvocable      = isInvocable;
+            info.isAuraEnabled    = isAura;
+
+            if (isManaged) {
+                info.safetyStatus = 'MANAGED';
+            } else if (isTest) {
+                info.safetyStatus = 'TEST_CLASS';
+            } else if (isInvocable) {
+                info.safetyStatus = 'IN_USE';
+            } else if (isAura) {
+                info.safetyStatus = 'IN_USE';
+            } else if (isUsed) {
+                info.safetyStatus = 'IN_USE';
+            } else {
+                info.safetyStatus = 'SAFE_TO_REVIEW';
+            }
+        }
+
         List<ApexClassInfo> unusedClasses   = new List<ApexClassInfo>();
         List<String>        usedClassNames  = new List<String>();
         List<String>        testClassNames  = new List<String>();
@@ -702,7 +973,6 @@ public without sharing class MetadataEngine {
 
         if (String.isNotBlank(namespaceFilter)) {
             String nsLower  = namespaceFilter.toLowerCase();
-            // Match standard/package classes whose NamespacePrefix equals the filter
             for (String stdName : standardClassNames) {
                 ApexClassInfo stdInfo = standardClassMap.get(stdName);
                 String        stdNs   = stdInfo != null && stdInfo.namespacePrefix != null
@@ -711,23 +981,14 @@ public without sharing class MetadataEngine {
                     filteredClasses.add(stdInfo);
                 }
             }
-            // Match custom classes whose name starts with the namespace.
-            // Handles all conventions:
-            //   NS_ClassName   (underscore separator)
-            //   NSClassName    (camelCase, no separator)
-            // A match requires the class name to start with the filter AND the very next
-            // character (if any) is either '_' or an uppercase letter — this prevents
-            // "EM" matching "EMployee" only when the developer actually used "EM" as a prefix.
             for (String className : allClassMap.keySet()) {
                 String classLower = className.toLowerCase();
                 if (classLower.startsWith(nsLower)) {
                     Integer nextIdx = nsLower.length();
                     if (nextIdx >= className.length()) {
-                        // Exact name match — include it
                         filteredClasses.add(allClassMap.get(className));
                     } else {
                         String nextChar = className.substring(nextIdx, nextIdx + 1);
-                        // Include if followed by underscore (NS_Class) or uppercase (NSClass)
                         if (nextChar.equals('_') || nextChar.equals(nextChar.toUpperCase())) {
                             filteredClasses.add(allClassMap.get(className));
                         }
@@ -758,16 +1019,497 @@ public without sharing class MetadataEngine {
         return summary;
     }
 
-    // ===============================
-    // DELETE APEX CLASS BY NAME
-    // ===============================
-    public static DeleteResult deleteApexClassByName(String className) {
+    // ═══════════════════════════════════════════════════════════════
+    public class ReferenceResult {
+        public String              componentName;
+        public String              componentType;
+        public List<ReferenceItem> references;
+        public Integer             referenceCount;
+        public Boolean             hasReferences;
+        public String              formattedReport;
+    }
 
+    public class ReferenceItem {
+        public String name;         // Name of the referencing component
+        public String type;         // Raw metadata type
+        public String groupLabel;   // Human-friendly group e.g. "Automation"
+        public String emoji;        // Group emoji
+        public String relationship; // e.g. "calls via Flow"
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // getReferencesFor — THE single authoritative reference lookup
+    //
+    // Strategy:
+    //   1. Query MetadataComponentDependency with pagination (up to 2000)
+    //      for ALL queryable types — covers: ApexClass, ApexTrigger,
+    //      Flow, LWC, Aura, Visualforce, FlexiPage, WorkflowRule,
+    //      CustomObject, CustomMetadata, QuickAction, ConnectedApp,
+    //      PlatformEventSubscriberConfig, PromptTemplate, Bot, etc.
+    //   2. GenAiFunction is NOT queryable — handled in deleteApexClassByName
+    //      by intercepting the HTTP 400 DEPENDENCY_EXISTS error.
+    //   3. Group results into friendly categories for display.
+    //   4. Deduplicate across all queries.
+    // ═══════════════════════════════════════════════════════════════
+    public static ReferenceResult getReferencesFor(String componentName, String componentType) {
+        ReferenceResult res = new ReferenceResult();
+        res.componentName   = componentName;
+        res.componentType   = componentType;
+        res.references      = new List<ReferenceItem>();
+        res.referenceCount  = 0;
+        res.hasReferences   = false;
+
+        if (String.isBlank(componentName)) return res;
+
+        Http http = new Http();
+
+        // ── Single MetadataComponentDependency query ─────────────────────
+        // One HTTP callout with LIMIT 200 — avoids CPU timeout.
+        // MetadataComponentDependency already filters to only direct references
+        // so 200 is more than enough for any real-world class.
+        // Pagination was removed because multiple callouts in a loop
+        // caused Apex CPU time limit exceeded errors.
+        Set<String> seenKeys = new Set<String>();
+        try {
+            String depSoql =
+                'SELECT MetadataComponentName, MetadataComponentType ' +
+                'FROM MetadataComponentDependency ' +
+                'WHERE RefMetadataComponentName = \'' + String.escapeSingleQuotes(componentName) + '\' ' +
+                'AND MetadataComponentName != \'' + String.escapeSingleQuotes(componentName) + '\' ' +
+                'ORDER BY MetadataComponentType, MetadataComponentName ' +
+                'LIMIT 200';
+
+            HttpRequest req = new HttpRequest();
+            req.setEndpoint(BASE_URL + 'tooling/query?q=' + EncodingUtil.urlEncode(depSoql, 'UTF-8'));
+            req.setMethod('GET');
+            req.setHeader('Content-Type', 'application/json');
+            req.setTimeout(TIMEOUT_LONG);
+            HttpResponse resp = http.send(req);
+
+            if (resp.getStatusCode() >= 200 && resp.getStatusCode() < 300) {
+                Map<String, Object> body    = (Map<String, Object>) JSON.deserializeUntyped(resp.getBody());
+                List<Object>        records = (List<Object>) body.get('records');
+                if (records != null) {
+                    for (Object r : records) {
+                        Map<String, Object> row   = (Map<String, Object>) r;
+                        String              cName = (String) row.get('MetadataComponentName');
+                        String              cType = (String) row.get('MetadataComponentType');
+                        if (String.isBlank(cName) || String.isBlank(cType)) continue;
+                        String dedupKey = (cType + '|' + cName).toLowerCase();
+                        if (seenKeys.contains(dedupKey)) continue;
+                        seenKeys.add(dedupKey);
+                        res.references.add(buildReferenceItem(cName, cType));
+                    }
+                }
+            }
+        } catch (Exception ex) {
+            System.debug(LoggingLevel.WARN, 'MCD query failed: ' + ex.getMessage());
+        }
+
+        res.referenceCount = res.references.size();
+        res.hasReferences  = res.referenceCount > 0;
+
+        if (res.hasReferences) {
+            res.formattedReport = buildFormattedReport(componentName, res.references, null);
+        }
+
+        return res;
+    }
+
+    // ── Map a raw metadata type to a human-friendly group ────────
+    // Covers every MetadataComponentType that can reference an Apex class
+    // as returned by MetadataComponentDependency tooling API.
+    private static ReferenceItem buildReferenceItem(String cName, String cType) {
+        ReferenceItem item = new ReferenceItem();
+        item.name = cName;
+        item.type = cType;
+
+        String t = cType.toLowerCase();
+
+        // ── CODE ─────────────────────────────────────────────────────
+        if (t == 'apexclass') {
+            item.groupLabel   = 'Apex Classes';
+            item.relationship = 'calls / extends / implements';
+
+        } else if (t == 'apextrigger') {
+            item.groupLabel   = 'Triggers';
+            item.relationship = 'instantiates class in trigger body';
+
+        } else if (t == 'apextestsuite') {
+            item.groupLabel   = 'Test Suites';
+            item.relationship = 'included in test suite';
+
+        // ── AUTOMATION ───────────────────────────────────────────────
+        } else if (t == 'flow' || t == 'flowdefinition') {
+            item.groupLabel   = 'Flows';
+            item.relationship = 'calls as Apex Action (@InvocableMethod)';
+
+        } else if (t.contains('workflowrule') || t.contains('workflowalert')
+                || t.contains('workflowtask') || t.contains('workflowoutbound')
+                || t.contains('processbuilder') || t.contains('process')) {
+            item.groupLabel   = 'Workflow / Process Builder';
+            item.relationship = 'calls as Apex Action';
+
+        // ── UI COMPONENTS ────────────────────────────────────────────
+        } else if (t == 'lightningcomponentbundle') {
+            item.groupLabel   = 'LWC Components';
+            item.relationship = '@wire or @AuraEnabled call';
+
+        } else if (t == 'auradefinitionbundle') {
+            item.groupLabel   = 'Aura Components';
+            item.relationship = 'controller / helper reference';
+
+        } else if (t == 'apexpage') {
+            item.groupLabel   = 'Visualforce Pages';
+            item.relationship = 'page controller or extension';
+
+        } else if (t == 'apexcomponent') {
+            item.groupLabel   = 'Visualforce Components';
+            item.relationship = 'component controller';
+
+        } else if (t == 'flexipage') {
+            item.groupLabel   = 'Lightning Pages';
+            item.relationship = 'component placed on Lightning page';
+
+        } else if (t == 'customtab') {
+            item.groupLabel   = 'Tabs';
+            item.relationship = 'Visualforce tab backed by this class';
+
+        // ── ACTIONS / INVOCABLE ──────────────────────────────────────
+        } else if (t == 'quickaction') {
+            item.groupLabel   = 'Quick Actions';
+            item.relationship = 'Apex action handler';
+
+        } else if (t == 'actionlinkgrouptemplate') {
+            item.groupLabel   = 'Action Links';
+            item.relationship = 'action link handler';
+
+        // ── CONFIGURATION / SCHEMA ───────────────────────────────────
+        } else if (t == 'customobject') {
+            item.groupLabel   = 'Custom Objects';
+            item.relationship = 'trigger or class referenced on object';
+
+        } else if (t == 'customfield') {
+            item.groupLabel   = 'Custom Fields';
+            item.relationship = 'default formula or lookup filter';
+
+        } else if (t == 'validationrule') {
+            item.groupLabel   = 'Validation Rules';
+            item.relationship = 'class referenced in rule formula';
+
+        } else if (t == 'fieldset') {
+            item.groupLabel   = 'Field Sets';
+            item.relationship = 'controller reads field set';
+
+        } else if (t == 'custommetadata' || t == 'custommetadatatype') {
+            item.groupLabel   = 'Custom Metadata';
+            item.relationship = 'Apex class name stored in record';
+
+        } else if (t == 'customsetting') {
+            item.groupLabel   = 'Custom Settings';
+            item.relationship = 'referenced in config or formula';
+
+        } else if (t == 'custompermission') {
+            item.groupLabel   = 'Custom Permissions';
+            item.relationship = 'checked via FeatureManagement';
+
+        } else if (t == 'globalvalueset' || t == 'standardvalueset') {
+            item.groupLabel   = 'Value Sets / Picklists';
+            item.relationship = 'class references picklist values';
+
+        // ── SECURITY / ACCESS ────────────────────────────────────────
+        } else if (t == 'permissionset') {
+            item.groupLabel   = 'Permission Sets';
+            item.relationship = 'Apex class access granted';
+
+        } else if (t == 'profile') {
+            item.groupLabel   = 'Profiles';
+            item.relationship = 'Apex class access granted';
+
+        } else if (t == 'muting permissionset' || t == 'mutingpermissionset') {
+            item.groupLabel   = 'Muting Permission Sets';
+            item.relationship = 'Apex class access muted';
+
+        // ── INTEGRATION ──────────────────────────────────────────────
+        } else if (t == 'externalservice') {
+            item.groupLabel   = 'External Services';
+            item.relationship = 'registered external service handler';
+
+        } else if (t == 'namedcredential') {
+            item.groupLabel   = 'Named Credentials';
+            item.relationship = 'callout uses named credential';
+
+        } else if (t == 'authprovider') {
+            item.groupLabel   = 'Auth Providers';
+            item.relationship = 'registration handler class';
+
+        } else if (t == 'connectedapp') {
+            item.groupLabel   = 'Connected Apps';
+            item.relationship = 'canvas app or OAuth handler';
+
+        } else if (t == 'csptrustsite') {
+            item.groupLabel   = 'CSP Trusted Sites';
+            item.relationship = 'referenced in CSP policy';
+
+        // ── EVENTS / MESSAGING ───────────────────────────────────────
+        } else if (t == 'platformeventchannel' || t.contains('platformevent')) {
+            item.groupLabel   = 'Platform Events';
+            item.relationship = 'event subscriber / publisher class';
+
+        } else if (t.contains('eventsubscriber') || t.contains('changedatacapture')) {
+            item.groupLabel   = 'Change Data Capture';
+            item.relationship = 'CDC subscriber class';
+
+        } else if (t == 'notificationtype') {
+            item.groupLabel   = 'Custom Notifications';
+            item.relationship = 'notification sender class';
+
+        // ── EMAIL ────────────────────────────────────────────────────
+        } else if (t == 'emailservicesfunction' || t.contains('emailservice')) {
+            item.groupLabel   = 'Email Services';
+            item.relationship = 'inbound email handler class';
+
+        } else if (t.contains('apexemailnotif')) {
+            item.groupLabel   = 'Email Services';
+            item.relationship = 'Apex email notification handler';
+
+        // ── BATCH / SCHEDULED ────────────────────────────────────────
+        } else if (t == 'scheduledapex' || t.contains('scheduledjob')) {
+            item.groupLabel   = 'Scheduled Jobs';
+            item.relationship = 'scheduled Apex class';
+
+        // ── COMMUNITIES / EXPERIENCE ─────────────────────────────────
+        } else if (t.contains('network') || t.contains('community') || t.contains('experience')) {
+            item.groupLabel   = 'Communities / Experience';
+            item.relationship = 'community controller or handler';
+
+        } else if (t == 'sitedotcom' || t == 'site') {
+            item.groupLabel   = 'Sites';
+            item.relationship = 'Site.com page class or handler';
+
+        // ── REPORTING / ANALYTICS ────────────────────────────────────
+        } else if (t == 'report' || t == 'reporttype') {
+            item.groupLabel   = 'Reports';
+            item.relationship = 'custom report type class';
+
+        } else if (t == 'dashboard') {
+            item.groupLabel   = 'Dashboards';
+            item.relationship = 'dashboard component class';
+
+        // ── AI / AGENTFORCE ──────────────────────────────────────────
+        // GenAiFunction      = Agent Action (directly wraps this Apex class)
+        // GenAiPlugin        = Agent Topic (groups actions)
+        // GenAiPlanner       = AI Agent / Planner (older API v60-63)
+        // GenAiPlannerBundle = AI Agent bundle (API v64+)
+        // GenAiPromptTemplate= Prompt Template
+        // AiApplication      = AI Application config
+        } else if (t == 'genaifunction') {
+            item.groupLabel   = 'Agentforce - Agent Actions';
+            item.relationship = 'Agent Action directly wrapping this Apex class';
+
+        } else if (t == 'genaiplugin') {
+            item.groupLabel   = 'Agentforce - Topics';
+            item.relationship = 'Agent Topic grouping actions using this class';
+
+        } else if (t == 'genaiplanner' || t == 'genaiplannerbundle') {
+            item.groupLabel   = 'Agentforce - AI Agent';
+            item.relationship = 'AI Agent / Planner referencing this class';
+
+        } else if (t == 'genaiprompttemplate' || t.contains('prompttemplate')) {
+            item.groupLabel   = 'Agentforce - Prompt Templates';
+            item.relationship = 'Prompt Template using this class';
+
+        } else if (t.contains('genai') || t.contains('aiapplication')) {
+            item.groupLabel   = 'AI / Agentforce';
+            item.relationship = 'AI component referencing this class';
+
+        // ── BOTS / EINSTEIN (classic chatbots) ───────────────────────
+        } else if (t == 'botversion' || t == 'bot') {
+            item.groupLabel   = 'Einstein Bots';
+            item.relationship = 'bot Apex action';
+
+        } else if (t.contains('einstein') || t.contains('aiinsight')) {
+            item.groupLabel   = 'Einstein Features';
+            item.relationship = 'Einstein feature handler';
+
+        // ── MANAGED PACKAGES ─────────────────────────────────────────
+        } else if (t == 'installedpackage') {
+            item.groupLabel   = 'Installed Packages';
+            item.relationship = 'class included in managed package';
+
+        // ── CATCH-ALL ────────────────────────────────────────────────
+        } else {
+            item.groupLabel   = 'Other (' + cType + ')';
+            item.relationship = 'references';
+        }
+
+        return item;
+    }
+
+    // ── Build the clean formatted report string ───────────────────
+    // genAiTypes = list of type strings from the HTTP 400 error (may be null)
+    private static String buildFormattedReport(String className, List<ReferenceItem> items, List<String> genAiTypes) {
+        // Group items
+        Map<String, List<ReferenceItem>> groups = new Map<String, List<ReferenceItem>>();
+        Map<String, String>              emojis  = new Map<String, String>();
+
+        for (ReferenceItem item : items) {
+            if (!groups.containsKey(item.groupLabel)) {
+                groups.put(item.groupLabel, new List<ReferenceItem>());
+                emojis.put(item.groupLabel, item.emoji);
+            }
+            groups.get(item.groupLabel).add(item);
+        }
+
+        // Ordered group display
+        List<String> groupOrder = new List<String>{
+            // AI / Agentforce first — most likely blocker in modern orgs
+            'Agentforce - Agent Actions', 'Agentforce - Topics', 'Agentforce - AI Agent',
+            'Agentforce - Prompt Templates', 'AI / Agentforce', 'Einstein Bots', 'Einstein Features',
+            // Automation
+            'Flows', 'Workflow / Process Builder',
+            // Code
+            'Apex Classes', 'Triggers', 'Test Suites',
+            // UI
+            'LWC Components', 'Aura Components', 'Visualforce Pages', 'Visualforce Components',
+            'Lightning Pages', 'Tabs',
+            // Actions
+            'Quick Actions', 'Action Links',
+            // Schema / Config
+            'Custom Objects', 'Custom Fields', 'Validation Rules', 'Field Sets',
+            'Custom Metadata', 'Custom Settings', 'Custom Permissions', 'Value Sets / Picklists',
+            // Security
+            'Permission Sets', 'Profiles', 'Muting Permission Sets',
+            // Integration
+            'External Services', 'Named Credentials', 'Auth Providers',
+            'Connected Apps', 'CSP Trusted Sites',
+            // Events / Messaging
+            'Platform Events', 'Change Data Capture', 'Custom Notifications',
+            // Email
+            'Email Services',
+            // Batch / Scheduled
+            'Scheduled Jobs',
+            // Communities
+            'Communities / Experience', 'Sites',
+            // Reporting
+            'Reports', 'Dashboards',
+            // Packages
+            'Installed Packages'
+        };
+
+        Integer total = items.size();
+        if (genAiTypes != null) total += genAiTypes.size();
+
+        String report = '';
+        report += 'Cannot delete "' + className + '". ' + total + ' reference(s) must be removed first.\n\n';
+
+        // Known groups in order
+        for (String groupLabel : groupOrder) {
+            if (!groups.containsKey(groupLabel)) continue;
+            List<ReferenceItem> grpItems = groups.get(groupLabel);
+            report += groupLabel + ':\n';
+            Integer idx = 1;
+            for (ReferenceItem it : grpItems) {
+                report += '  ' + idx++ + '. ' + it.name + '\n';
+            }
+            report += '\n';
+            groups.remove(groupLabel);
+        }
+
+        // Any remaining groups not in the ordered list
+        for (String groupLabel : groups.keySet()) {
+            List<ReferenceItem> grpItems = groups.get(groupLabel);
+            report += groupLabel + ':\n';
+            Integer idx = 1;
+            for (ReferenceItem it : grpItems) {
+                report += '  ' + idx++ + '. ' + it.name + '\n';
+            }
+            report += '\n';
+        }
+
+        // GenAI types from error (not queryable via Tooling API)
+        if (genAiTypes != null && !genAiTypes.isEmpty()) {
+            report += 'Agentforce - Agent Actions:\n';
+            for (String t : genAiTypes) {
+                report += '  - ' + t + '\n';
+            }
+            report += '  To fix: Setup > Agents > find Agent using "' + className + '" > Topics & Actions > remove this Action > retry delete\n\n';
+        }
+
+        report += 'Tip: Setup > Apex Classes > "' + className + '" > "Where is this used?" for the full list.';
+
+
+        return report;
+    }
+
+    // ── Parse DEPENDENCY_EXISTS error body → list of dep type strings ──
+    private static List<String> parseDepTypesFromError(String responseBody) {
+        List<String> depTypes = new List<String>();
+        if (String.isBlank(responseBody)) return depTypes;
+        try {
+            // Error format: [{"message":"...Remove the usage...: TypeA \nTypeB","errorCode":"DEPENDENCY_EXISTS"}]
+            Object parsed = JSON.deserializeUntyped(responseBody);
+            List<Object> errList;
+            if (parsed instanceof List<Object>) {
+                errList = (List<Object>) parsed;
+            } else {
+                return depTypes;
+            }
+            for (Object e : errList) {
+                Map<String, Object> errMap = (Map<String, Object>) e;
+                String errMsg = (String) errMap.get('message');
+                if (String.isBlank(errMsg)) continue;
+                // Types come after the last ': ' separator
+                if (!errMsg.contains(': ')) continue;
+                String typePart = errMsg.substringAfterLast(': ').trim();
+                for (String t : typePart.split('\n')) {
+                    String cleaned = t.replace('[','').replace(']','').replace('{','').replace('}','').replace('"','').trim();
+                    if (String.isNotBlank(cleaned) && !cleaned.containsIgnoreCase('remove')
+                        && !cleaned.containsIgnoreCase('cannot') && !cleaned.containsIgnoreCase('operation')) {
+                        depTypes.add(cleaned);
+                    }
+                }
+            }
+        } catch (Exception ex) {
+            System.debug(LoggingLevel.WARN, 'parseDepTypesFromError failed: ' + ex.getMessage());
+        }
+        return depTypes;
+    }
+
+    public static DeleteResult deleteApexClassByName(String className) {
+        // ── Strip namespace prefix upfront (e.g. es_AccountAgentAction → AccountAgentAction) ──
+        String strippedClassName = className;
+        try {
+            List<Organization> orgList = [SELECT NamespacePrefix FROM Organization LIMIT 1];
+            if (!orgList.isEmpty() && String.isNotBlank(orgList[0].NamespacePrefix)) {
+                String ns = orgList[0].NamespacePrefix + '_';
+                if (strippedClassName.startsWith(ns)) {
+                    strippedClassName = strippedClassName.substring(ns.length());
+                }
+            }
+        } catch (Exception ex) { System.debug(LoggingLevel.WARN, 'keep original name if query fails: ' + ex.getMessage()); }
+
+        // ── Reference check FIRST — before production guard ──
+        // If the class is referenced by other components, show WHAT is blocking
+        // instead of a generic production guard message.
+        // ── Pre-check: query all queryable references before attempting delete ──
+        // If found, show the report immediately without attempting the HTTP DELETE.
+        // Note: GenAI references are NOT queryable — they will only appear if the
+        // delete attempt fails with DEPENDENCY_EXISTS (handled below).
+        ReferenceResult refs = getReferencesFor(strippedClassName, 'ApexClass');
+        if (refs.hasReferences) {
+            DeleteResult blocked = new DeleteResult();
+            blocked.success = false;
+            blocked.message = refs.formattedReport;
+            return blocked;
+        }
+
+        // ── Production guard — only fires if no references block ──
         Http         http   = new Http();
         DeleteResult result = new DeleteResult();
 
         String lookupSoql = 'SELECT Id, Name FROM ApexClass ' +
-                            'WHERE Name = \'' + String.escapeSingleQuotes(className) + '\' LIMIT 1';
+                            'WHERE Name = \'' + String.escapeSingleQuotes(strippedClassName) + '\' LIMIT 1';
 
         HttpRequest lookupReq = new HttpRequest();
         lookupReq.setEndpoint(BASE_URL + 'tooling/query?q=' +
@@ -795,6 +1537,15 @@ public without sharing class MetadataEngine {
 
         String classId = (String)((Map<String, Object>) lookupRecords[0]).get('Id');
 
+        ApexSummary apexCheck = getApexClasses(null);
+        for (ApexClassInfo ci : apexCheck.unusedClasses) {
+            if (className.equalsIgnoreCase(ci.name)) {
+                DeleteResult blocked = checkSafetyBeforeDelete(ci.safetyStatus, className);
+                if (blocked != null) return blocked;
+                break;
+            }
+        }
+
         HttpRequest deleteReq = new HttpRequest();
         deleteReq.setEndpoint(BASE_URL + 'tooling/sobjects/ApexClass/' + classId);
         deleteReq.setMethod('DELETE');
@@ -803,15 +1554,104 @@ public without sharing class MetadataEngine {
         HttpResponse deleteRes = http.send(deleteReq);
 
         if (deleteRes.getStatusCode() == 204 || deleteRes.getStatusCode() == 200) {
+            // ── Success ──
             result.success = true;
-            result.message = 'Apex class "' + className + '" (Id: ' + classId + ') successfully deleted.';
-        } else {
+            result.message = '✅ Apex class "' + className + '" successfully deleted.';
+
+        } else if (deleteRes.getStatusCode() == 400 &&
+                   deleteRes.getBody() != null &&
+                   (deleteRes.getBody().containsIgnoreCase('DEPENDENCY_EXISTS') ||
+                    deleteRes.getBody().containsIgnoreCase('referenced elsewhere'))) {
+
+            // ── Salesforce blocked the delete: DEPENDENCY_EXISTS ──────────────────
+            // Step 1: Parse the dependency TYPE(s) from the error message.
+            //         Salesforce always tells us WHAT is blocking (e.g. "Generative AI Function Definition").
+            // Step 2: Run getReferencesFor to get the actual NAMES of queryable references
+            //         (Flows, Triggers, Apex Classes, LWC, etc. — all via MetadataComponentDependency).
+            // Step 3: GenAI Function Definition is NOT queryable — we show the type from
+            //         the error plus Setup navigation instructions.
+            // Step 4: Build one clean combined report.
+
+            String       responseBody = deleteRes.getBody();
+            List<String> genAiTypes   = new List<String>();
+            List<String> depTypes     = parseDepTypesFromError(responseBody);
+
+            // Separate GenAI types (not queryable) from others
+            List<String> unknownTypes = new List<String>();
+            for (String dt : depTypes) {
+                if (dt.containsIgnoreCase('Generative AI') || dt.containsIgnoreCase('GenAi')
+                    || dt.containsIgnoreCase('Agent') || dt.containsIgnoreCase('AI Function')) {
+                    genAiTypes.add(dt);
+                } else {
+                    unknownTypes.add(dt);
+                }
+            }
+
+            // Query all queryable references
+            ReferenceResult refsAfterFail = getReferencesFor(strippedClassName, 'ApexClass');
+
             result.success = false;
-            result.message = 'Failed to delete Apex class "' + className + '". HTTP ' +
+
+            if (refsAfterFail.hasReferences || !genAiTypes.isEmpty()) {
+                // Build combined report: queryable refs + GenAI types from error
+                result.message = buildFormattedReport(
+                    strippedClassName,
+                    refsAfterFail.references,
+                    genAiTypes.isEmpty() ? null : genAiTypes
+                );
+            } else {
+                // getReferencesFor returned nothing AND no GenAI types parsed
+                // Show everything Salesforce told us + fallback guidance
+                String allTypes = '';
+                for (String dt : depTypes) {
+                    allTypes += '  🔗 ' + dt + '\n';
+                }
+                if (String.isBlank(allTypes)) allTypes = '  🔗 One or more metadata components\n';
+
+                result.message =
+                    'Cannot delete "' + strippedClassName + '". It is referenced elsewhere.\n\n' +
+                    'Blocking references:\n' +
+                    allTypes + '\n' +
+                    'To fix:\n' +
+                    '  1. Setup > Apex Classes > "' + strippedClassName + '" > Where is this used?\n' +
+                    '  2. Setup > Agents > find Agent using this class > Topics & Actions > remove it\n' +
+                    '  3. Then retry the delete.';
+            }
+
+        } else {
+            // ── Other HTTP error ──
+            result.success = false;
+            result.message = 'Failed to delete "' + className + '". HTTP ' +
                               deleteRes.getStatusCode() + ': ' + deleteRes.getBody();
         }
 
         return result;
+    }
+
+    // ── Mass delete Apex classes ───────────────────────────────
+    public static MassDeleteResult massDeleteApexClasses(List<String> classNames) {
+        MassDeleteResult mass = new MassDeleteResult();
+        mass.totalRequested = classNames.size();
+        mass.successCount   = 0;
+        mass.failureCount   = 0;
+        mass.succeeded      = new List<String>();
+        mass.failed         = new List<String>();
+
+        for (String className : classNames) {
+            if (String.isBlank(className)) continue;
+            DeleteResult r = deleteApexClassByName(className.trim());
+            if (r.success) {
+                mass.successCount++;
+                mass.succeeded.add(className.trim());
+            } else {
+                mass.failureCount++;
+                mass.failed.add(className.trim() + ' (' + r.message + ')');
+            }
+        }
+
+        mass.summary = 'Mass delete complete: ' + mass.successCount + ' succeeded, ' +
+                       mass.failureCount + ' failed out of ' + mass.totalRequested + ' requested.';
+        return mass;
     }
 
     // ===============================
@@ -854,7 +1694,31 @@ public without sharing class MetadataEngine {
         trigReq.setMethod('GET');
         trigReq.setHeader('Content-Type', 'application/json');
 
-        HttpResponse      trigRes         = http.send(trigReq);
+        HttpResponse trigRes = http.send(trigReq);
+
+        Set<String> trigDepNames = new Set<String>();
+        try {
+            String tDepSoql = 'SELECT MetadataComponentName FROM MetadataComponentDependency ' +
+                              'WHERE MetadataComponentType = \'ApexTrigger\'';
+            HttpRequest tDepReq = new HttpRequest();
+            tDepReq.setEndpoint(BASE_URL + 'tooling/query?q=' + EncodingUtil.urlEncode(tDepSoql, 'UTF-8'));
+            tDepReq.setMethod('GET');
+            tDepReq.setHeader('Content-Type', 'application/json');
+            tDepReq.setTimeout(TIMEOUT_LONG);
+            HttpResponse tDepRes = http.send(tDepReq);
+            if (tDepRes.getStatusCode() >= 200 && tDepRes.getStatusCode() < 300) {
+                Map<String, Object> tDepBody    = (Map<String, Object>) JSON.deserializeUntyped(tDepRes.getBody());
+                List<Object>        tDepRecords = (List<Object>) tDepBody.get('records');
+                if (tDepRecords != null) {
+                    for (Object r : tDepRecords) {
+                        Map<String, Object> row  = (Map<String, Object>) r;
+                        String              tName = (String) row.get('MetadataComponentName');
+                        if (String.isNotBlank(tName)) trigDepNames.add(tName.toLowerCase());
+                    }
+                }
+            }
+        } catch (Exception ex) { System.debug(LoggingLevel.WARN, 'dep check failed — continue: ' + ex.getMessage()); }
+
         List<TriggerInfo> activeTriggers   = new List<TriggerInfo>();
         List<TriggerInfo> inactiveTriggers = new List<TriggerInfo>();
         List<TriggerInfo> unusedTriggers   = new List<TriggerInfo>();
@@ -911,6 +1775,25 @@ public without sharing class MetadataEngine {
                                 }
                             }
                         }
+                    }
+
+                    Boolean isManaged   = String.isNotBlank(info.namespacePrefix);
+                    Boolean isInDep     = trigDepNames.contains((info.name != null ? info.name : '').toLowerCase());
+
+                    info.isManagedPackage = isManaged;
+                    info.hasHandlerClass  = referencesClass;
+                    info.isInDependency   = isInDep;
+
+                    if (isManaged) {
+                        info.safetyStatus = 'MANAGED';
+                    } else if (!info.isActive) {
+                        info.safetyStatus = 'INACTIVE';
+                    } else if (!hasRealLogic) {
+                        info.safetyStatus = 'EMPTY';
+                    } else if (referencesClass || isInDep) {
+                        info.safetyStatus = 'IN_USE';
+                    } else {
+                        info.safetyStatus = 'SAFE_TO_REVIEW';
                     }
 
                     if (!info.isActive) {
@@ -970,9 +1853,30 @@ public without sharing class MetadataEngine {
     // DELETE TRIGGER BY NAME
     // ===============================
     public static DeleteResult deleteTriggerByName(String triggerName) {
+        // ── Reference check FIRST — before production guard ──
+        ReferenceResult triggerRefs = getReferencesFor(triggerName, 'ApexTrigger');
+        if (triggerRefs.hasReferences) {
+            DeleteResult blocked = new DeleteResult();
+            blocked.success = false;
+            String msg = '\U0001f6ab Cannot delete "' + triggerName + '" \u2014 it is referenced by ' + triggerRefs.referenceCount + ' component(s).\n\n';
+            msg += '\U0001f4cb REFERENCES BLOCKING DELETE (' + triggerRefs.referenceCount + ' found):\n';
+            msg += '\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n';
+            Integer triggerIdx = 1;
+            for (ReferenceItem ref : triggerRefs.references) {
+                msg += triggerIdx++ + '. ' + ref.name + '\n';
+                msg += '   Type         : ' + ref.type + '\n';
+                msg += '   Relationship : ' + ref.relationship + '\n\n';
+            }
+            msg += '\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n';
+            msg += '\U0001f4a1 Remove "' + triggerName + '" from the above component(s) first, then retry.';
+            blocked.message = msg;
+            return blocked;
+        }
 
+        // ── Production guard \u2014 only fires if no references block ──
         Http         http   = new Http();
         DeleteResult result = new DeleteResult();
+
 
         String lookupSoql = 'SELECT Id, Name, TableEnumOrId, Status FROM ApexTrigger ' +
                             'WHERE Name = \'' + String.escapeSingleQuotes(triggerName) + '\' ' +
@@ -1006,6 +1910,18 @@ public without sharing class MetadataEngine {
         String              triggerId  = (String) trigDef.get('Id');
         String              objectName = (String) trigDef.get('TableEnumOrId');
 
+        TriggerSummary trigCheck = getTriggers(null);
+        List<TriggerInfo> allTrigs = new List<TriggerInfo>();
+        if (trigCheck.activeTriggers   != null) allTrigs.addAll(trigCheck.activeTriggers);
+        if (trigCheck.inactiveTriggers != null) allTrigs.addAll(trigCheck.inactiveTriggers);
+        for (TriggerInfo ti : allTrigs) {
+            if (triggerName.equalsIgnoreCase(ti.name)) {
+                DeleteResult blocked = checkSafetyBeforeDelete(ti.safetyStatus, triggerName);
+                if (blocked != null) return blocked;
+                break;
+            }
+        }
+
         HttpRequest deleteReq = new HttpRequest();
         deleteReq.setEndpoint(BASE_URL + 'tooling/sobjects/ApexTrigger/' + triggerId);
         deleteReq.setMethod('DELETE');
@@ -1024,6 +1940,22 @@ public without sharing class MetadataEngine {
         }
 
         return result;
+    }
+
+    // ── Mass delete Triggers ───────────────────────────────────
+    public static MassDeleteResult massDeleteTriggers(List<String> triggerNames) {
+        MassDeleteResult mass = new MassDeleteResult();
+        mass.totalRequested = triggerNames.size();
+        mass.successCount = 0; mass.failureCount = 0;
+        mass.succeeded = new List<String>(); mass.failed = new List<String>();
+        for (String name : triggerNames) {
+            if (String.isBlank(name)) continue;
+            DeleteResult r = deleteTriggerByName(name.trim());
+            if (r.success) { mass.successCount++; mass.succeeded.add(name.trim()); }
+            else           { mass.failureCount++; mass.failed.add(name.trim() + ' (' + r.message + ')'); }
+        }
+        mass.summary = 'Mass delete complete: ' + mass.successCount + ' succeeded, ' + mass.failureCount + ' failed out of ' + mass.totalRequested + ' requested.';
+        return mass;
     }
 
     // ===============================
@@ -1095,7 +2027,204 @@ public without sharing class MetadataEngine {
         summary.filteredComponents = filteredComponents;
         summary.namespaceFilter    = namespaceFilter;
 
+        Map<String, List<String>> refMap    = new Map<String, List<String>>();
+        Set<String>               tabLwcSet = new Set<String>();
+        Set<String>               flowLwcSet= new Set<String>();
+
+        // ── Check 1: LightningComponentReference ──
+        try {
+            String refSoql = 'SELECT LightningComponentBundle.DeveloperName, ' +
+                             'PageOrComponent.DeveloperName, PageOrComponent.Type ' +
+                             'FROM LightningComponentReference';
+            HttpRequest refReq = new HttpRequest();
+            refReq.setEndpoint(BASE_URL + 'tooling/query?q=' +
+                EncodingUtil.urlEncode(refSoql, 'UTF-8'));
+            refReq.setMethod('GET');
+            refReq.setHeader('Content-Type', 'application/json');
+            refReq.setTimeout(TIMEOUT_LONG);
+            HttpResponse refRes = http.send(refReq);
+            if (refRes.getStatusCode() >= 200 && refRes.getStatusCode() < 300) {
+                Map<String, Object> refBody    = (Map<String, Object>) JSON.deserializeUntyped(refRes.getBody());
+                List<Object>        refRecords = (List<Object>) refBody.get('records');
+                if (refRecords != null) {
+                    for (Object r : refRecords) {
+                        Map<String, Object> row    = (Map<String, Object>) r;
+                        Map<String, Object> bundle = (Map<String, Object>) row.get('LightningComponentBundle');
+                        Map<String, Object> page   = (Map<String, Object>) row.get('PageOrComponent');
+                        if (bundle == null) continue;
+                        String bName = (String) bundle.get('DeveloperName');
+                        String pName = page != null ? (String) page.get('DeveloperName') : 'Unknown';
+                        String pType = page != null ? (String) page.get('Type') : '';
+                        String entry = String.isNotBlank(pType) ? pName + ' (' + pType + ')' : pName;
+                        if (!refMap.containsKey(bName)) refMap.put(bName, new List<String>());
+                        refMap.get(bName).add(entry);
+                    }
+                }
+            }
+        } catch (Exception ex) { System.debug(LoggingLevel.WARN, 'Check 1 failed — continue: ' + ex.getMessage()); }
+
+        // ── Check 2: Flow Screen Components ──
+        try {
+            String flowSoql = 'SELECT Metadata FROM FlowDefinition WHERE ActiveVersionId != null LIMIT 200';
+            HttpRequest flowReq = new HttpRequest();
+            flowReq.setEndpoint(BASE_URL + 'tooling/query?q=' +
+                EncodingUtil.urlEncode(flowSoql, 'UTF-8'));
+            flowReq.setMethod('GET');
+            flowReq.setHeader('Content-Type', 'application/json');
+            flowReq.setTimeout(TIMEOUT_LONG);
+            HttpResponse flowRes = http.send(flowReq);
+            if (flowRes.getStatusCode() >= 200 && flowRes.getStatusCode() < 300) {
+                Map<String, Object> flowBody    = (Map<String, Object>) JSON.deserializeUntyped(flowRes.getBody());
+                List<Object>        flowRecords = (List<Object>) flowBody.get('records');
+                if (flowRecords != null) {
+                    for (Object r : flowRecords) {
+                        Map<String, Object> row      = (Map<String, Object>) r;
+                        Map<String, Object> metadata = (Map<String, Object>) row.get('Metadata');
+                        if (metadata == null) continue;
+                        String metaStr = JSON.serialize(metadata);
+                        for (LwcComponentInfo info : allComponents) {
+                            if (String.isNotBlank(info.name) && metaStr.containsIgnoreCase(info.name)) {
+                                flowLwcSet.add(info.name);
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (Exception ex) { System.debug(LoggingLevel.WARN, 'Check 2 failed — continue: ' + ex.getMessage()); }
+
+        // ── Check 3: Custom Tabs ──
+        try {
+            String tabSoql = 'SELECT DeveloperName, LightningComponent.DeveloperName ' +
+                             'FROM CustomTab WHERE LightningComponentId != null';
+            HttpRequest tabReq = new HttpRequest();
+            tabReq.setEndpoint(BASE_URL + 'tooling/query?q=' +
+                EncodingUtil.urlEncode(tabSoql, 'UTF-8'));
+            tabReq.setMethod('GET');
+            tabReq.setHeader('Content-Type', 'application/json');
+            tabReq.setTimeout(TIMEOUT_LONG);
+            HttpResponse tabRes = http.send(tabReq);
+            if (tabRes.getStatusCode() >= 200 && tabRes.getStatusCode() < 300) {
+                Map<String, Object> tabBody    = (Map<String, Object>) JSON.deserializeUntyped(tabRes.getBody());
+                List<Object>        tabRecords = (List<Object>) tabBody.get('records');
+                if (tabRecords != null) {
+                    for (Object r : tabRecords) {
+                        Map<String, Object> row  = (Map<String, Object>) r;
+                        Map<String, Object> comp = (Map<String, Object>) row.get('LightningComponent');
+                        if (comp != null) {
+                            String lwcName = (String) comp.get('DeveloperName');
+                            if (String.isNotBlank(lwcName)) tabLwcSet.add(lwcName);
+                        }
+                    }
+                }
+            }
+        } catch (Exception ex) { System.debug(LoggingLevel.WARN, 'Check 3 failed — continue: ' + ex.getMessage()); }
+
+        // ── Check 4: FlexiPage body scan ──
+        try {
+            String flexiSoql = 'SELECT DeveloperName, Metadata FROM FlexiPage LIMIT 300';
+            HttpRequest flexiReq = new HttpRequest();
+            flexiReq.setEndpoint(BASE_URL + 'tooling/query?q=' +
+                EncodingUtil.urlEncode(flexiSoql, 'UTF-8'));
+            flexiReq.setMethod('GET');
+            flexiReq.setHeader('Content-Type', 'application/json');
+            flexiReq.setTimeout(TIMEOUT_LONG);
+            HttpResponse flexiRes = http.send(flexiReq);
+            if (flexiRes.getStatusCode() >= 200 && flexiRes.getStatusCode() < 300) {
+                Map<String, Object> flexiBody    = (Map<String, Object>) JSON.deserializeUntyped(flexiRes.getBody());
+                List<Object>        flexiRecords = (List<Object>) flexiBody.get('records');
+                if (flexiRecords != null) {
+                    for (Object r : flexiRecords) {
+                        Map<String, Object> row      = (Map<String, Object>) r;
+                        Map<String, Object> metadata = (Map<String, Object>) row.get('Metadata');
+                        if (metadata == null) continue;
+                        String metaStr = JSON.serialize(metadata);
+                        String flexiName = (String) row.get('DeveloperName');
+                        for (LwcComponentInfo info : allComponents) {
+                            if (String.isNotBlank(info.name) && metaStr.containsIgnoreCase(info.name)) {
+                                if (!refMap.containsKey(info.name)) refMap.put(info.name, new List<String>());
+                                if (!refMap.get(info.name).contains(flexiName + ' (FlexiPage-scan)')) {
+                                    refMap.get(info.name).add(flexiName + ' (FlexiPage-scan)');
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (Exception ex) { System.debug(LoggingLevel.WARN, 'Check 4 failed — continue: ' + ex.getMessage()); }
+
+        // ── Final: Combine all checks + assign safety status ──
+        List<LwcComponentInfo> unreferencedComponents = new List<LwcComponentInfo>();
+        Integer unreferencedCount = 0;
+
+        for (LwcComponentInfo info : allComponents) {
+            Boolean inRefMap  = refMap.containsKey(info.name);
+            Boolean inFlowSet = flowLwcSet.contains(info.name);
+            Boolean inTabSet  = tabLwcSet.contains(info.name);
+            Boolean isManaged = String.isNotBlank(info.namespacePrefix);
+
+            info.isManagedPackage = isManaged;
+            info.isExposedTab     = inTabSet;
+
+            if (isManaged) {
+                info.isReferenced    = true;
+                info.referencedBy    = 'Managed Package (' + info.namespacePrefix + ')';
+                info.referenceSource = 'Managed Package';
+                info.safetyStatus    = 'MANAGED';
+            } else if (inTabSet) {
+                info.isReferenced    = true;
+                info.referencedBy    = 'Custom Tab (entry point)';
+                info.referenceSource = 'Tab';
+                info.safetyStatus    = 'ENTRY_POINT';
+            } else if (inFlowSet) {
+                info.isReferenced    = true;
+                info.referencedBy    = 'Flow Screen Component';
+                info.referenceSource = 'Flow';
+                info.safetyStatus    = 'IN_USE';
+            } else if (inRefMap) {
+                List<String> sources = refMap.get(info.name);
+                info.isReferenced    = true;
+                info.referencedBy    = String.join(sources, ', ');
+                info.referenceSource = sources[0];
+                info.safetyStatus    = 'IN_USE';
+            } else {
+                Set<String> selfComponents = new Set<String>{
+                    'metadatadashboard', 'metadatadasboard'
+                };
+                if (selfComponents.contains(info.name != null ? info.name.toLowerCase() : '')) {
+                    info.isReferenced    = true;
+                    info.referencedBy    = 'This Dashboard App (self-excluded from unreferenced list)';
+                    info.referenceSource = 'Self';
+                    info.safetyStatus    = 'ENTRY_POINT';
+                } else {
+                    info.isReferenced    = false;
+                    info.referencedBy    = '';
+                    info.referenceSource = 'None';
+                    info.safetyStatus    = 'SAFE_TO_REVIEW';
+                    unreferencedComponents.add(info);
+                    unreferencedCount++;
+                }
+            }
+        }   // ← FIX: closes the for loop over allComponents
+
+        summary.unreferencedCount      = unreferencedCount;
+        summary.unreferencedComponents = unreferencedComponents;
         return summary;
+    }   // ← FIX: closes getLwcComponents
+
+    // ── Mass delete LWC components ─────────────────────────────
+    public static MassDeleteResult massDeleteLwcComponents(List<String> componentNames) {
+        MassDeleteResult mass = new MassDeleteResult();
+        mass.totalRequested = componentNames.size();
+        mass.successCount = 0; mass.failureCount = 0;
+        mass.succeeded = new List<String>(); mass.failed = new List<String>();
+        for (String name : componentNames) {
+            if (String.isBlank(name)) continue;
+            DeleteResult r = deleteLwcByName(name.trim());
+            if (r.success) { mass.successCount++; mass.succeeded.add(name.trim()); }
+            else           { mass.failureCount++; mass.failed.add(name.trim() + ' (' + r.message + ')'); }
+        }
+        mass.summary = 'Mass delete complete: ' + mass.successCount + ' succeeded, ' + mass.failureCount + ' failed out of ' + mass.totalRequested + ' requested.';
+        return mass;
     }
 
     // ===============================
@@ -1167,7 +2296,195 @@ public without sharing class MetadataEngine {
         summary.filteredComponents = filteredComponents;
         summary.namespaceFilter    = namespaceFilter;
 
+        Set<String> referencedNames  = new Set<String>();
+        Set<String> topLevelAppNames = new Set<String>();
+        Set<String> auraTabSet       = new Set<String>();
+
+        // ── Check 1: AuraDefinition source scan ──
+        try {
+            String auraSoql = 'SELECT Source, AuraDefinitionBundle.DeveloperName, DefType ' +
+                              'FROM AuraDefinition ' +
+                              'WHERE DefType IN (\'APPLICATION\', \'COMPONENT\') ' +
+                              'LIMIT 500';
+            HttpRequest auraRefReq = new HttpRequest();
+            auraRefReq.setEndpoint(BASE_URL + 'tooling/query?q=' +
+                EncodingUtil.urlEncode(auraSoql, 'UTF-8'));
+            auraRefReq.setMethod('GET');
+            auraRefReq.setHeader('Content-Type', 'application/json');
+            auraRefReq.setTimeout(TIMEOUT_LONG);
+            HttpResponse auraRefRes = http.send(auraRefReq);
+            if (auraRefRes.getStatusCode() >= 200 && auraRefRes.getStatusCode() < 300) {
+                Map<String, Object> auraBody    = (Map<String, Object>) JSON.deserializeUntyped(auraRefRes.getBody());
+                List<Object>        auraRecords = (List<Object>) auraBody.get('records');
+                if (auraRecords != null) {
+                    for (Object r : auraRecords) {
+                        Map<String, Object> row       = (Map<String, Object>) r;
+                        String              source    = (String) row.get('Source');
+                        String              defType   = (String) row.get('DefType');
+                        Map<String, Object> bundle    = (Map<String, Object>) row.get('AuraDefinitionBundle');
+                        String              ownerName = bundle != null ? (String) bundle.get('DeveloperName') : '';
+
+                        // Check 2: Top-level App guard
+                        if ('APPLICATION'.equals(defType) && String.isNotBlank(ownerName)) {
+                            topLevelAppNames.add(ownerName.toLowerCase());
+                        }
+
+                        if (String.isBlank(source)) continue;
+
+                        Integer i = 0;
+                        while (i < source.length()) {
+                            Integer tagStart = source.indexOf('<c:', i);
+                            if (tagStart == -1) break;
+                            Integer nameEnd = tagStart + 3;
+                            while (nameEnd < source.length() &&
+                                   source.substring(nameEnd, nameEnd+1) != ' ' &&
+                                   source.substring(nameEnd, nameEnd+1) != '>' &&
+                                   source.substring(nameEnd, nameEnd+1) != '/') {
+                                nameEnd++;
+                            }
+                            String refName   = source.substring(tagStart + 3, nameEnd);
+                            String camelName = '';
+                            Boolean capNext  = false;
+                            for (Integer ci = 0; ci < refName.length(); ci++) {
+                                String ch = refName.substring(ci, ci+1);
+                                if (ch == '-') { capNext = true; }
+                                else { camelName += capNext ? ch.toUpperCase() : ch; capNext = false; }
+                            }
+                            if (String.isNotBlank(camelName) && !camelName.equalsIgnoreCase(ownerName)) {
+                                referencedNames.add(camelName.toLowerCase());
+                            }
+                            i = nameEnd;
+                        }
+                    }
+                }
+            }
+        } catch (Exception ex) { System.debug(LoggingLevel.WARN, 'Check 1 failed — continue: ' + ex.getMessage()); }
+
+        // ── Check 3: Custom Tabs ──
+        try {
+            String tabSoql = 'SELECT DeveloperName, Url FROM CustomTab WHERE Type = \'lightning\' LIMIT 200';
+            HttpRequest tabReq = new HttpRequest();
+            tabReq.setEndpoint(BASE_URL + 'tooling/query?q=' +
+                EncodingUtil.urlEncode(tabSoql, 'UTF-8'));
+            tabReq.setMethod('GET');
+            tabReq.setHeader('Content-Type', 'application/json');
+            tabReq.setTimeout(TIMEOUT_LONG);
+            HttpResponse tabRes = http.send(tabReq);
+            if (tabRes.getStatusCode() >= 200 && tabRes.getStatusCode() < 300) {
+                Map<String, Object> tabBody    = (Map<String, Object>) JSON.deserializeUntyped(tabRes.getBody());
+                List<Object>        tabRecords = (List<Object>) tabBody.get('records');
+                if (tabRecords != null) {
+                    for (Object r : tabRecords) {
+                        Map<String, Object> row     = (Map<String, Object>) r;
+                        String              tabName = (String) row.get('DeveloperName');
+                        if (String.isNotBlank(tabName)) auraTabSet.add(tabName.toLowerCase());
+                    }
+                }
+            }
+        } catch (Exception ex) { System.debug(LoggingLevel.WARN, 'Check 3 failed — continue: ' + ex.getMessage()); }
+
+        // ── Check 4: FlexiPage metadata scan ──
+        try {
+            String flexiSoql = 'SELECT DeveloperName, Metadata FROM FlexiPage LIMIT 300';
+            HttpRequest flexiReq = new HttpRequest();
+            flexiReq.setEndpoint(BASE_URL + 'tooling/query?q=' +
+                EncodingUtil.urlEncode(flexiSoql, 'UTF-8'));
+            flexiReq.setMethod('GET');
+            flexiReq.setHeader('Content-Type', 'application/json');
+            flexiReq.setTimeout(TIMEOUT_LONG);
+            HttpResponse flexiRes = http.send(flexiReq);
+            if (flexiRes.getStatusCode() >= 200 && flexiRes.getStatusCode() < 300) {
+                Map<String, Object> flexiBody    = (Map<String, Object>) JSON.deserializeUntyped(flexiRes.getBody());
+                List<Object>        flexiRecords = (List<Object>) flexiBody.get('records');
+                if (flexiRecords != null) {
+                    for (Object r : flexiRecords) {
+                        Map<String, Object> row      = (Map<String, Object>) r;
+                        Map<String, Object> metadata = (Map<String, Object>) row.get('Metadata');
+                        if (metadata == null) continue;
+                        String metaStr = JSON.serialize(metadata).toLowerCase();
+                        for (AuraComponentInfo info : allComponents) {
+                            if (String.isNotBlank(info.name) && metaStr.containsIgnoreCase(info.name)) {
+                                referencedNames.add(info.name.toLowerCase());
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (Exception ex) { System.debug(LoggingLevel.WARN, 'Check 4 failed — continue: ' + ex.getMessage()); }
+
+        // ── Final: Combine all checks + assign safety status ──
+        List<AuraComponentInfo> unreferencedComponents = new List<AuraComponentInfo>();
+        Integer unreferencedCount = 0;
+
+        for (AuraComponentInfo info : allComponents) {
+            Boolean isManaged    = String.isNotBlank(info.namespacePrefix);
+            Boolean isTopApp     = topLevelAppNames.contains(info.name.toLowerCase());
+            Boolean isTab        = auraTabSet.contains(info.name.toLowerCase());
+            Boolean isReferenced = referencedNames.contains(info.name.toLowerCase());
+
+            info.isManagedPackage = isManaged;
+            info.isTopLevelApp    = isTopApp;
+            info.isExposedTab     = isTab;
+
+            if (isManaged) {
+                info.isReferenced    = true;
+                info.referencedBy    = 'Managed Package (' + info.namespacePrefix + ')';
+                info.referenceSource = 'Managed Package';
+                info.safetyStatus    = 'MANAGED';
+            } else if (isTopApp) {
+                info.isReferenced    = true;
+                info.referencedBy    = 'Top-level Aura App (entry point via URL)';
+                info.referenceSource = 'App Entry Point';
+                info.safetyStatus    = 'ENTRY_POINT';
+            } else if (isTab) {
+                info.isReferenced    = true;
+                info.referencedBy    = 'Custom Tab (entry point)';
+                info.referenceSource = 'Tab';
+                info.safetyStatus    = 'ENTRY_POINT';
+            } else if (isReferenced) {
+                info.isReferenced    = true;
+                info.referencedBy    = 'Referenced in app/component markup or FlexiPage';
+                info.referenceSource = 'Aura Markup / FlexiPage';
+                info.safetyStatus    = 'IN_USE';
+            } else {
+                Set<String> selfComponents = new Set<String>{
+                    'metadatadashboardapp'
+                };
+                if (selfComponents.contains(info.name != null ? info.name.toLowerCase() : '')) {
+                    info.isReferenced    = true;
+                    info.referencedBy    = 'This Dashboard App (self-excluded from unreferenced list)';
+                    info.referenceSource = 'Self';
+                    info.safetyStatus    = 'ENTRY_POINT';
+                } else {
+                    info.isReferenced    = false;
+                    info.referencedBy    = '';
+                    info.referenceSource = 'None';
+                    info.safetyStatus    = 'SAFE_TO_REVIEW';
+                    unreferencedComponents.add(info);
+                    unreferencedCount++;
+                }
+            }
+        }   // ← FIX: closes the for loop over allComponents
+
+        summary.unreferencedCount      = unreferencedCount;
+        summary.unreferencedComponents = unreferencedComponents;
         return summary;
+    }   // ← FIX: closes getAuraComponents
+
+    // ── Mass delete Aura components ────────────────────────────
+    public static MassDeleteResult massDeleteAuraComponents(List<String> componentNames) {
+        MassDeleteResult mass = new MassDeleteResult();
+        mass.totalRequested = componentNames.size();
+        mass.successCount = 0; mass.failureCount = 0;
+        mass.succeeded = new List<String>(); mass.failed = new List<String>();
+        for (String name : componentNames) {
+            if (String.isBlank(name)) continue;
+            DeleteResult r = deleteAuraByName(name.trim());
+            if (r.success) { mass.successCount++; mass.succeeded.add(name.trim()); }
+            else           { mass.failureCount++; mass.failed.add(name.trim() + ' (' + r.message + ')'); }
+        }
+        mass.summary = 'Mass delete complete: ' + mass.successCount + ' succeeded, ' + mass.failureCount + ' failed out of ' + mass.totalRequested + ' requested.';
+        return mass;
     }
 
     // ===============================
@@ -1184,7 +2501,6 @@ public without sharing class MetadataEngine {
         String profileSoql = 'SELECT Id, Name, UserLicenseId, UserLicense.Name, UserType FROM Profile ORDER BY Name ASC';
         Map<String, ProfileInfo> profileMap = new Map<String, ProfileInfo>();
 
-        // Paginate through all pages
         String  prEndpoint = BASE_URL + 'query?q=' + EncodingUtil.urlEncode(profileSoql, 'UTF-8');
         Boolean prDone     = false;
         while (!prDone) {
@@ -1251,6 +2567,13 @@ public without sharing class MetadataEngine {
             }
         }
 
+        Set<String> systemProfiles = new Set<String>{
+            'system administrator', 'standard user', 'guest user',
+            'chatter free user', 'chatter external user', 'minimum access - salesforce',
+            'contract manager', 'solution manager', 'read only',
+            'marketing user', 'platform portal user'
+        };
+
         List<ProfileInfo> unusedProfiles   = new List<ProfileInfo>();
         List<ProfileInfo> usedProfiles     = new List<ProfileInfo>();
         List<ProfileInfo> customProfiles   = new List<ProfileInfo>();
@@ -1260,10 +2583,18 @@ public without sharing class MetadataEngine {
         String nsL = String.isNotBlank(namespaceFilter) ? namespaceFilter.toLowerCase() : '';
 
         for (ProfileInfo info : profileMap.values()) {
-            if (info.assignedUserCount == 0) {
+            Boolean isSys = systemProfiles.contains(info.name != null ? info.name.toLowerCase() : '');
+            info.isSystemProfile = isSys;
+
+            if (info.assignedUserCount == 0 && !isSys) {
                 unusedProfiles.add(info);
+                info.safetyStatus = 'SAFE_TO_REVIEW';
+            } else if (isSys) {
+                usedProfiles.add(info);
+                info.safetyStatus = 'SYSTEM';
             } else {
                 usedProfiles.add(info);
+                info.safetyStatus = 'IN_USE';
             }
             if (info.isCustom == true) {
                 customProfiles.add(info);
@@ -1273,17 +2604,13 @@ public without sharing class MetadataEngine {
 
             if (String.isNotBlank(namespaceFilter)) {
                 String  profNm = info.name == null ? '' : info.name.toLowerCase();
-                // Profiles have no namespacePrefix field — match by name convention only
-                // Same nextChar guard as Apex class logic:
-                // Prevents "EM" matching "EMployee" (lowercase next char = not a namespace separator)
                 Boolean matchesFilter = false;
                 if (profNm.startsWith(nsL)) {
                     Integer nextIdx = nsL.length();
                     if (nextIdx >= profNm.length()) {
-                        matchesFilter = true; // exact name match
+                        matchesFilter = true;
                     } else {
                         String nextChar = info.name.substring(nextIdx, nextIdx + 1);
-                        // Only match if followed by '_' (NS_Name) or uppercase letter (NSName)
                         if (nextChar.equals('_') || nextChar.equals(nextChar.toUpperCase())) {
                             matchesFilter = true;
                         }
@@ -1312,6 +2639,23 @@ public without sharing class MetadataEngine {
         return summary;
     }
 
+    // ── Mass deactivate Profiles ───────────────────────────────
+    public static MassDeleteResult massDeactivateProfiles(List<String> profileNames) {
+        MassDeleteResult mass = new MassDeleteResult();
+        mass.totalRequested = profileNames.size();
+        mass.successCount = 0; mass.failureCount = 0;
+        mass.succeeded = new List<String>(); mass.failed = new List<String>();
+        String fallback = MetadataConstants.DEFAULT_PROFILE;
+        for (String name : profileNames) {
+            if (String.isBlank(name)) continue;
+            DeleteResult r = deactivateProfileByName(name.trim(), fallback);
+            if (r.success) { mass.successCount++; mass.succeeded.add(name.trim()); }
+            else           { mass.failureCount++; mass.failed.add(name.trim() + ' (' + r.message + ')'); }
+        }
+        mass.summary = 'Mass deactivate complete: ' + mass.successCount + ' succeeded, ' + mass.failureCount + ' failed out of ' + mass.totalRequested + ' requested.';
+        return mass;
+    }
+
     // ===============================
     // GET PERMISSION SETS + DETECT UNUSED
     // ===============================
@@ -1327,8 +2671,6 @@ public without sharing class MetadataEngine {
                              'WHERE IsOwnedByProfile = false ORDER BY Label ASC';
         Map<String, PermissionSetInfo> permSetMap = new Map<String, PermissionSetInfo>();
 
-        // Paginate through all pages — Salesforce REST API returns up to 2000 records per call
-        // and sets done=false + nextRecordsUrl when more pages exist.
         String  psEndpoint = BASE_URL + 'query?q=' + EncodingUtil.urlEncode(permSetSoql, 'UTF-8');
         Boolean psDone     = false;
         while (!psDone) {
@@ -1407,24 +2749,28 @@ public without sharing class MetadataEngine {
             } else {
                 withoutNs++;
             }
-            if (info.assignmentCount == 0) {
+            Boolean isManaged = String.isNotBlank(info.namespacePrefix);
+            info.isManagedPackage = isManaged;
+
+            if (isManaged) {
+                info.safetyStatus = 'MANAGED';
+                usedPermSets.add(info);
+            } else if (info.assignmentCount == 0) {
+                info.safetyStatus = 'SAFE_TO_REVIEW';
                 unusedPermSets.add(info);
             } else {
+                info.safetyStatus = 'IN_USE';
                 usedPermSets.add(info);
             }
             String  psNs   = info.namespacePrefix == null ? '' : info.namespacePrefix;
             String  psNm   = info.name == null ? '' : info.name.toLowerCase();
-            // Step 1: match by NamespacePrefix field (package/managed components)
             Boolean psMatch = nsLower != null && nsLower.equals(psNs.toLowerCase());
-            // Step 2: match by name convention — same nextChar guard as Apex class logic
-            // Prevents "EM" matching "EMployee" (lowercase next char = not a namespace separator)
             if (!psMatch && nsLower != null && psNm.startsWith(nsLower)) {
                 Integer nextIdx = nsLower.length();
                 if (nextIdx >= psNm.length()) {
-                    psMatch = true; // exact name match
+                    psMatch = true;
                 } else {
                     String nextChar = info.name.substring(nextIdx, nextIdx + 1);
-                    // Only match if followed by '_' (NS_Name) or uppercase letter (NSName)
                     if (nextChar.equals('_') || nextChar.equals(nextChar.toUpperCase())) {
                         psMatch = true;
                     }
@@ -1452,96 +2798,181 @@ public without sharing class MetadataEngine {
         return summary;
     }
 
-    
-       // ===============================
-        // GET CUSTOM OBJECTS
-        // ===============================
-        public static CustomObjectSummary getCustomObjects(String namespaceFilter) {
+    // ── Mass delete Permission Sets ────────────────────────────
+    public static MassDeleteResult massDeletePermissionSets(List<String> permSetNames) {
+        MassDeleteResult mass = new MassDeleteResult();
+        mass.totalRequested = permSetNames.size();
+        mass.successCount = 0; mass.failureCount = 0;
+        mass.succeeded = new List<String>(); mass.failed = new List<String>();
+        for (String name : permSetNames) {
+            if (String.isBlank(name)) continue;
+            DeleteResult r = deletePermissionSetByName(name.trim());
+            if (r.success) { mass.successCount++; mass.succeeded.add(name.trim()); }
+            else           { mass.failureCount++; mass.failed.add(name.trim() + ' (' + r.message + ')'); }
+        }
+        mass.summary = 'Mass delete complete: ' + mass.successCount + ' succeeded, ' + mass.failureCount + ' failed out of ' + mass.totalRequested + ' requested.';
+        return mass;
+    }
 
-            Http http = new Http();
+    // ===============================
+    // GET CUSTOM OBJECTS
+    // ===============================
+    public static CustomObjectSummary getCustomObjects(String namespaceFilter) {
 
-            // ── Step 1: Fetch all CustomObjects from Tooling API ───────
-            String soql = 'SELECT Id, DeveloperName, NamespacePrefix, LastModifiedDate ' +
-                        'FROM CustomObject ' +
-                        'ORDER BY DeveloperName ASC';
+        Http http = new Http();
 
-            HttpRequest req = new HttpRequest();
-            req.setEndpoint(BASE_URL + 'tooling/query?q=' +
-                EncodingUtil.urlEncode(soql, 'UTF-8'));
-            req.setMethod('GET');
-            req.setHeader('Content-Type', 'application/json');
-            req.setTimeout(TIMEOUT_LONG);
+        String soql = 'SELECT Id, DeveloperName, NamespacePrefix, LastModifiedDate ' +
+                    'FROM CustomObject ' +
+                    'ORDER BY DeveloperName ASC';
 
-            HttpResponse res = http.send(req);
+        HttpRequest req = new HttpRequest();
+        req.setEndpoint(BASE_URL + 'tooling/query?q=' +
+            EncodingUtil.urlEncode(soql, 'UTF-8'));
+        req.setMethod('GET');
+        req.setHeader('Content-Type', 'application/json');
+        req.setTimeout(TIMEOUT_LONG);
 
-            List<CustomObjectInfo> allObjects      = new List<CustomObjectInfo>();
-            List<CustomObjectInfo> filteredObjects = new List<CustomObjectInfo>();
-            Integer withNamespace    = 0;
-            Integer withoutNamespace = 0;
+        HttpResponse res = http.send(req);
 
-            if (res.getStatusCode() >= 200 && res.getStatusCode() < 300) {
-                Map<String, Object> response =
-                    (Map<String, Object>) JSON.deserializeUntyped(res.getBody());
-                List<Object> records = (List<Object>) response.get('records');
+        List<CustomObjectInfo> allObjects      = new List<CustomObjectInfo>();
+        List<CustomObjectInfo> filteredObjects = new List<CustomObjectInfo>();
+        Integer withNamespace    = 0;
+        Integer withoutNamespace = 0;
 
-                if (records != null) {
-                    for (Object obj : records) {
-                        Map<String, Object> rec     = (Map<String, Object>) obj;
-                        String              devName = (String) rec.get('DeveloperName');
+        if (res.getStatusCode() >= 200 && res.getStatusCode() < 300) {
+            Map<String, Object> response =
+                (Map<String, Object>) JSON.deserializeUntyped(res.getBody());
+            List<Object> records = (List<Object>) response.get('records');
 
-                        // ── Step 2: Check each object exists individually ──
-                        Boolean exists = false;
-                        try {
-                            Schema.describeSObjects(new List<String>{ devName + '__c' });
-                            exists = true;
-                        } catch (Exception ex) {
-                            exists = false;
-                        }
+            if (records != null) {
+                for (Object obj : records) {
+                    Map<String, Object> rec     = (Map<String, Object>) obj;
+                    String              devName = (String) rec.get('DeveloperName');
 
-                        // Skip deleted/ghost objects
-                        if (!exists) {
-                            continue;
-                        }
+                    Boolean exists = false;
+                    try {
+                        Schema.describeSObjects(new List<String>{ devName + '__c' });
+                        exists = true;
+                    } catch (Exception ex) {
+                        exists = false;
+                    }
 
-                        CustomObjectInfo info  = new CustomObjectInfo();
-                        info.name             = devName;
-                        info.id               = (String) rec.get('Id');
-                        info.label            = devName.replace('_', ' ');
-                        info.namespacePrefix  = (String) rec.get('NamespacePrefix');
-                        info.lastModifiedDate = (String) rec.get('LastModifiedDate');
+                    if (!exists) {
+                        continue;
+                    }
 
-                        allObjects.add(info);
+                    CustomObjectInfo info  = new CustomObjectInfo();
+                    info.name             = devName;
+                    info.id               = (String) rec.get('Id');
+                    info.label            = devName.replace('_', ' ');
+                    info.namespacePrefix  = (String) rec.get('NamespacePrefix');
+                    info.lastModifiedDate = (String) rec.get('LastModifiedDate');
 
-                        if (String.isNotBlank(info.namespacePrefix)) {
-                            withNamespace++;
-                        } else {
-                            withoutNamespace++;
-                        }
+                    allObjects.add(info);
 
-                        String  objNs = info.namespacePrefix == null ? '' : info.namespacePrefix;
-                        String  objNm = info.name == null ? '' : info.name.toLowerCase();
-                        String  nsL   = namespaceFilter == null ? '' : namespaceFilter.toLowerCase();
-                        Boolean matchesFilter = String.isBlank(namespaceFilter) || nsL.equals(objNs.toLowerCase()) ||
-                            objNm.startsWith(nsL + '_') || (objNm.startsWith(nsL) && objNm.length() > nsL.length() &&
-                            objNm.substring(nsL.length(), nsL.length()+1) != objNm.substring(nsL.length(), nsL.length()+1).toLowerCase());
+                    if (String.isNotBlank(info.namespacePrefix)) {
+                        withNamespace++;
+                    } else {
+                        withoutNamespace++;
+                    }
 
-                        if (matchesFilter) {
-                            filteredObjects.add(info);
-                        }
+                    String  objNs = info.namespacePrefix == null ? '' : info.namespacePrefix;
+                    String  objNm = info.name == null ? '' : info.name.toLowerCase();
+                    String  nsL   = namespaceFilter == null ? '' : namespaceFilter.toLowerCase();
+                    Boolean matchesFilter = String.isBlank(namespaceFilter) || nsL.equals(objNs.toLowerCase()) ||
+                        objNm.startsWith(nsL + '_') || (objNm.startsWith(nsL) && objNm.length() > nsL.length() &&
+                        objNm.substring(nsL.length(), nsL.length()+1) != objNm.substring(nsL.length(), nsL.length()+1).toLowerCase());
+
+                    if (matchesFilter) {
+                        filteredObjects.add(info);
                     }
                 }
             }
-
-            CustomObjectSummary summary = new CustomObjectSummary();
-            summary.total               = allObjects.size();
-            summary.withNamespace       = withNamespace;
-            summary.withoutNamespace    = withoutNamespace;
-            summary.allObjects          = allObjects;
-            summary.filteredObjects     = filteredObjects;
-            summary.namespaceFilter     = namespaceFilter;
-
-            return summary;
         }
+
+        CustomObjectSummary summary = new CustomObjectSummary();
+        summary.total               = allObjects.size();
+        summary.withNamespace       = withNamespace;
+        summary.withoutNamespace    = withoutNamespace;
+        summary.allObjects          = allObjects;
+        summary.filteredObjects     = filteredObjects;
+        summary.namespaceFilter     = namespaceFilter;
+
+        List<CustomObjectInfo> emptyObjects = new List<CustomObjectInfo>();
+        Integer emptyCount = 0;
+        for (CustomObjectInfo info : allObjects) {
+            try {
+                Integer cnt      = Database.countQuery('SELECT COUNT() FROM ' + info.name + '__c LIMIT 1');
+                info.recordCount = cnt;
+                info.isEmpty     = (cnt == 0);
+                if (cnt == 0) { emptyObjects.add(info); emptyCount++; }
+            } catch (Exception ex) {
+                info.recordCount = -1;
+                info.isEmpty     = false;
+            }
+        }
+        summary.emptyCount   = emptyCount;
+        summary.emptyObjects = emptyObjects;
+
+        Set<String> objDepNames = new Set<String>();
+        try {
+            String objDepSoql = 'SELECT RefMetadataComponentName FROM MetadataComponentDependency ' +
+                                'WHERE RefMetadataComponentType = \'CustomObject\'';
+            HttpRequest objDepReq = new HttpRequest();
+            objDepReq.setEndpoint(BASE_URL + 'tooling/query?q=' + EncodingUtil.urlEncode(objDepSoql, 'UTF-8'));
+            objDepReq.setMethod('GET');
+            objDepReq.setHeader('Content-Type', 'application/json');
+            objDepReq.setTimeout(TIMEOUT_LONG);
+            HttpResponse objDepRes = http.send(objDepReq);
+            if (objDepRes.getStatusCode() >= 200 && objDepRes.getStatusCode() < 300) {
+                Map<String, Object> objDepBody    = (Map<String, Object>) JSON.deserializeUntyped(objDepRes.getBody());
+                List<Object>        objDepRecords = (List<Object>) objDepBody.get('records');
+                if (objDepRecords != null) {
+                    for (Object r : objDepRecords) {
+                        Map<String, Object> row     = (Map<String, Object>) r;
+                        String              refName = (String) row.get('RefMetadataComponentName');
+                        if (String.isNotBlank(refName)) objDepNames.add(refName.toLowerCase());
+                    }
+                }
+            }
+        } catch (Exception ex) { System.debug(LoggingLevel.WARN, 'dep check failed — continue: ' + ex.getMessage()); }
+
+        for (CustomObjectInfo info : allObjects) {
+            Boolean isManaged  = String.isNotBlank(info.namespacePrefix);
+            Boolean isInDep    = objDepNames.contains((info.name + '__c').toLowerCase()) ||
+                                 objDepNames.contains((info.name).toLowerCase());
+            info.isManagedPackage   = isManaged;
+            info.isReferencedByCode = isInDep;
+
+            if (isManaged) {
+                info.safetyStatus = 'MANAGED';
+            } else if (isInDep) {
+                info.safetyStatus = 'IN_USE';
+            } else if (!info.isEmpty) {
+                info.safetyStatus = 'HAS_DATA';
+            } else {
+                info.safetyStatus = 'SAFE_TO_REVIEW';
+            }
+        }
+
+        return summary;
+    }
+
+    // ── Mass delete Custom Objects ─────────────────────────────
+    public static MassDeleteResult massDeleteCustomObjects(List<String> objectNames) {
+        MassDeleteResult mass = new MassDeleteResult();
+        mass.totalRequested = objectNames.size();
+        mass.successCount = 0; mass.failureCount = 0;
+        mass.succeeded = new List<String>(); mass.failed = new List<String>();
+        for (String name : objectNames) {
+            if (String.isBlank(name)) continue;
+            DeleteResult r = deleteCustomObjectByName(name.trim().replace(' ', '_'));
+            if (r.success) { mass.successCount++; mass.succeeded.add(name.trim()); }
+            else           { mass.failureCount++; mass.failed.add(name.trim() + ' (' + r.message + ')'); }
+        }
+        mass.summary = 'Mass delete complete: ' + mass.successCount + ' succeeded, ' + mass.failureCount + ' failed out of ' + mass.totalRequested + ' requested.';
+        return mass;
+    }
 
     // ===============================
     // GET CUSTOM FIELDS
@@ -1550,7 +2981,6 @@ public without sharing class MetadataEngine {
 
         Http http = new Http();
 
-        // Known Salesforce sample/demo fields to exclude
         Set<String> sampleFields = new Set<String>{
             'active', 'customerpriority', 'numberoflocations', 'sla',
             'slaexpirationdate', 'slaserialnumber', 'upsellOpportunity',
@@ -1561,7 +2991,6 @@ public without sharing class MetadataEngine {
             'ordernumber', 'trackingnumber', 'naicsdesc', 'sicdesc'
         };
 
-        // Known valid standard object names
         Set<String> knownStandardObjects = new Set<String>{
             'Account', 'Contact', 'Lead', 'Opportunity', 'Case',
             'Task', 'Event', 'Campaign', 'Contract', 'Order',
@@ -1576,18 +3005,10 @@ public without sharing class MetadataEngine {
             'EntitlementContact', 'Milestone', 'CaseMilestone'
         };
 
-        // System/platform object ID prefixes to skip
         Set<String> systemPrefixes = new Set<String>{
-            '9sdg',  // Individual / GDPR Data Privacy object
-            '0Hf',   // Territory Management
-            '0Mo',   // Einstein AI
-            '0Ho',   // Other system objects
-            '0Db',   // Data.com
-            '0Dt',   // Data stream
-            '0XO'    // Omnichannel
+            '9sdg', '0Hf', '0Mo', '0Ho', '0Db', '0Dt', '0XO'
         };
 
-        // ── Step 1: Get valid custom object IDs ───────────────────
         Map<String, String> validObjectIds = new Map<String, String>();
 
         HttpRequest objReq = new HttpRequest();
@@ -1623,7 +3044,6 @@ public without sharing class MetadataEngine {
             }
         }
 
-        // ── Step 2: Get all unmanaged custom fields ────────────────
         String soql = 'SELECT Id, DeveloperName, NamespacePrefix, LastModifiedDate, TableEnumOrId ' +
                     'FROM CustomField ' +
                     'WHERE ManageableState = \'unmanaged\' ' +
@@ -1656,9 +3076,8 @@ public without sharing class MetadataEngine {
                         String              field   = (String) rec.get('DeveloperName');
 
                         if (String.isBlank(tableId) || String.isBlank(field)) continue;
-                        if (field.endsWith('_del')) continue; // ← skip soft-deleted fields
+                        if (field.endsWith('_del')) continue;
 
-                        // ── Check system prefix — skip entirely ───────
                         Boolean isSystemPrefix = false;
                         for (String prefix : systemPrefixes) {
                             if (tableId.startsWith(prefix)) {
@@ -1671,16 +3090,11 @@ public without sharing class MetadataEngine {
                         String objectName = null;
 
                         if (validObjectIds.containsKey(tableId)) {
-                            // ✅ Valid custom object — always include
                             objectName = validObjectIds.get(tableId);
-
                         } else if (knownStandardObjects.contains(tableId)) {
-                            // ✅ Known standard object — exclude sample fields
                             if (sampleFields.contains(field.toLowerCase())) continue;
                             objectName = tableId;
-
                         } else {
-                            // ❌ Unknown ID — skip
                             continue;
                         }
 
@@ -1723,9 +3137,93 @@ public without sharing class MetadataEngine {
         summary.filteredFields     = filteredFields;
         summary.namespaceFilter    = namespaceFilter;
 
+        Map<String, List<CustomFieldInfo>> byObject = new Map<String, List<CustomFieldInfo>>();
+        for (CustomFieldInfo f : allFields) {
+            String key = f.objectName;
+            if (!byObject.containsKey(key)) byObject.put(key, new List<CustomFieldInfo>());
+            byObject.get(key).add(f);
+        }
+
+        List<CustomFieldInfo> emptyFields = new List<CustomFieldInfo>();
+        Integer emptyCount = 0;
+
+        for (String objName : byObject.keySet()) {
+            List<CustomFieldInfo> objFields = byObject.get(objName);
+            for (CustomFieldInfo f : objFields) {
+                String fieldApi = f.name + '__c';
+                Boolean isManaged = String.isNotBlank(f.namespacePrefix);
+                f.isManagedPackage = isManaged;
+                try {
+                    String q   = 'SELECT COUNT() FROM ' + String.escapeSingleQuotes(objName) + ' WHERE ' + String.escapeSingleQuotes(fieldApi) + ' != null LIMIT 1';
+                    Integer cnt = Database.countQuery(q);
+                    f.nonNullCount = cnt;
+                    f.hasData      = (cnt > 0);
+                    if (cnt == 0) { emptyFields.add(f); emptyCount++; }
+                } catch (Exception ex) {
+                    f.nonNullCount = -1;
+                    f.hasData      = true;
+                }
+                if (isManaged) {
+                    f.safetyStatus = 'MANAGED';
+                } else if (f.hasData == true) {
+                    f.safetyStatus = 'HAS_DATA';
+                } else if (f.nonNullCount == -1) {
+                    f.safetyStatus = 'IN_USE';
+                } else {
+                    f.safetyStatus = 'SAFE_TO_REVIEW';
+                }
+            }
+        }
+
+        summary.emptyCount  = emptyCount;
+        summary.emptyFields = emptyFields;
+
         return summary;
     }
 
+    // ── Mass delete Custom Fields ──────────────────────────────
+    public static MassDeleteResult massDeleteCustomFields(List<String> dotNames) {
+        MassDeleteResult mass = new MassDeleteResult();
+        mass.totalRequested = dotNames.size();
+        mass.successCount = 0; mass.failureCount = 0;
+        mass.succeeded = new List<String>(); mass.failed = new List<String>();
+        for (String dotName : dotNames) {
+            if (String.isBlank(dotName)) continue;
+            List<String> parts = dotName.trim().split('\\.');
+            if (parts.size() < 2) {
+                mass.failureCount++;
+                mass.failed.add(dotName.trim() + ' (invalid format — use ObjectName.FieldName)');
+                continue;
+            }
+            DeleteResult r = deleteCustomFieldByName(parts[0].trim(), parts[1].trim());
+            if (r.success) { mass.successCount++; mass.succeeded.add(dotName.trim()); }
+            else           { mass.failureCount++; mass.failed.add(dotName.trim() + ' (' + r.message + ')'); }
+        }
+        mass.summary = 'Mass delete complete: ' + mass.successCount + ' succeeded, ' + mass.failureCount + ' failed out of ' + mass.totalRequested + ' requested.';
+        return mass;
+    }
+
+    // ── Mass delete Validation Rules ───────────────────────────
+    public static MassDeleteResult massDeleteValidationRules(List<String> dotNames) {
+        MassDeleteResult mass = new MassDeleteResult();
+        mass.totalRequested = dotNames.size();
+        mass.successCount = 0; mass.failureCount = 0;
+        mass.succeeded = new List<String>(); mass.failed = new List<String>();
+        for (String dotName : dotNames) {
+            if (String.isBlank(dotName)) continue;
+            List<String> parts = dotName.trim().split('\\.');
+            if (parts.size() < 2) {
+                mass.failureCount++;
+                mass.failed.add(dotName.trim() + ' (invalid format — use ObjectName.RuleName)');
+                continue;
+            }
+            DeleteResult r = deleteValidationRuleByName(parts[0].trim(), parts[1].trim());
+            if (r.success) { mass.successCount++; mass.succeeded.add(dotName.trim()); }
+            else           { mass.failureCount++; mass.failed.add(dotName.trim() + ' (' + r.message + ')'); }
+        }
+        mass.summary = 'Mass delete complete: ' + mass.successCount + ' succeeded, ' + mass.failureCount + ' failed out of ' + mass.totalRequested + ' requested.';
+        return mass;
+    }
 
     // ===============================
     // GET VALIDATION RULES
@@ -1769,6 +3267,16 @@ public without sharing class MetadataEngine {
                     info.namespacePrefix    = (String)  rec.get('NamespacePrefix');
                     info.lastModifiedDate   = (String)  rec.get('LastModifiedDate');
 
+                    Boolean vrIsManaged = String.isNotBlank(info.namespacePrefix);
+                    info.isManagedPackage = vrIsManaged;
+                    if (vrIsManaged) {
+                        info.safetyStatus = 'MANAGED';
+                    } else if (info.isActive) {
+                        info.safetyStatus = 'IN_USE';
+                    } else {
+                        info.safetyStatus = 'SAFE_TO_REVIEW';
+                    }
+
                     if (info.isActive) {
                         activeRules.add(info);
                     } else {
@@ -1802,11 +3310,33 @@ public without sharing class MetadataEngine {
     }
 
     // ===============================
-    // DELETE CUSTOM OBJECT BY NAME 
+    // DELETE CUSTOM OBJECT BY NAME
     // ===============================
     public static DeleteResult deleteCustomObjectByName(String objectName) {
+        // ── Reference check FIRST — before production guard ──
+        ReferenceResult objectRefs = getReferencesFor(objectName, 'CustomObject');
+        if (objectRefs.hasReferences) {
+            DeleteResult blocked = new DeleteResult();
+            blocked.success = false;
+            String msg = '\U0001f6ab Cannot delete "' + objectName + '" \u2014 it is referenced by ' + objectRefs.referenceCount + ' component(s).\n\n';
+            msg += '\U0001f4cb REFERENCES BLOCKING DELETE (' + objectRefs.referenceCount + ' found):\n';
+            msg += '\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n';
+            Integer objectIdx = 1;
+            for (ReferenceItem ref : objectRefs.references) {
+                msg += objectIdx++ + '. ' + ref.name + '\n';
+                msg += '   Type         : ' + ref.type + '\n';
+                msg += '   Relationship : ' + ref.relationship + '\n\n';
+            }
+            msg += '\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n';
+            msg += '\U0001f4a1 Remove "' + objectName + '" from the above component(s) first, then retry.';
+            blocked.message = msg;
+            return blocked;
+        }
+
+        // ── Production guard \u2014 only fires if no references block ──
         Http         http   = new Http();
         DeleteResult result = new DeleteResult();
+
 
         String cleanName = objectName.trim().endsWith('__c')
             ? objectName.trim().substring(0, objectName.trim().length() - 3)
@@ -1815,7 +3345,6 @@ public without sharing class MetadataEngine {
 
         String fullApiName = cleanName + '__c';
 
-        // ── Step 1: Verify object exists via Tooling API ──────────
         String soql = 'SELECT Id, DeveloperName, NamespacePrefix FROM CustomObject ' +
                     'WHERE DeveloperName = \'' + String.escapeSingleQuotes(cleanName) + '\' LIMIT 1';
 
@@ -1849,11 +3378,19 @@ public without sharing class MetadataEngine {
         String              nsPrefix  = (String) objRec.get('NamespacePrefix');
         Boolean             isManaged = String.isNotBlank(nsPrefix);
 
+        CustomObjectSummary objCheck = getCustomObjects(null);
+        for (CustomObjectInfo oi : objCheck.allObjects) {
+            if (cleanName.equalsIgnoreCase(oi.name)) {
+                DeleteResult blocked = checkSafetyBeforeDelete(oi.safetyStatus, fullApiName);
+                if (blocked != null) return blocked;
+                break;
+            }
+        }
+
         System.debug('Object found   : ' + fullApiName);
         System.debug('NamespacePrefix: ' + nsPrefix);
         System.debug('Is Managed     : ' + isManaged);
 
-        // ── Step 2: If managed — find and uninstall the package ───
         if (isManaged) {
             HttpRequest pkgReq = new HttpRequest();
             pkgReq.setEndpoint(BASE_URL + 'tooling/query?q=' +
@@ -1907,7 +3444,6 @@ public without sharing class MetadataEngine {
             }
         }
 
-        // ── Step 3: Get Session ID via JWT Bearer OAuth ────────────
         String sessionId         = null;
         String metadataServerUrl = null;
 
@@ -1962,7 +3498,6 @@ public without sharing class MetadataEngine {
             System.debug('JWT Exception: ' + ex.getMessage());
         }
 
-        // ── Step 4: Fallback — UserInfo.getSessionId() ────────────
         if (String.isBlank(sessionId)) {
             try {
                 sessionId         = UserInfo.getSessionId();
@@ -1979,10 +3514,6 @@ public without sharing class MetadataEngine {
             return result;
         }
 
-        System.debug('Session ID resolved: YES');
-        System.debug('Metadata URL: ' + metadataServerUrl);
-
-        // ── Step 5: Delete via Metadata SOAP deleteMetadata ───────
         String soapBody =
             '<?xml version="1.0" encoding="UTF-8"?>' +
             '<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" ' +
@@ -2045,8 +3576,30 @@ public without sharing class MetadataEngine {
     // DELETE LWC COMPONENT BY NAME
     // ===============================
     public static DeleteResult deleteLwcByName(String componentName) {
+        // ── Reference check FIRST — before production guard ──
+        ReferenceResult compRefs = getReferencesFor(componentName, 'LightningComponentBundle');
+        if (compRefs.hasReferences) {
+            DeleteResult blocked = new DeleteResult();
+            blocked.success = false;
+            String msg = '\U0001f6ab Cannot delete "' + componentName + '" \u2014 it is referenced by ' + compRefs.referenceCount + ' component(s).\n\n';
+            msg += '\U0001f4cb REFERENCES BLOCKING DELETE (' + compRefs.referenceCount + ' found):\n';
+            msg += '\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n';
+            Integer compIdx = 1;
+            for (ReferenceItem ref : compRefs.references) {
+                msg += compIdx++ + '. ' + ref.name + '\n';
+                msg += '   Type         : ' + ref.type + '\n';
+                msg += '   Relationship : ' + ref.relationship + '\n\n';
+            }
+            msg += '\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n';
+            msg += '\U0001f4a1 Remove "' + componentName + '" from the above component(s) first, then retry.';
+            blocked.message = msg;
+            return blocked;
+        }
+
+        // ── Production guard \u2014 only fires if no references block ──
         Http         http   = new Http();
         DeleteResult result = new DeleteResult();
+
 
         String      soql = 'SELECT Id FROM LightningComponentBundle WHERE DeveloperName = \'' +
                            String.escapeSingleQuotes(componentName) + '\' LIMIT 1';
@@ -2072,7 +3625,17 @@ public without sharing class MetadataEngine {
             return result;
         }
 
-        String      cId = (String)((Map<String, Object>) records[0]).get('Id');
+        String cId = (String)((Map<String, Object>) records[0]).get('Id');
+
+        LwcSummary lwcCheck = getLwcComponents(null);
+        for (LwcComponentInfo li : lwcCheck.allComponents) {
+            if (componentName.equalsIgnoreCase(li.name)) {
+                DeleteResult blocked = checkSafetyBeforeDelete(li.safetyStatus, componentName);
+                if (blocked != null) return blocked;
+                break;
+            }
+        }
+
         HttpRequest del = new HttpRequest();
         del.setEndpoint(BASE_URL + 'tooling/sobjects/LightningComponentBundle/' + cId);
         del.setMethod('DELETE');
@@ -2096,8 +3659,30 @@ public without sharing class MetadataEngine {
     // DELETE AURA COMPONENT BY NAME
     // ===============================
     public static DeleteResult deleteAuraByName(String componentName) {
+        // ── Reference check FIRST — before production guard ──
+        ReferenceResult auraRefs = getReferencesFor(componentName, 'AuraDefinitionBundle');
+        if (auraRefs.hasReferences) {
+            DeleteResult blocked = new DeleteResult();
+            blocked.success = false;
+            String msg = '\U0001f6ab Cannot delete "' + componentName + '" \u2014 it is referenced by ' + auraRefs.referenceCount + ' component(s).\n\n';
+            msg += '\U0001f4cb REFERENCES BLOCKING DELETE (' + auraRefs.referenceCount + ' found):\n';
+            msg += '\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n';
+            Integer auraIdx = 1;
+            for (ReferenceItem ref : auraRefs.references) {
+                msg += auraIdx++ + '. ' + ref.name + '\n';
+                msg += '   Type         : ' + ref.type + '\n';
+                msg += '   Relationship : ' + ref.relationship + '\n\n';
+            }
+            msg += '\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n';
+            msg += '\U0001f4a1 Remove "' + componentName + '" from the above component(s) first, then retry.';
+            blocked.message = msg;
+            return blocked;
+        }
+
+        // ── Production guard \u2014 only fires if no references block ──
         Http         http   = new Http();
         DeleteResult result = new DeleteResult();
+
 
         String      soql = 'SELECT Id FROM AuraDefinitionBundle WHERE DeveloperName = \'' +
                            String.escapeSingleQuotes(componentName) + '\' LIMIT 1';
@@ -2123,7 +3708,17 @@ public without sharing class MetadataEngine {
             return result;
         }
 
-        String      cId = (String)((Map<String, Object>) records[0]).get('Id');
+        String cId = (String)((Map<String, Object>) records[0]).get('Id');
+
+        AuraSummary auraCheck = getAuraComponents(null);
+        for (AuraComponentInfo ai : auraCheck.allComponents) {
+            if (componentName.equalsIgnoreCase(ai.name)) {
+                DeleteResult blocked = checkSafetyBeforeDelete(ai.safetyStatus, componentName);
+                if (blocked != null) return blocked;
+                break;
+            }
+        }
+
         HttpRequest del = new HttpRequest();
         del.setEndpoint(BASE_URL + 'tooling/sobjects/AuraDefinitionBundle/' + cId);
         del.setMethod('DELETE');
@@ -2150,7 +3745,6 @@ public without sharing class MetadataEngine {
         Http         http   = new Http();
         DeleteResult result = new DeleteResult();
 
-        // ── Step 1: Normalize names ───────────────────────────────
         String cleanObject = objectName.trim().endsWith('__c')
             ? objectName.trim().substring(0, objectName.trim().length() - 3)
             : objectName.trim();
@@ -2161,7 +3755,6 @@ public without sharing class MetadataEngine {
             : fieldName.trim();
         cleanField = cleanField.replace(' ', '_');
 
-        // Determine if object is custom or standard
         Boolean isCustomObject = objectName.trim().endsWith('__c') || objectName.trim().contains('__');
 
         String fullObjectName = isCustomObject ? cleanObject + '__c' : cleanObject;
@@ -2172,7 +3765,6 @@ public without sharing class MetadataEngine {
         System.debug('Field API Name  : ' + fullFieldName);
         System.debug('Metadata Full   : ' + fullApiName);
 
-        // ── Step 2: Verify field exists via Tooling API ───────────
         String soql = 'SELECT Id, DeveloperName FROM CustomField ' +
               'WHERE DeveloperName = \'' + String.escapeSingleQuotes(cleanField) + '\' ' +
               'AND EntityDefinition.QualifiedApiName = \'' + String.escapeSingleQuotes(fullObjectName) + '\' ' +
@@ -2208,7 +3800,15 @@ public without sharing class MetadataEngine {
 
         System.debug('Field found: ' + fullApiName);
 
-        // ── Step 3: Get Session ID via JWT Bearer OAuth ────────────
+        CustomFieldSummary fieldCheck = getCustomFields(null);
+        for (CustomFieldInfo fi : fieldCheck.allFields) {
+            if (cleanField.equalsIgnoreCase(fi.name) && fullObjectName.equalsIgnoreCase(fi.objectName)) {
+                DeleteResult blocked = checkSafetyBeforeDelete(fi.safetyStatus, fullApiName);
+                if (blocked != null) return blocked;
+                break;
+            }
+        }
+
         String sessionId         = null;
         String metadataServerUrl = null;
 
@@ -2263,7 +3863,6 @@ public without sharing class MetadataEngine {
             System.debug('JWT Exception: ' + ex.getMessage());
         }
 
-        // ── Step 4: Fallback — UserInfo.getSessionId() ────────────
         if (String.isBlank(sessionId)) {
             try {
                 sessionId         = UserInfo.getSessionId();
@@ -2283,7 +3882,6 @@ public without sharing class MetadataEngine {
         System.debug('Session ID resolved: YES');
         System.debug('Metadata URL: ' + metadataServerUrl);
 
-        // ── Step 5: Delete via Metadata SOAP deleteMetadata ───────
         String soapBody =
             '<?xml version="1.0" encoding="UTF-8"?>' +
             '<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" ' +
@@ -2377,7 +3975,20 @@ public without sharing class MetadataEngine {
             return result;
         }
 
-        String      rId = (String)((Map<String, Object>) records[0]).get('Id');
+        String rId = (String)((Map<String, Object>) records[0]).get('Id');
+
+        ValidationRuleSummary vrCheck = getValidationRules(null);
+        List<ValidationRuleInfo> allVrs = new List<ValidationRuleInfo>();
+        if (vrCheck.activeRules   != null) allVrs.addAll(vrCheck.activeRules);
+        if (vrCheck.inactiveRules != null) allVrs.addAll(vrCheck.inactiveRules);
+        for (ValidationRuleInfo vi : allVrs) {
+            if (ruleName.equalsIgnoreCase(vi.name) && objectName.equalsIgnoreCase(vi.objectName)) {
+                DeleteResult blocked = checkSafetyBeforeDelete(vi.safetyStatus, objectName + '.' + ruleName);
+                if (blocked != null) return blocked;
+                break;
+            }
+        }
+
         HttpRequest del = new HttpRequest();
         del.setEndpoint(BASE_URL + 'tooling/sobjects/ValidationRule/' + rId);
         del.setMethod('DELETE');
@@ -2430,6 +4041,15 @@ public without sharing class MetadataEngine {
 
         String psId    = (String)((Map<String, Object>) records[0]).get('Id');
         String psLabel = (String)((Map<String, Object>) records[0]).get('Label');
+
+        PermissionSetSummary psCheck = getPermissionSets(null);
+        for (PermissionSetInfo pi : psCheck.allPermSets) {
+            if (permSetName.equalsIgnoreCase(pi.name)) {
+                DeleteResult blocked = checkSafetyBeforeDelete(pi.safetyStatus, psLabel);
+                if (blocked != null) return blocked;
+                break;
+            }
+        }
 
         String      aSoql = 'SELECT Id FROM PermissionSetAssignment WHERE PermissionSetId = \'' + psId + '\'';
         HttpRequest aReq  = new HttpRequest();
@@ -2485,7 +4105,6 @@ public without sharing class MetadataEngine {
         Http         http   = new Http();
         DeleteResult result = new DeleteResult();
 
-        // ── Step 1: Look up profile by Name ──────────────────────
         String      pSoql = 'SELECT Id FROM Profile WHERE Name = \'' +
                             String.escapeSingleQuotes(profileName) + '\' LIMIT 1';
         HttpRequest pReq  = new HttpRequest();
@@ -2510,8 +4129,23 @@ public without sharing class MetadataEngine {
             return result;
         }
 
-        // ── Step 2: Check for assigned users ─────────────────────
         String profileId = (String)((Map<String, Object>) pRecs[0]).get('Id');
+
+        ProfileSummary profCheck = getProfiles(null);
+        for (ProfileInfo pi : profCheck.usedProfiles) {
+            if (profileName.equalsIgnoreCase(pi.name)) {
+                DeleteResult blocked = checkSafetyBeforeDelete(pi.safetyStatus, profileName);
+                if (blocked != null) return blocked;
+                break;
+            }
+        }
+        for (ProfileInfo pi : profCheck.unusedProfiles) {
+            if (profileName.equalsIgnoreCase(pi.name)) {
+                DeleteResult blocked = checkSafetyBeforeDelete(pi.safetyStatus, profileName);
+                if (blocked != null) return blocked;
+                break;
+            }
+        }
 
         String      uSoql = 'SELECT Id FROM User WHERE ProfileId = \'' + profileId + '\' AND IsActive = true LIMIT 1';
         HttpRequest uReq  = new HttpRequest();
@@ -2580,7 +4214,6 @@ public without sharing class MetadataEngine {
             }
         }
 
-        // ── Step 3: Get Session ID via JWT Bearer OAuth ───────────
         String sessionId         = null;
         String metadataServerUrl = null;
 
@@ -2630,7 +4263,6 @@ public without sharing class MetadataEngine {
             System.debug('JWT Exception: ' + ex.getMessage());
         }
 
-        // ── Step 4: Fallback to UserInfo session ──────────────────
         if (String.isBlank(sessionId)) {
             try {
                 sessionId         = UserInfo.getSessionId();
@@ -2646,7 +4278,6 @@ public without sharing class MetadataEngine {
             return result;
         }
 
-        // ── Step 5: Delete via Metadata SOAP deleteMetadata ───────
         String soapBody =
             '<?xml version="1.0" encoding="UTF-8"?>' +
             '<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" ' +

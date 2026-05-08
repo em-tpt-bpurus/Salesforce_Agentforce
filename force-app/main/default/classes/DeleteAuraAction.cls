@@ -34,4 +34,17 @@ public without sharing class DeleteAuraAction {
         out.success = r.success; out.message = r.message;
         return out;
     }
+
+    // ── Mass delete: called by LWC for bulk operations ────────
+    @AuraEnabled(cacheable=false)
+    public static MetadataEngine.MassDeleteResult massDeleteAuraDirect(List<String> componentNames) {
+        if (componentNames == null || componentNames.isEmpty()) {
+            MetadataEngine.MassDeleteResult r = new MetadataEngine.MassDeleteResult();
+            r.totalRequested = 0; r.successCount = 0; r.failureCount = 0;
+            r.succeeded = new List<String>(); r.failed = new List<String>();
+            r.summary = 'No Aura component names provided.';
+            return r;
+        }
+        return MetadataEngine.massDeleteAuraComponents(componentNames);
+    }
 }

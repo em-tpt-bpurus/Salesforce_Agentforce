@@ -34,4 +34,17 @@ public without sharing class DeletePermissionSetAction {
         out.success = r.success; out.message = r.message;
         return out;
     }
+
+    // ── Mass delete: called by LWC for bulk operations ────────
+    @AuraEnabled(cacheable=false)
+    public static MetadataEngine.MassDeleteResult massDeletePermSetsDirect(List<String> permSetNames) {
+        if (permSetNames == null || permSetNames.isEmpty()) {
+            MetadataEngine.MassDeleteResult r = new MetadataEngine.MassDeleteResult();
+            r.totalRequested = 0; r.successCount = 0; r.failureCount = 0;
+            r.succeeded = new List<String>(); r.failed = new List<String>();
+            r.summary = 'No Permission Set names provided.';
+            return r;
+        }
+        return MetadataEngine.massDeletePermissionSets(permSetNames);
+    }
 }

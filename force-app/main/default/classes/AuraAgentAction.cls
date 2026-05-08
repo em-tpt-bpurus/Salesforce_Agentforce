@@ -31,6 +31,12 @@ public without sharing class AuraAgentAction {
         @AuraEnabled @InvocableVariable(label='Filtered Components' description='Numbered list of namespace-filtered Aura components')
         public String filteredComponents;
 
+        @AuraEnabled @InvocableVariable(label='Unreferenced Count' description='Number of Aura components not referenced in any app or component')
+        public String unreferencedCount;
+
+        @AuraEnabled @InvocableVariable(label='Unreferenced Components' description='Numbered list of Aura components with no references — safe to review')
+        public String unreferencedComponents;
+
         @AuraEnabled
         public List<MetadataEngine.AuraComponentInfo> allAuraObjects;
     }
@@ -55,16 +61,30 @@ public without sharing class AuraAgentAction {
         MetadataEngine.AuraSummary summary = MetadataEngine.getAuraComponents(namespaceFilter);
 
         String allList = '';
+        String unreferencedList = '';
         if (summary.allComponents == null || summary.allComponents.isEmpty()) {
             allList = MetadataConstants.NONE;
         } else {
             for (Integer i = 0; i < summary.allComponents.size(); i++) {
                 MetadataEngine.AuraComponentInfo info = summary.allComponents[i];
+                String refInfo = (info.isReferenced != null)
+                    ? (info.isReferenced ? ' | Referenced: Yes' : ' | Unreferenced')
+                    : '';
                 allList += (i + 1) + '. ' + info.name +
                            (String.isNotBlank(info.namespacePrefix) ? ' [' + info.namespacePrefix + ']' : '') +
                            MetadataConstants.COL_API + (String.isNotBlank(info.apiVersion) ? info.apiVersion : MetadataConstants.NA) +
-                           MetadataConstants.COL_MODIFIED + (String.isNotBlank(info.lastModifiedDate) ? info.lastModifiedDate : MetadataConstants.NA) + '\n';
+                           refInfo + '\n';
             }
+        }
+        if (summary.unreferencedComponents != null && !summary.unreferencedComponents.isEmpty()) {
+            for (Integer i = 0; i < summary.unreferencedComponents.size(); i++) {
+                MetadataEngine.AuraComponentInfo info = summary.unreferencedComponents[i];
+                unreferencedList += (i + 1) + '. ' + info.name +
+                    (String.isNotBlank(info.namespacePrefix) ? ' [' + info.namespacePrefix + ']' : '') +
+                    MetadataConstants.COL_API + (String.isNotBlank(info.apiVersion) ? info.apiVersion : MetadataConstants.NA) + '\n';
+            }
+        } else {
+            unreferencedList = MetadataConstants.NONE;
         }
 
         String filteredList = '';
@@ -93,13 +113,17 @@ public without sharing class AuraAgentAction {
         output.namespaceFilterApplied = nsDisplay;
         output.allComponents          = allList;
         output.filteredComponents     = filteredList;
+        output.unreferencedCount      = String.valueOf(summary.unreferencedCount != null ? summary.unreferencedCount : 0);
+        output.unreferencedComponents = unreferencedList;
         output.summary =
-            'This org has ' + summary.total + ' Aura components in total. ' +
+            'This org has ' + summary.total + ' Aura components. ' +
             summary.withNamespace + ' have a namespace prefix, ' +
-            summary.withoutNamespace + ' do not.\n\n' +
+            summary.withoutNamespace + ' do not. ' +
+            output.unreferencedCount + ' are unreferenced (not used in any app or component).\n\n' +
             'Namespace Filter: ' + nsDisplay + '\n' +
             'Matching Components: ' + output.filteredCount + '\n\n' +
             MetadataConstants.SEC_ALL_COMPONENTS + ' AURA COMPONENTS (' + summary.total + ') ---\n' + allList + '\n' +
+            MetadataConstants.SEC_UNREFERENCED_AURA + ' (' + output.unreferencedCount + ') ---\n' + unreferencedList + '\n' +
             (String.isNotBlank(namespaceFilter)
                 ? MetadataConstants.SEC_FILTERED_NS + namespaceFilter + ' (' + output.filteredCount + ') ---\n' + filteredList
                 : '');

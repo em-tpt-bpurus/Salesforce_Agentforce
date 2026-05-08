@@ -12,7 +12,7 @@
  *  - Delete from chat: "delete flow MyFlow" / "delete apex class MyClass" etc.
  *  - Works with Agentforce AND LWC equally
  */
-@SuppressWarnings('PMD.NcssMethodCount,PMD.ExcessiveClassLength,PMD.CognitiveComplexity,PMD.IfStmtsMustUseBraces,PMD.IfElseStmtsMustUseBraces,PMD.ApexCRUDViolation,PMD.ForLoopsMustUseBraces,PMD.ExcessiveParameterList,PMD.NcssTypeCount,PMD.EmptyStatementBlock,PMD.AvoidDeeplyNestedIfStmts')
+@SuppressWarnings('PMD.NcssMethodCount,PMD.ExcessiveClassLength,PMD.CognitiveComplexity,PMD.IfStmtsMustUseBraces,PMD.IfElseStmtsMustUseBraces,PMD.ApexCRUDViolation,PMD.ForLoopsMustUseBraces,PMD.ExcessiveParameterList,PMD.NcssTypeCount,PMD.EmptyStatementBlock,PMD.AvoidDeeplyNestedIfStmts,PMD.EmptyCatchBlock')
 public without sharing class OrgCleanupAgentAction {
 
     // ── Type constants ────────────────────────────────────────
@@ -133,6 +133,11 @@ public without sharing class OrgCleanupAgentAction {
         try {
             String lower = userQuery.toLowerCase().trim();
 
+            // ── Confirm delete intent ──────────────────────────
+            if (isConfirmDeleteIntent(lower)) {
+                return handleConfirmDelete(lower, userQuery);
+            }
+
             // ── Delete intent ──────────────────────────────────
             if (isDeleteIntent(lower)) {
                 return handleDelete(lower, userQuery);
@@ -223,7 +228,97 @@ public without sharing class OrgCleanupAgentAction {
                lower.contains('remove the ');
     }
 
+    // ── Confirm intent: "confirm delete apex class MyClass" ───
+    private static Boolean isConfirmDeleteIntent(String lower) {
+        return lower.startsWith('confirm delete ') ||
+               lower.startsWith('confirm remove ') ||
+               lower.startsWith('yes delete ')     ||
+               lower.startsWith('yes, delete ')    ||
+               lower.startsWith('confirm deactivate ');
+    }
 
+    // ── Strip "confirm" prefix and execute the actual deletion ──
+    private static String handleConfirmDelete(String lower, String originalQuery) {
+        String stripped      = originalQuery.replaceFirst('(?i)^(confirm|yes,?)\\s+', '').trim();
+        String strippedLower = stripped.toLowerCase();
+
+        // Detect type from the stripped query
+        String type = null;
+        if      (strippedLower.contains('validation rule') || strippedLower.contains('val rule'))  type = TYPE_VR;
+        else if (strippedLower.contains('custom field')    || strippedLower.contains('field'))     type = TYPE_FIELD;
+        else if (strippedLower.contains('custom object')   || strippedLower.contains('object'))    type = TYPE_OBJECT;
+        else if (strippedLower.contains('permission sets') || strippedLower.contains('permission set') ||
+                 strippedLower.contains('permsets')        || strippedLower.contains('permset'))   type = TYPE_PERMSET;
+        else if (strippedLower.contains('apex class')      || strippedLower.contains('apex'))      type = TYPE_APEX;
+        else if (strippedLower.contains('flow'))                                                    type = TYPE_FLOW;
+        else if (strippedLower.contains('trigger'))                                                 type = TYPE_TRIGGER;
+        else if (strippedLower.contains('lwc') || strippedLower.contains('lightning web'))         type = TYPE_LWC;
+        else if (strippedLower.contains('aura'))                                                    type = TYPE_AURA;
+        else if (strippedLower.contains('profile'))                                                 type = TYPE_PROFILE;
+
+        if (type == null) {
+            return '⚠️ Could not detect metadata type in confirmation. Please retry with full command.\nExample: confirm delete apex class MyClass';
+        }
+
+        // Route to special handlers for field, VR, profile (need extra parsing)
+        if (type == TYPE_PROFILE) return handleProfileDelete(stripped, strippedLower);
+        if (type == TYPE_FIELD)   return handleFieldDelete(stripped, strippedLower);
+        if (type == TYPE_VR)      return handleVrDelete(stripped, strippedLower);
+
+        // For all other types — extract name and execute confirmed deletion
+        String name = extractDeleteName(stripped, type);
+        if (String.isBlank(name)) {
+            return '⚠️ Could not extract component name. Please retry.\nExample: confirm delete apex class MyClass';
+        }
+        return executeDeleteConfirmed(type, name);
+    }
+
+    // ── Look up safetyStatus for a component before confirming delete ──
+    private static String getSafetyStatusForComponent(String type, String name) {
+        try {
+            if (type == TYPE_FLOW) {
+                MetadataEngine.FlowSummary s = MetadataEngine.getFlows(null);
+                for (MetadataEngine.FlowInfo f : s.allFlowObjects) {
+                    if (name.equalsIgnoreCase(f.apiName)) return f.safetyStatus;
+                }
+            } else if (type == TYPE_APEX) {
+                MetadataEngine.ApexSummary s = MetadataEngine.getApexClasses(null);
+                for (MetadataEngine.ApexClassInfo c : s.unusedClasses) {
+                    if (name.equalsIgnoreCase(c.name)) return c.safetyStatus;
+                }
+                if (s.usedClassNames != null && s.usedClassNames.contains(name)) return 'IN_USE';
+            } else if (type == TYPE_TRIGGER) {
+                MetadataEngine.TriggerSummary s = MetadataEngine.getTriggers(null);
+                List<MetadataEngine.TriggerInfo> all = new List<MetadataEngine.TriggerInfo>();
+                if (s.activeTriggers   != null) all.addAll(s.activeTriggers);
+                if (s.inactiveTriggers != null) all.addAll(s.inactiveTriggers);
+                for (MetadataEngine.TriggerInfo t : all) {
+                    if (name.equalsIgnoreCase(t.name)) return t.safetyStatus;
+                }
+            } else if (type == TYPE_LWC) {
+                MetadataEngine.LwcSummary s = MetadataEngine.getLwcComponents(null);
+                for (MetadataEngine.LwcComponentInfo c : s.allComponents) {
+                    if (name.equalsIgnoreCase(c.name)) return c.safetyStatus;
+                }
+            } else if (type == TYPE_AURA) {
+                MetadataEngine.AuraSummary s = MetadataEngine.getAuraComponents(null);
+                for (MetadataEngine.AuraComponentInfo c : s.allComponents) {
+                    if (name.equalsIgnoreCase(c.name)) return c.safetyStatus;
+                }
+            } else if (type == TYPE_PERMSET) {
+                MetadataEngine.PermissionSetSummary s = MetadataEngine.getPermissionSets(null);
+                for (MetadataEngine.PermissionSetInfo p : s.allPermSets) {
+                    if (name.equalsIgnoreCase(p.name)) return p.safetyStatus;
+                }
+            } else if (type == TYPE_OBJECT) {
+                MetadataEngine.CustomObjectSummary s = MetadataEngine.getCustomObjects(null);
+                for (MetadataEngine.CustomObjectInfo o : s.allObjects) {
+                    if (name.equalsIgnoreCase(o.name) || name.equalsIgnoreCase(o.name + '__c')) return o.safetyStatus;
+                }
+            }
+        } catch (Exception ex) { /* lookup failed — return unknown */ }
+        return 'UNKNOWN';
+    }
 
     private static String handleDelete(String lower, String originalQuery) {
         // ── Detect type — most specific first to avoid wrong matches ──
@@ -415,6 +510,45 @@ public without sharing class OrgCleanupAgentAction {
     }
 
     private static String executeDelete(String type, String name) {
+        // ── Pre-flight: show safetyStatus + ask for confirmation ──
+        String status = getSafetyStatusForComponent(type, name);
+
+        String statusLabel = '';
+        String statusEmoji = '⚠️';
+        if (status == 'SAFE_TO_REVIEW') { statusEmoji = '🟢'; statusLabel = 'Safe to Review — no active references detected.'; }
+        else if (status == 'INACTIVE')  { statusEmoji = '🟢'; statusLabel = 'Inactive — currently disabled.'; }
+        else if (status == 'EMPTY')     { statusEmoji = '🟡'; statusLabel = 'Empty — no logic found in body.'; }
+        else if (status == 'HAS_DATA')  { statusEmoji = '🔴'; statusLabel = 'Has Data — records or field values exist. Deleting will permanently remove this data.'; }
+        else if (status == 'TEST_CLASS'){ statusEmoji = '🟡'; statusLabel = 'Test Class — deleting may affect code coverage.'; }
+        else if (status == 'SCHEDULED') { statusEmoji = '🟡'; statusLabel = 'Scheduled/Auto-launched — may have active schedule.'; }
+        else if (status == 'IN_USE')    { statusEmoji = '🔴'; statusLabel = 'IN USE — referenced by other components. Delete blocked.'; }
+        else if (status == 'MANAGED')   { statusEmoji = '🔴'; statusLabel = 'Managed Package — delete blocked.'; }
+        else if (status == 'ENTRY_POINT'){ statusEmoji = '🔴'; statusLabel = 'Entry Point — delete blocked.'; }
+        else if (status == 'SYSTEM')    { statusEmoji = '🔴'; statusLabel = 'System Profile — delete blocked.'; }
+        else                            { statusLabel = status; }
+
+        // Blocked statuses — the engine will also block, but give early feedback here
+        if (status == 'IN_USE' || status == 'MANAGED' || status == 'ENTRY_POINT' || status == 'SYSTEM') {
+            return '🚫 Cannot delete "' + name + '".\n' +
+                   'Safety Status: ' + statusEmoji + ' ' + statusLabel + '\n\n' +
+                   'Remove all references first, then retry.';
+        }
+
+        // Safe statuses — ask for confirmation before proceeding
+        String typeLabel = type.toUpperCase();
+        return '⚠️ CONFIRMATION REQUIRED\n\n' +
+               'You are about to permanently delete:\n' +
+               '  Component : ' + name + '\n' +
+               '  Type      : ' + typeLabel + '\n' +
+               '  Status    : ' + statusEmoji + ' ' + statusLabel + '\n\n' +
+               '⚠️ This action CANNOT be undone.\n\n' +
+               'To proceed, type exactly:\n' +
+               '  confirm delete ' + type + ' ' + name + '\n\n' +
+               'To cancel, type anything else.';
+    }
+
+    // ── Actual deletion — only reached via handleConfirmDelete ──
+    private static String executeDeleteConfirmed(String type, String name) {
         MetadataEngine.DeleteResult result;
         try {
             if      (type == TYPE_APEX)    { result = MetadataEngine.deleteApexClassByName(name); }
@@ -906,6 +1040,21 @@ public without sharing class OrgCleanupAgentAction {
             return resp;
         }
 
+        if (ctx.intent == INTENT_UNUSED) {
+            Integer unrefCount = s.unreferencedCount != null ? s.unreferencedCount : 0;
+            resp += '🗑️ Unreferenced LWC components — not used in any page, flow, or tab (' + unrefCount + '):\n\n';
+            if (s.unreferencedComponents != null && !s.unreferencedComponents.isEmpty()) {
+                Integer i = 1;
+                for (MetadataEngine.LwcComponentInfo c : s.unreferencedComponents) {
+                    resp += formatItem(i++, c.name, c.name, 'LWC Component (' + (c.safetyStatus != null ? c.safetyStatus : 'SAFE_TO_REVIEW') + ')');
+                }
+            } else {
+                resp += 'All LWC components are referenced! ✅\n';
+            }
+            resp += '\nTo delete: type "delete lwc <ComponentName>"';
+            return resp;
+        }
+
         if (ctx.intent == INTENT_UNMANAGED) {
             resp += '🔧 Custom LWC (no namespace) (' + s.withoutNamespace + '):\n\n';
             if (s.allComponents != null) {
@@ -957,6 +1106,21 @@ public without sharing class OrgCleanupAgentAction {
                         resp += formatItem(i++, c.name, c.namespacePrefix + '__' + c.name, 'Aura Component');
                 }
             }
+            return resp;
+        }
+
+        if (ctx.intent == INTENT_UNUSED) {
+            Integer unrefCount = s.unreferencedCount != null ? s.unreferencedCount : 0;
+            resp += '🗑️ Unreferenced Aura components — not used in any app or markup (' + unrefCount + '):\n\n';
+            if (s.unreferencedComponents != null && !s.unreferencedComponents.isEmpty()) {
+                Integer i = 1;
+                for (MetadataEngine.AuraComponentInfo c : s.unreferencedComponents) {
+                    resp += formatItem(i++, c.name, c.name, 'Aura Component (' + (c.safetyStatus != null ? c.safetyStatus : 'SAFE_TO_REVIEW') + ')');
+                }
+            } else {
+                resp += 'All Aura components are referenced! ✅\n';
+            }
+            resp += '\nTo delete: type "delete aura <ComponentName>"';
             return resp;
         }
 
@@ -1108,6 +1272,22 @@ public without sharing class OrgCleanupAgentAction {
             return resp;
         }
 
+        if (ctx.intent == INTENT_UNUSED) {
+            Integer emptyCount = s.emptyCount != null ? s.emptyCount : 0;
+            resp += '🗑️ Custom fields with no data (all values null) (' + emptyCount + '):\n\n';
+            if (s.emptyFields != null && !s.emptyFields.isEmpty()) {
+                Integer i = 1;
+                for (MetadataEngine.CustomFieldInfo f : s.emptyFields) {
+                    resp += formatItem(i++, f.name, f.objectName + '.' + f.name + '__c',
+                        'Custom Field [' + (f.dataType != null ? f.dataType : 'unknown') + ']');
+                }
+            } else {
+                resp += 'All custom fields have data! ✅\n';
+            }
+            resp += '\nTo delete: type "delete field Object.FieldName"';
+            return resp;
+        }
+
         if (ctx.intent == INTENT_UNMANAGED) {
             resp += '🔧 Custom fields (no namespace) (' + s.withoutNamespace + '):\n\n';
             if (s.allFields != null) {
@@ -1161,6 +1341,22 @@ public without sharing class OrgCleanupAgentAction {
                         resp += formatItem(i++, o.label, o.name + CUSTOM_SUFFIX, 'Custom Object');
                 }
             }
+            return resp;
+        }
+
+        if (ctx.intent == INTENT_UNUSED) {
+            Integer emptyCount = s.emptyCount != null ? s.emptyCount : 0;
+            resp += '🗑️ Custom objects with 0 records (' + emptyCount + '):\n\n';
+            if (s.emptyObjects != null && !s.emptyObjects.isEmpty()) {
+                Integer i = 1;
+                for (MetadataEngine.CustomObjectInfo o : s.emptyObjects) {
+                    resp += formatItem(i++, o.label != null ? o.label : o.name,
+                        o.name + CUSTOM_SUFFIX, 'Custom Object [0 records]');
+                }
+            } else {
+                resp += 'All custom objects have records! ✅\n';
+            }
+            resp += '\nTo delete: type "delete custom object <Name>"';
             return resp;
         }
 
@@ -1560,6 +1756,32 @@ public without sharing class OrgCleanupAgentAction {
             }
         }
 
+        // Search Profiles
+        MetadataEngine.ProfileSummary profs = MetadataEngine.getProfiles();
+        List<MetadataEngine.ProfileInfo> allProfs = new List<MetadataEngine.ProfileInfo>();
+        if (profs.usedProfiles   != null) allProfs.addAll(profs.usedProfiles);
+        if (profs.unusedProfiles != null) allProfs.addAll(profs.unusedProfiles);
+        for (MetadataEngine.ProfileInfo p : allProfs) {
+            if (p.name != null && p.name.toLowerCase().contains(termLower)) {
+                String assigned = (p.safetyStatus != null && p.safetyStatus == 'SYSTEM') ? 'System' :
+                                  (profs.usedProfiles != null && profs.usedProfiles.contains(p)) ? 'Assigned' : 'Unassigned';
+                results.add('👤 Profile: ' + p.name + ' — ' + assigned);
+            }
+        }
+
+        // Search Permission Sets
+        MetadataEngine.PermissionSetSummary permSets = MetadataEngine.getPermissionSets();
+        List<MetadataEngine.PermissionSetInfo> allPermSets = new List<MetadataEngine.PermissionSetInfo>();
+        if (permSets.usedPermSets   != null) allPermSets.addAll(permSets.usedPermSets);
+        if (permSets.unusedPermSets != null) allPermSets.addAll(permSets.unusedPermSets);
+        for (MetadataEngine.PermissionSetInfo p : allPermSets) {
+            if ((p.name  != null && p.name.toLowerCase().contains(termLower)) ||
+                (p.label != null && p.label.toLowerCase().contains(termLower))) {
+                String assigned = (permSets.usedPermSets != null && permSets.usedPermSets.contains(p)) ? 'Assigned' : 'Unassigned';
+                results.add('🔑 Permission Set: ' + p.label + ' (' + p.name + ') — ' + assigned);
+            }
+        }
+
         if (results.isEmpty()) {
             return '🔍 No metadata found matching \"' + searchTerm + '\" across all types.';
         }
@@ -1868,78 +2090,103 @@ public without sharing class OrgCleanupAgentAction {
     }
 
     private static String handleOrgHealth() {
-        MetadataEngine.FlowSummary         flows   = MetadataEngine.getFlows(null);
-        MetadataEngine.ApexSummary         apex    = MetadataEngine.getApexClasses(null);
-        MetadataEngine.TriggerSummary      trigs   = MetadataEngine.getTriggers(null);
-        MetadataEngine.LwcSummary          lwc     = MetadataEngine.getLwcComponents(null);
-        MetadataEngine.AuraSummary         aura    = MetadataEngine.getAuraComponents(null);
-        MetadataEngine.ProfileSummary      profs   = MetadataEngine.getProfiles();
+        MetadataEngine.FlowSummary          flows  = MetadataEngine.getFlows(null);
+        MetadataEngine.ApexSummary          apex   = MetadataEngine.getApexClasses(null);
+        MetadataEngine.TriggerSummary       trigs  = MetadataEngine.getTriggers(null);
+        MetadataEngine.LwcSummary           lwc    = MetadataEngine.getLwcComponents(null);
+        MetadataEngine.AuraSummary          aura   = MetadataEngine.getAuraComponents(null);
+        MetadataEngine.ProfileSummary       profs  = MetadataEngine.getProfiles();
         MetadataEngine.PermissionSetSummary perms  = MetadataEngine.getPermissionSets();
         MetadataEngine.ValidationRuleSummary vrs   = MetadataEngine.getValidationRules(null);
+        MetadataEngine.CustomFieldSummary   fields = MetadataEngine.getCustomFields(null);
+        MetadataEngine.CustomObjectSummary  objs   = MetadataEngine.getCustomObjects(null);
 
-        Integer totalIssues = flows.inactive + apex.unused + trigs.inactive + profs.unused + perms.unused + vrs.inactive;
-        String score = totalIssues == 0 ? '🟢 Excellent' : totalIssues <= 5 ? '🟡 Good' : totalIssues <= 20 ? '🟠 Needs Attention' : '🔴 Cleanup Recommended';
+        Integer lwcUnref    = lwc.unreferencedCount  != null ? lwc.unreferencedCount  : 0;
+        Integer auraUnref   = aura.unreferencedCount != null ? aura.unreferencedCount : 0;
+        Integer emptyFields = fields.emptyCount      != null ? fields.emptyCount      : 0;
+        Integer emptyObjs   = objs.emptyCount        != null ? objs.emptyCount        : 0;
 
-        String resp = '🏥 ORG HEALTH REPORT\n';
-        resp += repeat('═', 40) + '\n\n';
-        resp += 'Health Score: ' + score + '\n';
-        resp += 'Total issues found: ' + totalIssues + '\n\n';
+        Integer totalIssues = flows.inactive + apex.unused + trigs.inactive + profs.unused + perms.unused + vrs.inactive
+                            + lwcUnref + auraUnref + emptyFields + emptyObjs;
 
-        resp += '📊 ORG SIZE SUMMARY\n';
-        resp += '  Flows           : ' + flows.total   + ' (' + flows.active   + ' active, '   + flows.inactive   + ' inactive)\n';
-        resp += '  Apex Classes    : ' + apex.total    + ' (' + apex.used      + ' used, '     + apex.unused      + ' unused)\n';
-        resp += '  Triggers        : ' + trigs.total   + ' (' + trigs.active   + ' active, '   + trigs.inactive   + ' inactive)\n';
-        resp += '  LWC Components  : ' + lwc.total     + '\n';
-        resp += '  Aura Components : ' + aura.total    + '\n';
-        resp += '  Profiles        : ' + profs.total   + ' (' + profs.used     + ' assigned, ' + profs.unused     + ' unassigned)\n';
-        resp += '  Permission Sets : ' + perms.total   + ' (' + perms.used     + ' assigned, ' + perms.unused     + ' unassigned)\n';
-        resp += '  Validation Rules: ' + vrs.total     + ' (' + vrs.active     + ' active, '   + vrs.inactive     + ' inactive)\n\n';
+        String score = totalIssues == 0 ? '\U0001f7e2 Excellent' : totalIssues <= 5 ? '\U0001f7e1 Good' : totalIssues <= 20 ? '\U0001f7e0 Needs Attention' : '\U0001f534 Cleanup Recommended';
+
+        String resp = '\U0001fa7a ORG HEALTH REPORT\n';
+        resp += repeat('\u2550', 40) + '\n\n';
+        resp += 'Health Score : ' + score + '\n';
+        resp += 'Total issues : ' + totalIssues + '\n\n';
+
+        resp += '\U0001f4ca ORG SIZE SUMMARY\n';
+        resp += '  Flows           : ' + flows.total  + ' (' + flows.active + ' active, '  + flows.inactive + ' inactive)\n';
+        resp += '  Apex Classes    : ' + apex.total   + ' (' + apex.used   + ' used, '    + apex.unused    + ' unused)\n';
+        resp += '  Triggers        : ' + trigs.total  + ' (' + trigs.active + ' active, '  + trigs.inactive + ' inactive)\n';
+        resp += '  LWC Components  : ' + lwc.total   + ' (' + lwcUnref     + ' unreferenced)\n';
+        resp += '  Aura Components : ' + aura.total  + ' (' + auraUnref    + ' unreferenced)\n';
+        resp += '  Profiles        : ' + profs.total + ' (' + profs.used   + ' assigned, ' + profs.unused  + ' unassigned)\n';
+        resp += '  Permission Sets : ' + perms.total + ' (' + perms.used   + ' assigned, ' + perms.unused  + ' unassigned)\n';
+        resp += '  Custom Fields   : ' + fields.total + ' (' + emptyFields + ' with no data)\n';
+        resp += '  Custom Objects  : ' + objs.total  + ' (' + emptyObjs   + ' with 0 records)\n';
+        resp += '  Validation Rules: ' + vrs.total   + ' (' + vrs.active  + ' active, '   + vrs.inactive  + ' inactive)\n\n';
 
         if (totalIssues == 0) {
-            resp += '✅ Your org looks clean! No immediate cleanup needed.\n';
+            resp += '\u2705 Your org looks clean! No immediate cleanup needed.\n';
             return resp;
         }
 
-        resp += '🗑️ PRIORITIZED CLEANUP RECOMMENDATIONS\n';
-        resp += repeat('─', 40) + '\n\n';
+        resp += '\U0001f5d1\ufe0f PRIORITIZED CLEANUP RECOMMENDATIONS\n';
+        resp += repeat('\u2500', 40) + '\n\n';
 
         Integer priority = 1;
 
         if (apex.unused > 0) {
             resp += priority++ + '. [HIGH] ' + apex.unused + ' unused Apex class(es)\n';
-            resp += '   → Type \"show unused apex classes\" to review\n';
-            resp += '   → Type \"delete apex class <Name>\" to remove\n\n';
+            resp += '   \u2192 Type \"show unused apex classes\" to review\n';
+            resp += '   \u2192 Type \"delete apex class <Name>\" to remove\n\n';
         }
-
         if (flows.inactive > 0) {
             resp += priority++ + '. [HIGH] ' + flows.inactive + ' inactive flow(s)\n';
-            resp += '   → Type \"show inactive flows\" to review\n';
-            resp += '   → Type \"delete flow <ApiName>\" to remove\n\n';
+            resp += '   \u2192 Type \"show inactive flows\" to review\n';
+            resp += '   \u2192 Type \"delete flow <ApiName>\" to remove\n\n';
         }
-
+        if (emptyObjs > 0) {
+            resp += priority++ + '. [HIGH] ' + emptyObjs + ' custom object(s) with 0 records\n';
+            resp += '   \u2192 Type \"show empty objects\" to review\n';
+            resp += '   \u2192 Type \"delete custom object <Name>\" to remove\n\n';
+        }
+        if (emptyFields > 0) {
+            resp += priority++ + '. [MEDIUM] ' + emptyFields + ' custom field(s) with no data\n';
+            resp += '   \u2192 Type \"show fields with no data\" to review\n';
+            resp += '   \u2192 Type \"delete field Object.FieldName\" to remove\n\n';
+        }
+        if (lwcUnref > 0) {
+            resp += priority++ + '. [MEDIUM] ' + lwcUnref + ' unreferenced LWC component(s)\n';
+            resp += '   \u2192 Type \"show unreferenced lwc\" to review\n';
+            resp += '   \u2192 Type \"delete lwc <ComponentName>\" to remove\n\n';
+        }
+        if (auraUnref > 0) {
+            resp += priority++ + '. [MEDIUM] ' + auraUnref + ' unreferenced Aura component(s)\n';
+            resp += '   \u2192 Type \"show unreferenced aura\" to review\n';
+            resp += '   \u2192 Type \"delete aura <ComponentName>\" to remove\n\n';
+        }
         if (trigs.inactive > 0) {
             resp += priority++ + '. [MEDIUM] ' + trigs.inactive + ' inactive trigger(s)\n';
-            resp += '   → Type \"show inactive triggers\" to review\n\n';
+            resp += '   \u2192 Type \"show inactive triggers\" to review\n\n';
         }
-
         if (profs.unused > 0) {
             resp += priority++ + '. [MEDIUM] ' + profs.unused + ' unassigned profile(s)\n';
-            resp += '   → Type \"show unassigned profiles\" to review\n\n';
+            resp += '   \u2192 Type \"show unassigned profiles\" to review\n\n';
         }
-
         if (perms.unused > 0) {
             resp += priority++ + '. [LOW] ' + perms.unused + ' unassigned permission set(s)\n';
-            resp += '   → Type \"show unassigned permission sets\" to review\n\n';
+            resp += '   \u2192 Type \"show unassigned permission sets\" to review\n\n';
         }
-
         if (vrs.inactive > 0) {
             resp += priority++ + '. [LOW] ' + vrs.inactive + ' inactive validation rule(s)\n';
-            resp += '   → Type \"show inactive validation rules\" to review\n\n';
+            resp += '   \u2192 Type \"show inactive validation rules\" to review\n\n';
         }
 
         return resp;
     }
-
     // ── SHARED UTILITY: extract object name from query ────────
     private static String extractObjectNameFromQuery(String originalQuery, String lower) {
         // Patterns: "fields on Account", "what fields does Account have", "fields of Account", "fields for Account"

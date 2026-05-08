@@ -55,6 +55,105 @@ public without sharing class ApexClassAgentAction {
         public List<MetadataEngine.ApexClassInfo> unusedApexObjects;
     }
 
+
+    public class ApexReferencesRequest {
+        @InvocableVariable(label='Class Name' description='The Apex class name to look up references for')
+        public String className;
+    }
+
+    public class ApexReferencesOutput {
+        @AuraEnabled @InvocableVariable(label='Report' description='Full formatted reference report')
+        public String report;
+
+        @AuraEnabled @InvocableVariable(label='Has References' description='True if the class has any references')
+        public Boolean hasReferences;
+
+        @AuraEnabled @InvocableVariable(label='Total Reference Count' description='Total number of references found')
+        public Integer totalReferenceCount;
+
+        @AuraEnabled @InvocableVariable(label='Flows' description='Flows that reference this class')
+        public String flows;
+
+        @AuraEnabled @InvocableVariable(label='Triggers' description='Triggers that reference this class')
+        public String triggers;
+
+        @AuraEnabled @InvocableVariable(label='Test Classes' description='Test classes for this class')
+        public String testClasses;
+
+        @AuraEnabled @InvocableVariable(label='Apex Classes' description='Other Apex classes that reference this class')
+        public String apexClasses;
+
+        @AuraEnabled @InvocableVariable(label='LWC Components' description='LWC components that reference this class')
+        public String lwcComponents;
+
+        @AuraEnabled @InvocableVariable(label='Aura Components' description='Aura components that reference this class')
+        public String auraComponents;
+
+        @AuraEnabled @InvocableVariable(label='Agent Actions' description='Generative AI / Agent Actions using this class')
+        public String agentActions;
+
+        @AuraEnabled @InvocableVariable(label='Agent Topics' description='Generative AI / Agent Topics using this class')
+        public String agentTopics;
+
+        @AuraEnabled @InvocableVariable(label='Other References' description='Any other reference types')
+        public String otherReferences;
+    }
+
+    @AuraEnabled(cacheable=false)
+    public static List<ApexReferencesOutput> getReferences(List<ApexReferencesRequest> requests) {
+        String className = (requests != null && !requests.isEmpty() && requests[0] != null)
+            ? requests[0].className : null;
+        return new List<ApexReferencesOutput>{ buildReferencesOutput(className) };
+    }
+
+    @AuraEnabled(cacheable=false)
+    public static ApexReferencesOutput getApexClassReferences(String className) {
+        return buildReferencesOutput(className);
+    }
+
+    private static ApexReferencesOutput buildReferencesOutput(String className) {
+        // Use the new MetadataEngine.ReferenceResult (ApexClassReferenceDetail was removed)
+        MetadataEngine.ReferenceResult refs = MetadataEngine.getReferencesFor(className, 'ApexClass');
+        ApexReferencesOutput out = new ApexReferencesOutput();
+        out.report              = refs.formattedReport;
+        out.hasReferences       = refs.hasReferences;
+        out.totalReferenceCount = refs.referenceCount;
+
+        // Build per-group string fields from the flat references list
+        Map<String, String> groupMap = new Map<String, String>();
+        Integer idx = 1;
+        for (MetadataEngine.ReferenceItem item : refs.references) {
+            String key  = item.groupLabel != null ? item.groupLabel : 'Other';
+            String line = idx++ + '. ' + item.name + '\n';
+            groupMap.put(key, (groupMap.containsKey(key) ? groupMap.get(key) : '') + line);
+        }
+
+        out.flows          = groupMap.get('Flows');
+        out.triggers       = groupMap.get('Triggers');
+        out.apexClasses    = groupMap.get('Apex Classes');
+        out.lwcComponents  = groupMap.get('LWC Components');
+        out.auraComponents = groupMap.get('Aura Components');
+        out.agentActions   = groupMap.get('AI / Agentforce');
+        out.agentTopics    = groupMap.get('Bots / Einstein');
+
+        // Collect everything else into otherReferences
+        Set<String> knownGroups = new Set<String>{
+            'Flows','Triggers','Apex Classes','LWC Components',
+            'Aura Components','AI / Agentforce','Bots / Einstein'
+        };
+        String others = '';
+        for (String grp : groupMap.keySet()) {
+            if (!knownGroups.contains(grp)) {
+                others += groupMap.get(grp);
+            }
+        }
+        if (String.isNotBlank(others)) {
+            out.otherReferences = others;
+        }
+
+        return out;
+    }
+
     // ── Called by Agentforce via @InvocableMethod ──────────────
     @InvocableMethod(label='Apex Class Metadata' description='Returns full Apex Class Summary with namespace filtering for Agentforce')
     public static List<ApexOutput> run(List<ApexRequest> requests) {

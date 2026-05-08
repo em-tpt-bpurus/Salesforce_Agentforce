@@ -25,6 +25,8 @@ public class MetadataConstants {
     public static final String COL_USERS        = ' | Users: ';
     public static final String COL_ASSIGNMENTS  = ' | Assignments: ';
     public static final String COL_NS           = ' | NS: ';
+    public static final String COL_RECORDS      = ' | Records: ';
+    public static final String COL_REF_BY       = ' | UsedBy: ';
 
     // ── Profile defaults ──────────────────────────────────────
     /** Default fallback profile when deactivating a profile from LWC without specifying one. */
@@ -84,4 +86,12 @@ public class MetadataConstants {
     public static final String SEC_HINT_NO_ASSIGN       = ' — No assignments — Safe to review ---\n';
     public static final String SEC_HINT_ACTIVE_REF      = ' — Actively referenced ---\n';
     public static final String SEC_HINT_IN_USE          = ' — Actively in use ---\n';
+
+    // ── Usage detection section headers ───────────────────────
+    public static final String SEC_EMPTY_OBJECTS        = '--- EMPTY OBJECTS (0 records)';
+    public static final String SEC_EMPTY_FIELDS         = '--- EMPTY FIELDS (no data)';
+    public static final String SEC_UNREFERENCED_LWC     = '--- UNREFERENCED LWC';
+    public static final String SEC_REFERENCED_LWC       = '--- REFERENCED LWC';
+    public static final String SEC_UNREFERENCED_AURA    = '--- UNREFERENCED AURA';
+    public static final String SEC_REFERENCED_AURA      = '--- REFERENCED AURA';
 }

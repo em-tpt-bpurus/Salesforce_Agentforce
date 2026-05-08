@@ -39,4 +39,17 @@ public without sharing class DeactivateProfileAction {
         out.message  = r.message;
         return out;
     }
+
+    // ── Mass deactivate: called by LWC for bulk operations ────
+    @AuraEnabled(cacheable=false)
+    public static MetadataEngine.MassDeleteResult massDeactivateProfilesDirect(List<String> profileNames) {
+        if (profileNames == null || profileNames.isEmpty()) {
+            MetadataEngine.MassDeleteResult r = new MetadataEngine.MassDeleteResult();
+            r.totalRequested = 0; r.successCount = 0; r.failureCount = 0;
+            r.succeeded = new List<String>(); r.failed = new List<String>();
+            r.summary = 'No profile names provided.';
+            return r;
+        }
+        return MetadataEngine.massDeactivateProfiles(profileNames);
+    }
 }

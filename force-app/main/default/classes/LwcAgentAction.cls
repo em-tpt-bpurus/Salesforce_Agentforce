@@ -31,6 +31,12 @@ public without sharing class LwcAgentAction {
         @AuraEnabled @InvocableVariable(label='Filtered Components' description='Numbered list of namespace-filtered LWC components')
         public String filteredComponents;
 
+        @AuraEnabled @InvocableVariable(label='Unreferenced Count' description='Number of LWC components not referenced in any page or component')
+        public String unreferencedCount;
+
+        @AuraEnabled @InvocableVariable(label='Unreferenced Components' description='Numbered list of LWC components with no page/component references — safe to review')
+        public String unreferencedComponents;
+
         @AuraEnabled
         public List<MetadataEngine.LwcComponentInfo> allLwcObjects;
     }
@@ -55,16 +61,32 @@ public without sharing class LwcAgentAction {
         MetadataEngine.LwcSummary summary = MetadataEngine.getLwcComponents(namespaceFilter);
 
         String allList = '';
+        String unreferencedList = '';
         if (summary.allComponents == null || summary.allComponents.isEmpty()) {
             allList = MetadataConstants.NONE;
         } else {
             for (Integer i = 0; i < summary.allComponents.size(); i++) {
                 MetadataEngine.LwcComponentInfo info = summary.allComponents[i];
+                String refInfo = (info.isReferenced != null)
+                    ? (info.isReferenced
+                        ? MetadataConstants.COL_REF_BY + (String.isNotBlank(info.referencedBy) ? info.referencedBy : 'Yes')
+                        : ' | Unreferenced')
+                    : '';
                 allList += (i + 1) + '. ' + info.name +
                            (String.isNotBlank(info.namespacePrefix) ? ' [' + info.namespacePrefix + ']' : '') +
                            MetadataConstants.COL_API + (String.isNotBlank(info.apiVersion) ? info.apiVersion : MetadataConstants.NA) +
-                           MetadataConstants.COL_MODIFIED + (String.isNotBlank(info.lastModifiedDate) ? info.lastModifiedDate : MetadataConstants.NA) + '\n';
+                           refInfo + '\n';
             }
+        }
+        if (summary.unreferencedComponents != null && !summary.unreferencedComponents.isEmpty()) {
+            for (Integer i = 0; i < summary.unreferencedComponents.size(); i++) {
+                MetadataEngine.LwcComponentInfo info = summary.unreferencedComponents[i];
+                unreferencedList += (i + 1) + '. ' + info.name +
+                    (String.isNotBlank(info.namespacePrefix) ? ' [' + info.namespacePrefix + ']' : '') +
+                    MetadataConstants.COL_API + (String.isNotBlank(info.apiVersion) ? info.apiVersion : MetadataConstants.NA) + '\n';
+            }
+        } else {
+            unreferencedList = MetadataConstants.NONE;
         }
 
         String filteredList = '';
@@ -93,13 +115,17 @@ public without sharing class LwcAgentAction {
         output.namespaceFilterApplied = nsDisplay;
         output.allComponents          = allList;
         output.filteredComponents     = filteredList;
+        output.unreferencedCount      = String.valueOf(summary.unreferencedCount != null ? summary.unreferencedCount : 0);
+        output.unreferencedComponents = unreferencedList;
         output.summary =
-            'This org has ' + summary.total + ' LWC components in total. ' +
+            'This org has ' + summary.total + ' LWC components. ' +
             summary.withNamespace + ' have a namespace prefix, ' +
-            summary.withoutNamespace + ' do not.\n\n' +
+            summary.withoutNamespace + ' do not. ' +
+            output.unreferencedCount + ' are unreferenced (not used in any page or component).\n\n' +
             'Namespace Filter: ' + nsDisplay + '\n' +
             'Matching Components: ' + output.filteredCount + '\n\n' +
             MetadataConstants.SEC_ALL_COMPONENTS + ' LWC COMPONENTS (' + summary.total + ') ---\n' + allList + '\n' +
+            MetadataConstants.SEC_UNREFERENCED_LWC + ' (' + output.unreferencedCount + ') ---\n' + unreferencedList + '\n' +
             (String.isNotBlank(namespaceFilter)
                 ? MetadataConstants.SEC_FILTERED_NS + namespaceFilter + ' (' + output.filteredCount + ') ---\n' + filteredList
                 : '');

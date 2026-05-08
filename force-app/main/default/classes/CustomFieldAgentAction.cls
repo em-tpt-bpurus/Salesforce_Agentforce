@@ -31,6 +31,12 @@ public without sharing class CustomFieldAgentAction {
 
         @AuraEnabled @InvocableVariable(label='Filtered Fields' description='Numbered list of namespace-filtered custom fields')
         public String filteredFields;
+
+        @AuraEnabled @InvocableVariable(label='Empty Count' description='Number of custom fields with no data (all null)')
+        public String emptyCount;
+
+        @AuraEnabled @InvocableVariable(label='Empty Fields' description='Numbered list of custom fields with no data — safe to review')
+        public String emptyFields;
     }
 
     // ── Called by Agentforce via @InvocableMethod ──────────────
@@ -50,9 +56,13 @@ public without sharing class CustomFieldAgentAction {
 
     // ── Shared logic ──────────────────────────────────────────
     private static String buildFieldLine(Integer idx, MetadataEngine.CustomFieldInfo info) {
+        String dataInfo = (info.hasData != null)
+            ? (info.hasData ? ' | HasData: Yes' : ' | HasData: No')
+            : '';
         return (idx + 1) + '. ' + info.objectName + '.' + info.name +
                (String.isNotBlank(info.namespacePrefix) ? ' [' + info.namespacePrefix + ']' : '') +
-               MetadataConstants.COL_TYPE + (String.isNotBlank(info.dataType) ? info.dataType : MetadataConstants.NA) + '\n';
+               MetadataConstants.COL_TYPE + (String.isNotBlank(info.dataType) ? info.dataType : MetadataConstants.NA) +
+               dataInfo + '\n';
     }
 
     private static String buildFieldList(List<MetadataEngine.CustomFieldInfo> fields, String namespaceFilter, Boolean isFiltered) {
@@ -86,14 +96,18 @@ public without sharing class CustomFieldAgentAction {
         output.namespaceFilterApplied = nsDisplay;
         output.allFields              = allList;
         output.filteredFields         = filteredList;
-        output.allFieldObjects         = summary.allFields;
+        output.allFieldObjects        = summary.allFields;
+        output.emptyCount             = String.valueOf(summary.emptyCount != null ? summary.emptyCount : 0);
+        output.emptyFields            = buildFieldList(summary.emptyFields, namespaceFilter, false);
         output.summary =
-            'This org has ' + summary.total + ' custom fields in total. ' +
+            'This org has ' + summary.total + ' custom fields. ' +
             summary.withNamespace + ' have a namespace prefix, ' +
-            summary.withoutNamespace + ' do not.\n\n' +
+            summary.withoutNamespace + ' do not. ' +
+            output.emptyCount + ' have no data (all null).\n\n' +
             'Namespace Filter: ' + nsDisplay + '\n' +
             'Matching Fields: ' + output.filteredCount + '\n\n' +
             MetadataConstants.SEC_ALL_COMPONENTS + ' CUSTOM FIELDS (' + summary.total + ') ---\n' + allList + '\n' +
+            MetadataConstants.SEC_EMPTY_FIELDS + ' (' + output.emptyCount + ') ---\n' + output.emptyFields + '\n' +
             (String.isNotBlank(namespaceFilter)
                 ? MetadataConstants.SEC_FILTERED_NS + namespaceFilter + ' (' + output.filteredCount + ') ---\n' + filteredList
                 : '');
