@@ -551,6 +551,11 @@
     line-height: 1.55;
 }
 
+/* Reference reports need more horizontal space */
+.agent-msg--agent .msg-bubble:has(.msg-ref-report) {
+    max-width: 96%;
+}
+
 .agent-msg--agent .msg-bubble {
     background: #f3f2f2;
     border-bottom-left-radius: 4px;
@@ -567,6 +572,21 @@
     margin: 0;
     white-space: pre-wrap;
     word-break: break-word;
+}
+
+/* ── Reference report card (blocking delete message) ─────── */
+.msg-ref-report {
+    margin: 0;
+    padding: 0.5rem 0.6rem;
+    font-family: inherit;
+    font-size: 0.8rem;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-word;
+    background: #fff8f7;
+    border: 1px solid #f4c9c5;
+    border-left: 3px solid #c23934;
+    border-radius: 6px;
 }
 
 /* ── Status tags ─────────────────────────────────────────────── */

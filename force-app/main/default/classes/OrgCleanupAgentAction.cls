@@ -15,6 +15,17 @@
 @SuppressWarnings('PMD.NcssMethodCount,PMD.ExcessiveClassLength,PMD.CognitiveComplexity,PMD.IfStmtsMustUseBraces,PMD.IfElseStmtsMustUseBraces,PMD.ApexCRUDViolation,PMD.ForLoopsMustUseBraces,PMD.ExcessiveParameterList,PMD.NcssTypeCount,PMD.EmptyStatementBlock,PMD.AvoidDeeplyNestedIfStmts,PMD.EmptyCatchBlock')
 public without sharing class OrgCleanupAgentAction {
 
+    // ── Transaction-level cache ───────────────────────────────
+    // getApexClasses() is expensive (fetches SymbolTable for every class).
+    // Cache the result so multiple methods in the same transaction share it.
+    private static MetadataEngine.ApexSummary cachedApexSummary = null;
+    private static MetadataEngine.ApexSummary getApexCached(String ns) {
+        if (cachedApexSummary == null) {
+            cachedApexSummary = MetadataEngine.getApexClasses(ns);
+        }
+        return cachedApexSummary;
+    }
+
     // ── Type constants ────────────────────────────────────────
     private static final String TYPE_FLOW    = 'flow';
     private static final String TYPE_APEX    = 'apex';
@@ -125,6 +136,31 @@ public without sharing class OrgCleanupAgentAction {
     // =========================================================
     // LWC ENTRY POINT
     // =========================================================
+    // ── Reference check — called by LWC before showing delete confirmation ──────
+    // Returns null if safe to delete, or a formatted report string if references exist.
+    @AuraEnabled(cacheable=false)
+    public static String checkReferences(String componentName, String componentType) {
+        if (String.isBlank(componentName) || String.isBlank(componentType)) return null;
+        try {
+            MetadataEngine.ReferenceResult refs;
+
+            // Use deep scan for LWC — covers MCD + JS imports + HTML child tags
+            if ('LightningComponentBundle'.equalsIgnoreCase(componentType)) {
+                refs = MetadataEngine.checkAllLwcReferences(componentName.trim());
+            } else {
+                refs = MetadataEngine.getReferencesFor(componentName.trim(), componentType.trim());
+            }
+
+            if (refs == null || !refs.hasReferences) return null;
+            return String.isNotBlank(refs.formattedReport)
+                ? refs.formattedReport
+                : MetadataEngine.buildFormattedReportPublic(componentName.trim(), refs.references, componentType.trim());
+        } catch (Exception ex) {
+            System.debug(LoggingLevel.WARN, 'checkReferences error: ' + ex.getMessage());
+            return null; // fail open
+        }
+    }
+
     @AuraEnabled(cacheable=false)
     public static String handleAgentQuery(String userQuery) {
         if (String.isBlank(userQuery)) {
@@ -230,15 +266,61 @@ public without sharing class OrgCleanupAgentAction {
 
     // ── Confirm intent: "confirm delete apex class MyClass" ───
     private static Boolean isConfirmDeleteIntent(String lower) {
-        return lower.startsWith('confirm delete ') ||
-               lower.startsWith('confirm remove ') ||
-               lower.startsWith('yes delete ')     ||
-               lower.startsWith('yes, delete ')    ||
+        return lower.startsWith('confirm delete ')      ||
+               lower.startsWith('confirm remove ')      ||
+               lower.startsWith('confirm mass delete ')  ||
+               lower.startsWith('yes delete ')          ||
+               lower.startsWith('yes, delete ')         ||
                lower.startsWith('confirm deactivate ');
     }
 
     // ── Strip "confirm" prefix and execute the actual deletion ──
     private static String handleConfirmDelete(String lower, String originalQuery) {
+
+        // ── Mass delete path: "confirm mass delete <type> name1, name2, ..." ──
+        if (lower.startsWith('confirm mass delete ')) {
+            String body      = originalQuery.replaceFirst('(?i)^confirm\\s+mass\\s+delete\\s+', '').trim();
+            String bodyLower = body.toLowerCase();
+
+            String massType = null;
+            if      (bodyLower.startsWith('apex class'))  { massType = TYPE_APEX;    body = body.replaceFirst('(?i)^apex\\s+classes?\\s*', ''); }
+            else if (bodyLower.startsWith('apex'))        { massType = TYPE_APEX;    body = body.replaceFirst('(?i)^apex\\s*', ''); }
+            else if (bodyLower.startsWith('flow'))        { massType = TYPE_FLOW;    body = body.replaceFirst('(?i)^flows?\\s*', ''); }
+            else if (bodyLower.startsWith('trigger'))     { massType = TYPE_TRIGGER; body = body.replaceFirst('(?i)^triggers?\\s*', ''); }
+            else if (bodyLower.startsWith('lwc'))         { massType = TYPE_LWC;     body = body.replaceFirst('(?i)^lwcs?\\s*', ''); }
+            else if (bodyLower.startsWith('aura'))        { massType = TYPE_AURA;    body = body.replaceFirst('(?i)^aura\\s*(components?)?\\s*', ''); }
+            else if (bodyLower.startsWith('permset') || bodyLower.startsWith('perm set') || bodyLower.startsWith('permission set')) {
+                massType = TYPE_PERMSET; body = body.replaceFirst('(?i)^(permission\\s+sets?|perm\\s+sets?|permsets?)\\s*', '');
+            }
+            else if (bodyLower.startsWith('profile'))     { massType = TYPE_PROFILE; body = body.replaceFirst('(?i)^profiles?\\s*', ''); }
+            else if (bodyLower.startsWith('object'))      { massType = TYPE_OBJECT;  body = body.replaceFirst('(?i)^objects?\\s*', ''); }
+
+            if (massType == null) {
+                return '⚠️ Could not detect type. Example: confirm mass delete flow BSR_Test01, BSR_Test 2';
+            }
+
+            List<String> names = splitNames(body);
+            if (names.isEmpty()) {
+                return '⚠️ No names found. Example: confirm mass delete flow BSR_Test01, BSR_Test 2';
+            }
+
+            MetadataEngine.MassDeleteResult result;
+            try {
+                if      (massType == TYPE_FLOW)    result = MetadataEngine.massDeleteFlows(names);
+                else if (massType == TYPE_APEX)    result = MetadataEngine.massDeleteApexClasses(names);
+                else if (massType == TYPE_TRIGGER) result = MetadataEngine.massDeleteTriggers(names);
+                else if (massType == TYPE_LWC)     result = MetadataEngine.massDeleteLwcComponents(names);
+                else if (massType == TYPE_AURA)    result = MetadataEngine.massDeleteAuraComponents(names);
+                else if (massType == TYPE_PERMSET) result = MetadataEngine.massDeletePermissionSets(names);
+                else if (massType == TYPE_PROFILE) result = MetadataEngine.massDeactivateProfiles(names);
+                else if (massType == TYPE_OBJECT)  result = MetadataEngine.massDeleteCustomObjects(names);
+                else return '❌ Mass delete not supported for type: ' + massType;
+            } catch (Exception ex) {
+                return '❌ Mass delete error: ' + ex.getMessage();
+            }
+            return formatMassResult(result);
+        }
+
         String stripped      = originalQuery.replaceFirst('(?i)^(confirm|yes,?)\\s+', '').trim();
         String strippedLower = stripped.toLowerCase();
 
@@ -282,7 +364,7 @@ public without sharing class OrgCleanupAgentAction {
                     if (name.equalsIgnoreCase(f.apiName)) return f.safetyStatus;
                 }
             } else if (type == TYPE_APEX) {
-                MetadataEngine.ApexSummary s = MetadataEngine.getApexClasses(null);
+                MetadataEngine.ApexSummary s = getApexCached(null);
                 for (MetadataEngine.ApexClassInfo c : s.unusedClasses) {
                     if (name.equalsIgnoreCase(c.name)) return c.safetyStatus;
                 }
@@ -334,8 +416,62 @@ public without sharing class OrgCleanupAgentAction {
         else if (lower.contains('aura'))                                            type = TYPE_AURA;
         else if (lower.contains('profile'))                                         type = TYPE_PROFILE;
 
+        // ── Auto-detect type if not specified ────────────────
+        // User said e.g. "delete BSR_Test01, BSR_Test 2" without a type keyword.
+        // Search FlowDefinitionView first (most common), then Apex, Trigger.
         if (type == null) {
-            return buildDeleteHelp();
+            // Extract the raw name portion (everything after "delete ")
+            String rawForDetect = originalQuery.replaceFirst('(?i)^(delete|remove)\\s+', '').trim();
+            // Take first name (before any comma) to probe the type
+            String probe = rawForDetect.contains(',')
+                ? rawForDetect.split(',')[0].trim().replace(' ', '_')
+                : rawForDetect.replace(' ', '_');
+
+            if (String.isNotBlank(probe)) {
+                // Try Flow first
+                try {
+                    MetadataEngine.FlowSummary fs = MetadataEngine.getFlows(null);
+                    for (MetadataEngine.FlowInfo fi : fs.allFlowObjects) {
+                        if (probe.equalsIgnoreCase(fi.apiName)) { type = TYPE_FLOW; break; }
+                    }
+                } catch (Exception ex) {}
+
+                // Try Apex Class
+                if (type == null) {
+                    try {
+                        MetadataEngine.ApexSummary apexSummary = getApexCached(null);
+                        for (MetadataEngine.ApexClassInfo ci : apexSummary.unusedClasses) {
+                            if (probe.equalsIgnoreCase(ci.name)) { type = TYPE_APEX; break; }
+                        }
+                        if (type == null && apexSummary.usedClassNames != null) {
+                            for (String n : apexSummary.usedClassNames) {
+                                if (probe.equalsIgnoreCase(n)) { type = TYPE_APEX; break; }
+                            }
+                        }
+                    } catch (Exception ex) {}
+                }
+
+                // Try Trigger
+                if (type == null) {
+                    try {
+                        MetadataEngine.TriggerSummary ts = MetadataEngine.getTriggers(null);
+                        List<MetadataEngine.TriggerInfo> allT = new List<MetadataEngine.TriggerInfo>();
+                        if (ts.activeTriggers   != null) allT.addAll(ts.activeTriggers);
+                        if (ts.inactiveTriggers != null) allT.addAll(ts.inactiveTriggers);
+                        for (MetadataEngine.TriggerInfo ti : allT) {
+                            if (probe.equalsIgnoreCase(ti.name)) { type = TYPE_TRIGGER; break; }
+                        }
+                    } catch (Exception ex) {}
+                }
+            }
+
+            if (type == null) {
+                return '⚠️ Could not detect metadata type. Please include it in your command.\n' +
+                       'Examples:\n' +
+                       '  delete flow BSR_Test01, BSR_Test 2\n' +
+                       '  delete apex class MyClass\n' +
+                       '  delete trigger MyTrigger';
+            }
         }
 
         // ── Profile: needs fallback profile ───────────────────
@@ -353,15 +489,170 @@ public without sharing class OrgCleanupAgentAction {
             return handleVrDelete(originalQuery, lower);
         }
 
-        // ── All other types: single name ──────────────────────
-        String name = extractDeleteName(originalQuery, type);
-        if (String.isBlank(name)) {
+        // ── Mass delete: comma-separated names ───────────────
+        String rawName = extractDeleteName(originalQuery, type);
+        if (String.isBlank(rawName)) {
             return '⚠️ Please provide the API name to delete.\nExample: "delete ' + type + ' YourComponentName"';
         }
-        return executeDelete(type, name);
+
+        if (rawName.contains(',')) {
+            List<String> names = splitNames(rawName);
+            if (names.size() > 1) {
+                // Build confirmation message listing names
+                String nameList = '';
+                for (Integer i = 0; i < names.size(); i++) {
+                    nameList += '  ' + (i + 1) + '. ' + names[i] + '\n';
+                }
+
+                // ── For Apex: pre-scan profiles/permsets and warn user before confirming ──
+                String apexProfileWarning = '';
+                if (type == TYPE_APEX) {
+                    apexProfileWarning = buildApexProfileStripWarning(names);
+                }
+
+                // Return a confirmation prompt (mirrors LWC behaviour)
+                return '⚠️ Mass Delete Confirmation\n\n' +
+                       'You are about to delete ' + names.size() + ' ' + type + '(s):\n' +
+                       nameList +
+                       apexProfileWarning +
+                       '\nThis action cannot be undone.\n\n' +
+                       'To confirm, reply:\n  confirm mass delete ' + type + ' ' + rawName;
+            }
+            rawName = names[0];
+        }
+
+        // ── Single name ────────────────────────────────────────
+        return executeDelete(type, rawName);
     }
 
-    private static String handleProfileDelete(String originalQuery, String lower) {
+    // ── Pre-scan: find Profile/PermSet access for a list of Apex class names ──
+    // Called at confirmation time so the user sees exactly what will be auto-stripped
+    // before they confirm. The actual strip happens inside MetadataEngine.massDeleteApexClasses.
+    private static String buildApexProfileStripWarning(List<String> classNames) {
+        Map<String, List<String>> classToProfiles = new Map<String, List<String>>();
+        Map<String, List<String>> classToPermSets = new Map<String, List<String>>();
+
+        try {
+            // Resolve class Ids in one bulk query
+            Set<String> nameSet = new Set<String>();
+            for (String n : classNames) {
+                if (String.isNotBlank(n)) nameSet.add(n.trim().replace(' ', '_'));
+            }
+
+            List<ApexClass> classes = [
+                SELECT Id, Name FROM ApexClass
+                WHERE Name IN :nameSet
+                AND NamespacePrefix = null
+                LIMIT 200
+            ];
+
+            if (classes.isEmpty()) return '';
+
+            // Build Id → Name map
+            Map<Id, String> idToName = new Map<Id, String>();
+            Set<Id> classIds = new Set<Id>();
+            for (ApexClass ac : classes) {
+                idToName.put(ac.Id, ac.Name);
+                classIds.add(ac.Id);
+            }
+
+            // ── Query 1: Fetch SetupEntityAccess rows — Parent.Name + IsOwnedByProfile only ──
+            // ParentId cannot be SELECT-ed. We use Parent.Name to resolve Profile/PermSet Ids
+            // separately, then filter by UserType/IsCustom to show only user-assigned entries.
+            List<SetupEntityAccess> allAccess = [
+                SELECT SetupEntityId, Parent.Name, Parent.IsOwnedByProfile
+                FROM SetupEntityAccess
+                WHERE SetupEntityId IN :classIds
+                LIMIT 1000
+            ];
+
+            if (allAccess.isEmpty()) return '';
+
+            // ── Query 2: Split parent names by type ──
+            Set<String> profileNames = new Set<String>();
+            Set<String> permSetNames = new Set<String>();
+            for (SetupEntityAccess sea : allAccess) {
+                if (sea.Parent == null) continue;
+                if (sea.Parent.IsOwnedByProfile) {
+                    profileNames.add(sea.Parent.Name);
+                } else {
+                    permSetNames.add(sea.Parent.Name);
+                }
+            }
+
+            // ── Query 3: Filter Profiles — only UserType = Standard ──
+            // Excludes: Guest, Chatter Free, Partner Portal (system profiles)
+            Set<String> userProfileNames = new Set<String>();
+            if (!profileNames.isEmpty()) {
+                for (Profile p : [
+                    SELECT Id, Name FROM Profile
+                    WHERE Name IN :profileNames
+                    AND UserType = 'Standard'
+                ]) {
+                    userProfileNames.add(p.Name);
+                }
+            }
+
+            // ── Query 4: Filter PermSets — only user-created custom ones ──
+            // Excludes: profile-backed permsets, Salesforce standard permsets
+            Set<String> userPermSetNames = new Set<String>();
+            if (!permSetNames.isEmpty()) {
+                for (PermissionSet ps : [
+                    SELECT Id, Name FROM PermissionSet
+                    WHERE Name IN :permSetNames
+                    AND IsOwnedByProfile = false
+                    AND IsCustom = true
+                ]) {
+                    userPermSetNames.add(ps.Name);
+                }
+            }
+
+            if (userProfileNames.isEmpty() && userPermSetNames.isEmpty()) return '';
+
+            // ── Build result maps — only user-assigned entries ──
+            for (SetupEntityAccess sea : allAccess) {
+                if (sea.Parent == null) continue;
+                String parentName = sea.Parent.Name;
+                Boolean isProfile = sea.Parent.IsOwnedByProfile;
+                if (isProfile && !userProfileNames.contains(parentName)) continue;
+                if (!isProfile && !userPermSetNames.contains(parentName)) continue;
+                String clsName = idToName.get(sea.SetupEntityId);
+                if (String.isBlank(clsName)) continue;
+                if (isProfile) {
+                    if (!classToProfiles.containsKey(clsName)) classToProfiles.put(clsName, new List<String>());
+                    classToProfiles.get(clsName).add(parentName);
+                } else {
+                    if (!classToPermSets.containsKey(clsName)) classToPermSets.put(clsName, new List<String>());
+                    classToPermSets.get(clsName).add(parentName);
+                }
+            }
+        } catch (Exception ex) {
+            return '\n⚠️ Could not pre-scan Profile/PermSet references: ' + ex.getMessage() + '\n';
+        }
+
+        if (classToProfiles.isEmpty() && classToPermSets.isEmpty()) return '';
+
+        // Build warning block
+        String warn = '\n🔐 Profile/PermSet Access Auto-Strip:\n';
+        warn += '  The following access entries will be automatically removed before deletion:\n';
+        for (String clsName : classToProfiles.keySet()) {
+            List<String> profiles = classToProfiles.get(clsName);
+            warn += '  • ' + clsName + ' → Profiles: ' + String.join(profiles, ', ') + '\n';
+        }
+        for (String clsName : classToPermSets.keySet()) {
+            List<String> permSets = classToPermSets.get(clsName);
+            // Only add if not already listed under profiles
+            if (!classToProfiles.containsKey(clsName)) {
+                warn += '  • ' + clsName + ' → Permission Sets: ' + String.join(permSets, ', ') + '\n';
+            } else {
+                warn += '    + Permission Sets: ' + String.join(permSets, ', ') + '\n';
+            }
+        }
+        warn += '  ✅ This is done automatically — no manual Setup steps needed.\n';
+        return warn;
+    }
+
+        private static String handleProfileDelete(String originalQuery, String lower) {
         // Parse: "deactivate profile ProfileName fallback FallbackProfile"
         // Split by spaces and find 'profile', 'fallback' keywords
         List<String> words = lower.split('\\s+');
@@ -487,26 +778,46 @@ public without sharing class OrgCleanupAgentAction {
     }
 
     private static String extractDeleteName(String query, String type) {
-        // Patterns: "delete flow My_Flow", "delete apex class MyClass", "delete trigger AccountTrigger"
-        String lower = query.toLowerCase();
+        // Patterns: "delete flow My_Flow", "delete flows My_Flow", "delete apex class MyClass"
         String stripped = query;
 
         // Remove leading verb
         stripped = stripped.replaceFirst('(?i)^(delete|remove)\\s+', '');
 
-        // Remove type keywords
-        stripped = stripped.replaceFirst('(?i)^(apex\\s+class|apex|flow|trigger|lwc|lightning\\s+web\\s+component|aura|validation\\s+rule|val\\s+rule|permission\\s+sets|permission\\s+set|perm\\s+sets|perm\\s+set|permsets|permset|custom\\s+field|field|custom\\s+object|object|profile|the)\\s+', '');
+        // Remove type keywords — plurals included (flows?, triggers?, etc.)
+        stripped = stripped.replaceFirst('(?i)^(apex\\s+classes|apex\\s+class|apex|flows?|triggers?|lwcs?|lightning\\s+web\\s+components?|aura\\s+components?|aura|validation\\s+rules?|val\\s+rules?|permission\\s+sets?|perm\\s+sets?|permsets?|custom\\s+fields?|custom\\s+objects?|profiles?|objects?|fields?|the)\\s+', '');
 
         String candidate = stripped.trim();
-
-        // Must look like an API name — supports simple names AND dotted (Object.Field)
-        if (candidate.length() > 0) {
-            String token = candidate.split('\\s+')[0];
-            if (Pattern.matches('[A-Za-z][A-Za-z0-9_.]*', token)) {
-                return token;
-            }
+        if (String.isNotBlank(candidate)) {
+            return candidate;  // return full name — spaces allowed (e.g. "BSR Test 2")
         }
         return null;
+    }
+
+    // ── Split comma-separated names, trim each, remove blanks ─
+    private static List<String> splitNames(String raw) {
+        List<String> names = new List<String>();
+        if (String.isBlank(raw)) return names;
+        for (String n : raw.split(',')) {
+            String t = n.trim();
+            if (String.isNotBlank(t)) names.add(t);
+        }
+        return names;
+    }
+
+    // ── Format a MassDeleteResult into a readable chat message ─
+    private static String formatMassResult(MetadataEngine.MassDeleteResult mass) {
+        String emoji = mass.failureCount == 0 ? '✅' : (mass.successCount == 0 ? '❌' : '⚠️');
+        String msg = emoji + ' Mass Delete Complete\n\n' + mass.summary;
+        if (mass.succeeded != null && !mass.succeeded.isEmpty()) {
+            msg += '\n\n✔ Deleted (' + mass.successCount + '):\n';
+            for (String n : mass.succeeded) msg += '  • ' + n + '\n';
+        }
+        if (mass.failed != null && !mass.failed.isEmpty()) {
+            msg += '\n\n✘ Failed (' + mass.failureCount + '):\n';
+            for (String n : mass.failed) msg += '  • ' + n + '\n';
+        }
+        return msg;
     }
 
     private static String executeDelete(String type, String name) {
@@ -715,7 +1026,7 @@ public without sharing class OrgCleanupAgentAction {
     // =========================================================
     private static String buildSection(String type, QueryContext ctx) {
         if      (type == TYPE_FLOW)    { return buildFlowResponse(MetadataEngine.getFlows(ctx.ns), ctx); }
-        else if (type == TYPE_APEX)    { return buildApexResponse(MetadataEngine.getApexClasses(ctx.ns), ctx); }
+        else if (type == TYPE_APEX)    { return buildApexResponse(getApexCached(ctx.ns), ctx); }
         else if (type == TYPE_TRIGGER) { return buildTriggerResponse(MetadataEngine.getTriggers(ctx.ns), ctx); }
         else if (type == TYPE_LWC)     { return buildLwcResponse(MetadataEngine.getLwcComponents(ctx.ns), ctx); }
         else if (type == TYPE_AURA)    { return buildAuraResponse(MetadataEngine.getAuraComponents(ctx.ns), ctx); }
@@ -1683,7 +1994,7 @@ public without sharing class OrgCleanupAgentAction {
         }
 
         // Search Apex Classes
-        MetadataEngine.ApexSummary apex = MetadataEngine.getApexClasses(null);
+        MetadataEngine.ApexSummary apex = getApexCached(null);
         Map<String, MetadataEngine.ApexClassInfo> allApex = new Map<String, MetadataEngine.ApexClassInfo>();
         if (apex.unusedClasses != null) for (MetadataEngine.ApexClassInfo c : apex.unusedClasses) allApex.put(c.name, c);
         if (apex.usedClassNames != null) for (String n : apex.usedClassNames) if (!allApex.containsKey(n)) allApex.put(n, null);
@@ -1809,7 +2120,7 @@ public without sharing class OrgCleanupAgentAction {
         for (String t : types) {
             if      (t == TYPE_FLOW)    { MetadataEngine.FlowSummary s = MetadataEngine.getFlows(null);
                                           resp += '🔀 Flows: ' + s.total + ' total  |  Active: ' + s.active + '  |  Inactive: ' + s.inactive + '\n'; }
-            else if (t == TYPE_APEX)    { MetadataEngine.ApexSummary s = MetadataEngine.getApexClasses(null);
+            else if (t == TYPE_APEX)    { MetadataEngine.ApexSummary s = getApexCached(null);
                                           resp += '⚡ Apex Classes: ' + s.total + ' total  |  Used: ' + s.used + '  |  Unused: ' + s.unused + '  |  Test: ' + s.testCount + '\n'; }
             else if (t == TYPE_TRIGGER) { MetadataEngine.TriggerSummary s = MetadataEngine.getTriggers(null);
                                           resp += '⚡ Triggers: ' + s.total + ' total  |  Active: ' + s.active + '  |  Inactive: ' + s.inactive + '\n'; }
@@ -2024,7 +2335,7 @@ public without sharing class OrgCleanupAgentAction {
         List<String> results = new List<String>();
 
         // Search Apex Classes
-        MetadataEngine.ApexSummary apex = MetadataEngine.getApexClasses(null);
+        MetadataEngine.ApexSummary apex = getApexCached(null);
         List<MetadataEngine.ApexClassInfo> allApex = new List<MetadataEngine.ApexClassInfo>();
         if (apex.unusedClasses != null) allApex.addAll(apex.unusedClasses);
         for (MetadataEngine.ApexClassInfo c : allApex) {
@@ -2091,7 +2402,7 @@ public without sharing class OrgCleanupAgentAction {
 
     private static String handleOrgHealth() {
         MetadataEngine.FlowSummary          flows  = MetadataEngine.getFlows(null);
-        MetadataEngine.ApexSummary          apex   = MetadataEngine.getApexClasses(null);
+        MetadataEngine.ApexSummary          apex   = getApexCached(null);
         MetadataEngine.TriggerSummary       trigs  = MetadataEngine.getTriggers(null);
         MetadataEngine.LwcSummary           lwc    = MetadataEngine.getLwcComponents(null);
         MetadataEngine.AuraSummary          aura   = MetadataEngine.getAuraComponents(null);

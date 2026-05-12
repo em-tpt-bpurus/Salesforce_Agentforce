@@ -112,17 +112,34 @@ public without sharing class ApexClassAgentAction {
     }
 
     private static ApexReferencesOutput buildReferencesOutput(String className) {
-        // Use the new MetadataEngine.ReferenceResult (ApexClassReferenceDetail was removed)
-        MetadataEngine.ReferenceResult refs = MetadataEngine.getReferencesFor(className, 'ApexClass');
-        ApexReferencesOutput out = new ApexReferencesOutput();
-        out.report              = refs.formattedReport;
-        out.hasReferences       = refs.hasReferences;
-        out.totalReferenceCount = refs.referenceCount;
+        // Run ALL 16 reference checks so the chatbot sees every blocking reference:
+        //   1.  MetadataComponentDependency  — Flows, LWC, Aura, VF, FlexiPages, Triggers...
+        //   2.  SymbolTable (Apex-to-Apex)   — classes calling/extending/implementing this class
+        //   3.  Live Scheduled Jobs          — CronTrigger + AsyncApexJob (ScheduledApex)
+        //   4.  Active Batch/Queueable jobs  — AsyncApexJob (Queued/Processing)
+        //   5.  Approval Processes
+        //   6.  Assignment Rules
+        //   7.  Escalation Rules
+        //   8.  Auto-Response Rules
+        //   9.  Email Services               — EmailServicesFunction handler
+        //  10.  Test Classes + Test Suite Membership
+        //  11.  Sharing Rules
+        //  12.  Experience Cloud / Sites
+        //  13.  Custom Metadata Records
+        //  14.  Reports & Dashboards
+        //  15.  LWC Static Resource advisory
+        //  16.  Permission Sets & Profiles   — SetupEntityAccess
+        MetadataEngine.ApexReferenceCheckResult allRefs = MetadataEngine.checkAllApexReferences(className);
 
-        // Build per-group string fields from the flat references list
+        ApexReferencesOutput out = new ApexReferencesOutput();
+        out.report              = allRefs.formattedReport;
+        out.hasReferences       = allRefs.hasBlockingReferences;
+        out.totalReferenceCount = allRefs.referenceCount;
+
+        // Build per-group string fields from the full references list
         Map<String, String> groupMap = new Map<String, String>();
         Integer idx = 1;
-        for (MetadataEngine.ReferenceItem item : refs.references) {
+        for (MetadataEngine.ReferenceItem item : allRefs.references) {
             String key  = item.groupLabel != null ? item.groupLabel : 'Other';
             String line = idx++ + '. ' + item.name + '\n';
             groupMap.put(key, (groupMap.containsKey(key) ? groupMap.get(key) : '') + line);
@@ -130,21 +147,22 @@ public without sharing class ApexClassAgentAction {
 
         out.flows          = groupMap.get('Flows');
         out.triggers       = groupMap.get('Triggers');
+        out.testClasses    = groupMap.get('Test Classes');
         out.apexClasses    = groupMap.get('Apex Classes');
         out.lwcComponents  = groupMap.get('LWC Components');
         out.auraComponents = groupMap.get('Aura Components');
-        out.agentActions   = groupMap.get('AI / Agentforce');
-        out.agentTopics    = groupMap.get('Bots / Einstein');
+        out.agentActions   = groupMap.get('Agentforce - Agent Actions');
+        out.agentTopics    = groupMap.get('Agentforce - Topics');
 
-        // Collect everything else into otherReferences
+        // Collect everything else (Permission Sets, Profiles, Email Services, etc.) into otherReferences
         Set<String> knownGroups = new Set<String>{
-            'Flows','Triggers','Apex Classes','LWC Components',
-            'Aura Components','AI / Agentforce','Bots / Einstein'
+            'Flows', 'Triggers', 'Test Classes', 'Apex Classes', 'LWC Components',
+            'Aura Components', 'Agentforce - Agent Actions', 'Agentforce - Topics'
         };
         String others = '';
         for (String grp : groupMap.keySet()) {
             if (!knownGroups.contains(grp)) {
-                others += groupMap.get(grp);
+                others += grp + ':\n' + groupMap.get(grp) + '\n';
             }
         }
         if (String.isNotBlank(others)) {

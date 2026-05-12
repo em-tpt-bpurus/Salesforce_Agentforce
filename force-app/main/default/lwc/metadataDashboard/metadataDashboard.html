@@ -815,7 +815,12 @@
                                 </div>
                             </template>
                             <template if:false={msg.isTyping}>
-                                <p class="msg-text">{msg.text}</p>
+                                <template if:true={msg.isReferenceReport}>
+                                    <pre class="msg-ref-report">{msg.text}</pre>
+                                </template>
+                                <template if:false={msg.isReferenceReport}>
+                                    <p class="msg-text">{msg.text}</p>
+                                </template>
                                 <template if:true={msg.isSuccess}>
                                     <div class="msg-success-tag">
                                         <svg width="10" height="10" viewBox="0 0 12 12" fill="none">

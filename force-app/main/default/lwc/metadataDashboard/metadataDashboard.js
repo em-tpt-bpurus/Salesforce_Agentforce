@@ -12,6 +12,7 @@ import getValidationRuleSummary from '@salesforce/apex/ValidationRuleAgentAction
 
 // Agent actions — new backend class
 import handleAgentQuery         from '@salesforce/apex/OrgCleanupAgentAction.handleAgentQuery';
+import checkReferences          from '@salesforce/apex/OrgCleanupAgentAction.checkReferences';
 import deleteApexClass          from '@salesforce/apex/DeleteApexClassAction.deleteApexClassDirect';
 import massDeleteApexClasses    from '@salesforce/apex/DeleteApexClassAction.massDeleteApexClassesDirect';
 import saveToOrgFiles           from '@salesforce/apex/ExportMetadataAction.saveToFiles';
@@ -257,6 +258,11 @@ export default class MetadataDashboard extends LightningElement {
     }
 
     _addAgentMsg(text, isSuccess = false, isError = false) {
+        // Detect if this is a reference-blocking report (has grouped reference sections)
+        const isReferenceReport = isError && text && (
+            text.includes('Cannot delete') ||
+            text.includes('reference(s) must be removed first')
+        );
         this.agentMessages = [...this.agentMessages, {
             id      : nextId(),
             text,
@@ -264,6 +270,7 @@ export default class MetadataDashboard extends LightningElement {
             isTyping: false,
             isSuccess,
             isError,
+            isReferenceReport,
             cssClass: 'agent-msg agent-msg--agent'
         }];
         this._scrollMessages();
@@ -473,46 +480,121 @@ export default class MetadataDashboard extends LightningElement {
         // Delete patterns
         const deleteMatch = lower.match(/^delete\s+/i);
         if (deleteMatch) {
-            // Detect type from keywords
-            let type = META_TYPE.APEX; // default
-            if      (lower.includes('custom field') || lower.includes('field '))              type = META_TYPE.FIELD;
-            else if (lower.includes('custom object') || /\bobject\b/.test(lower))             type = META_TYPE.OBJECT;
-            else if (lower.includes('validation rule') || lower.includes('val rule'))         type = META_TYPE.VR;
-            else if (lower.includes('permission sets') || lower.includes('permission set') || lower.includes('permsets') || lower.includes('permset') || lower.includes('perm sets') || lower.includes('perm set')) type = META_TYPE.PERMSET;
-            else if (lower.includes('profile'))                                    type = META_TYPE.PROFILE;
-            else if (lower.includes('flow'))                                       type = META_TYPE.FLOW;
-            else if (lower.includes('trigger'))                                    type = META_TYPE.TRIGGER;
-            else if (lower.includes('lwc') || lower.includes('lightning web'))     type = META_TYPE.LWC;
-            else if (lower.includes('aura'))                                       type = META_TYPE.AURA;
-            else if (lower.includes('apex'))                                       type = META_TYPE.APEX;
-            else {
-                // No explicit type keyword — check dot notation for field, otherwise mark ambiguous
-                const dotNameMatch = query.match(/delete\s+([A-Za-z0-9_]+\.[A-Za-z0-9_]+)/i);
-                if (dotNameMatch) type = META_TYPE.FIELD;
-                else type = null; // ambiguous — will be resolved in _handleDeleteIntent
-            }
+            // ── TYPE DETECTION — strict prefix-only, zero ambiguity ──────────
+            //
+            // The only reliable way to distinguish the type keyword from the
+            // component name is to check whether the string immediately after
+            // "delete " is an EXACT known type token.
+            //
+            // Component names like "BSR_Flow_Call_Apex_Class" or
+            // "My_Apex_Trigger_Handler" must NEVER trigger type detection —
+            // they start with "BSR_" / "My_", not with a type keyword.
+            //
+            // Rules:
+            //   • Two-word tokens checked first (e.g. "apex class", "custom field")
+            //   • Single-word tokens checked second
+            //   • If first token(s) do NOT match any type → type = null
+            //     → _handleDeleteIntent searches all loaded lists by name
+            //
+            // What the user types       → prefixOne / prefixTwo   → type
+            // ─────────────────────────────────────────────────────────────
+            // delete flow My_Flow        → "flow"                  → FLOW
+            // delete BSR_Flow_Call_Apex  → "bsr_flow_call_apex"    → null (ambiguous lookup)
+            // delete apex class MyClass  → "apex class"            → APEX
+            // delete apex MyClass        → "apex"                  → APEX
+            // delete BSR_Apex_Handler    → "bsr_apex_handler"      → null
+            // ─────────────────────────────────────────────────────────────
 
-            // Extract name — skip type keyword, supports dotted names and __c suffix
-            // Order matters: longer phrases first
-            const nameMatch = query.match(
-                /delete\s+(?:custom\s+field|custom\s+object|validation\s+rule|val\s+rule|permission\s+sets|permission\s+set|perm\s+sets|perm\s+set|permsets|permset|apex\s+class|lightning\s+web\s+component|apex|flow|trigger|lwc|aura|field|object|profile|vr)?\s*([A-Za-z0-9_.,\s]+?)(?:\s*$)/i
-            );
-            const rawName = nameMatch ? nameMatch[1].trim() : null;
+            const afterDelete = query.replace(/^delete\s+/i, '').trim();
+            const tokens      = afterDelete.split(/\s+/);
+            const p1 = tokens[0] ? tokens[0].toLowerCase() : '';
+            const p2 = (tokens[0] && tokens[1]) ? (tokens[0] + ' ' + tokens[1]).toLowerCase() : '';
+            const p3 = (tokens[0] && tokens[1] && tokens[2])
+                       ? (tokens[0] + ' ' + tokens[1] + ' ' + tokens[2]).toLowerCase() : '';
 
-            // ── Mass delete: detect comma-separated names ─────
-            if (rawName && rawName.includes(',')) {
-                const names = rawName.split(',').map(n => n.trim().replace(/\s+/g, '_')).filter(Boolean);
-                if (names.length > 1) {
-                    return { action: 'mass-delete', type, names };
+            // Strict exact-match type token table
+            // Two-word tokens must be checked before one-word to avoid "apex" matching "apex class"
+            const TYPE_TOKENS = [
+                // two-word
+                { match: p2, types: ['validation rule', 'val rule'],    type: META_TYPE.VR,      strip: 2 },
+                { match: p2, types: ['custom field'],                   type: META_TYPE.FIELD,   strip: 2 },
+                { match: p2, types: ['custom object'],                  type: META_TYPE.OBJECT,  strip: 2 },
+                { match: p2, types: ['permission set', 'perm set'],     type: META_TYPE.PERMSET, strip: 2 },
+                { match: p2, types: ['permission sets', 'perm sets'],   type: META_TYPE.PERMSET, strip: 2 },
+                { match: p2, types: ['apex class', 'apex classes'],     type: META_TYPE.APEX,    strip: 2 },
+                { match: p2, types: ['lightning web'],                  type: META_TYPE.LWC,     strip: 2 },
+                // three-word
+                { match: p3, types: ['lightning web component',
+                                     'lightning web components'],       type: META_TYPE.LWC,     strip: 3 },
+                // one-word
+                { match: p1, types: ['flow', 'flows'],                  type: META_TYPE.FLOW,    strip: 1 },
+                { match: p1, types: ['trigger', 'triggers'],            type: META_TYPE.TRIGGER, strip: 1 },
+                { match: p1, types: ['lwc'],                            type: META_TYPE.LWC,     strip: 1 },
+                { match: p1, types: ['aura'],                           type: META_TYPE.AURA,    strip: 1 },
+                { match: p1, types: ['apex'],                           type: META_TYPE.APEX,    strip: 1 },
+                { match: p1, types: ['profile', 'profiles'],            type: META_TYPE.PROFILE, strip: 1 },
+                { match: p1, types: ['permset', 'permsets'],            type: META_TYPE.PERMSET, strip: 1 },
+                { match: p1, types: ['field'],                          type: META_TYPE.FIELD,   strip: 1 },
+                { match: p1, types: ['object'],                         type: META_TYPE.OBJECT,  strip: 1 },
+                { match: p1, types: ['vr'],                             type: META_TYPE.VR,      strip: 1 },
+            ];
+
+            let type        = null;
+            let typeStrip   = 0; // how many tokens to strip for the name
+
+            for (const entry of TYPE_TOKENS) {
+                if (entry.types.includes(entry.match)) {
+                    type      = entry.type;
+                    typeStrip = entry.strip;
+                    break;
                 }
             }
 
-            const name = rawName ? rawName.replace(/\s+/g, '_') : null;
+            // Extract name — strip the type token(s) from the front
+            let rawName = null;
+            if (typeStrip > 0) {
+                rawName = tokens.slice(typeStrip).join(' ').trim() || null;
+            } else {
+                // No type keyword — dot notation check for field/vr, otherwise ambiguous
+                const dotNameMatch = query.match(/delete\s+([A-Za-z0-9_]+\.[A-Za-z0-9_]+)/i);
+                if (dotNameMatch) {
+                    type    = META_TYPE.FIELD;
+                    rawName = afterDelete;
+                } else {
+                    rawName = afterDelete || null;
+                }
+            }
+
+            // ── Mass delete: detect comma-separated names ─────
+            if (rawName && rawName.includes(',')) {
+                // Split by comma; for non-dot types trim spaces; for dot-types (field/vr) keep dots
+                const names = rawName.split(',').map(n => {
+                    const t = n.trim();
+                    // Only replace spaces with underscores for Apex (API names can't have spaces)
+                    // Flow, Trigger, LWC, Aura, Object, PermSet, Profile keep spaces as-is
+                    // because the user may type the API name with underscores already
+                    return type === META_TYPE.APEX ? t.replace(/\s+/g, '_') : t;
+                }).filter(Boolean);
+                if (names.length > 1) {
+                    return { action: 'mass-delete', type, names };
+                }
+                // Only one after split — fall through to single delete
+                rawName = names[0] || rawName;
+            }
+
+            // Single name — only normalise spaces→underscores for Apex
+            const name = rawName
+                ? (type === META_TYPE.APEX ? rawName.replace(/\s+/g, '_') : rawName)
+                : null;
 
             // Auto-detect object type from __c suffix if no explicit type keyword
             if (type === null && name && name.toLowerCase().endsWith('__c')) {
                 type = META_TYPE.OBJECT;
             }
+            // Do NOT default to APEX here — leave type as null so _handleDeleteIntent
+            // can search all loaded lists (flows, apex, triggers, etc.) and find the right type.
+            // Defaulting to APEX caused "delete Send Verification Code" to attempt Apex deletion
+            // even when that name belonged to a Flow.
 
             return { action: 'delete', type, name };
         }
@@ -574,6 +656,36 @@ export default class MetadataDashboard extends LightningElement {
                     if (!matches.find(m => m.type === type)) matches.push({ type, label });
                 }
             };
+            // Flows: search allFlowObjects which has separate label and apiName.
+            // item.name in activeFlowList/inactiveFlowList is the full formatted string
+            // (e.g. "Send Verification Code (Send_Verification_Code) [AutoLaunchedFlow] [ACTIVE]")
+            // so we must match against f.label and store f.apiName for the delete call.
+            const checkFlows = () => {
+                if (!this.flowSummary || !this.flowSummary.allFlowObjects) return;
+                // Normalised version of what the user typed: spaces→underscores
+                // e.g. "bsr_create opp related on account" → "bsr_create_opp_related_on_account"
+                const nNorm = n.replace(/\s+/g, '_');
+                for (const f of this.flowSummary.allFlowObjects) {
+                    const labelLower = f.label   ? f.label.toLowerCase()   : '';
+                    const apiLower   = f.apiName ? f.apiName.toLowerCase() : '';
+                    // Normalise label too (replace spaces with underscores for comparison)
+                    const labelNorm  = labelLower.replace(/\s+/g, '_');
+
+                    const matched =
+                        labelLower === n     ||   // exact label match  (BSR_Case Create Related On Account)
+                        apiLower   === n     ||   // exact apiName match (BSR_Create_Opp_Related_On_Account)
+                        apiLower   === nNorm ||   // user typed spaces, API has underscores
+                        labelNorm  === nNorm ||   // label normalised == input normalised
+                        labelNorm  === n;         // normalised label matches raw input
+
+                    if (matched) {
+                        if (!matches.find(m => m.type === META_TYPE.FLOW)) {
+                            matches.push({ type: META_TYPE.FLOW, label: `Flow (${f.apiName})`, apiName: f.apiName });
+                        }
+                        break;
+                    }
+                }
+            };
             // Fields: item.name is label only (e.g. "EM_Mayank"), but delete needs full "Object.Field"
             // So search by label, but store all matching api names for clarification
             const checkFields = (list) => {
@@ -589,7 +701,7 @@ export default class MetadataDashboard extends LightningElement {
                     }
                 });
             };
-            check([...(this.activeFlowList || []), ...(this.inactiveFlowList || [])],     META_TYPE.FLOW,    'Flow');
+            checkFlows();
             check([...(this.unusedClassList || []), ...(this.usedClassList || []), ...(this.testClassList || []), ...(this.standardClassList || [])], META_TYPE.APEX, 'Apex Class');
             check([...(this.activeTriggerList || []), ...(this.inactiveTriggerList || []), ...(this.unusedTriggerList || [])], META_TYPE.TRIGGER, 'Trigger');
             check(this.allLwcList,  META_TYPE.LWC,    'LWC Component');
@@ -612,8 +724,19 @@ export default class MetadataDashboard extends LightningElement {
             }
 
             if (matches.length === 0) {
-                // Nothing found in loaded data — default to Apex and let server decide
-                intent.type = META_TYPE.APEX;
+                // Nothing found in loaded data — ask the user to include the type keyword
+                // rather than blindly defaulting to Apex (which caused flow names to be sent
+                // to the Apex delete function).
+                this._addAgentMsg(
+                    `⚠️ Could not find "${intent.name}" in the loaded metadata.\n\n` +
+                    `Please include the type in your command. Examples:\n` +
+                    `  • delete flow ${intent.name}\n` +
+                    `  • delete apex class ${intent.name}\n` +
+                    `  • delete trigger ${intent.name}\n` +
+                    `  • delete lwc ${intent.name}\n\n` +
+                    `Or make sure the relevant tab is loaded first.`
+                );
+                return;
             } else if (matches.length === 1) {
                 // Exactly one match — proceed directly, use apiName override if present (fields)
                 intent.type = matches[0].type;
@@ -635,13 +758,60 @@ export default class MetadataDashboard extends LightningElement {
             aura: 'Aura Component', field: 'Custom Field', object: 'Custom Object',
             permset: 'Permission Set', profile: 'Profile', vr: 'Validation Rule'
         };
-        const typeLabel = typeLabels[intent.type] || intent.type;
-        this._pendingDelete = { type: intent.type, name: intent.name };
-        this._addAgentMsg(
-            `Found: ${intent.name} (${typeLabel})\n` +
-            `Are you sure you want to delete this component? This cannot be undone.\n\n` +
-            `Reply "yes" to confirm or "no" to cancel.`
-        );
+        const typeLabel  = typeLabels[intent.type] || intent.type;
+
+        // ── Map LWC type to MetadataEngine componentType string ──────────────────
+        const typeToMCDType = {
+            flow:    'Flow',
+            apex:    'ApexClass',
+            trigger: 'ApexTrigger',
+            lwc:     'LightningComponentBundle',
+            aura:    'AuraDefinitionBundle',
+            object:  'CustomObject',
+            field:   'CustomField',
+            vr:      'ValidationRule',
+            permset: 'PermissionSet',
+            profile: 'Profile'
+        };
+        const mcdType = typeToMCDType[intent.type] || intent.type;
+
+        // ── Check references BEFORE showing confirmation ──────────────────────────
+        const typingId = this._addTypingIndicator();
+        this.agentIsProcessing = true;
+
+        checkReferences({ componentName: intent.name, componentType: mcdType })
+            .then(refReport => {
+                this._removeMessage(typingId);
+                this.agentIsProcessing = false;
+
+                if (refReport) {
+                    // References found — show them and block delete
+                    this._addAgentMsg(
+                        `⚠️ Cannot delete ${typeLabel} "${intent.name}" — references found:\n\n` +
+                        refReport
+                    );
+                } else {
+                    // No references — show confirmation
+                    this._pendingDelete = { type: intent.type, name: intent.name };
+                    this._addAgentMsg(
+                        `Found: ${intent.name} (${typeLabel})\n` +
+                        `No active references found. Safe to delete.\n\n` +
+                        `Are you sure you want to delete this component? This cannot be undone.\n\n` +
+                        `Reply "yes" to confirm or "no" to cancel.`
+                    );
+                }
+            })
+            .catch(() => {
+                // Reference check failed — still show confirmation (fail open)
+                this._removeMessage(typingId);
+                this.agentIsProcessing = false;
+                this._pendingDelete = { type: intent.type, name: intent.name };
+                this._addAgentMsg(
+                    `Found: ${intent.name} (${typeLabel})\n` +
+                    `Are you sure you want to delete this component? This cannot be undone.\n\n` +
+                    `Reply "yes" to confirm or "no" to cancel.`
+                );
+            });
     }
 
     // ── Execute the actual delete ─────────────────────────────
@@ -712,7 +882,10 @@ export default class MetadataDashboard extends LightningElement {
                     const msg = (result && result.message && result.message.trim())
                         ? result.message
                         : `Could not delete ${name}: Unknown error.`;
-                    this._addAgentMsg(msg, false, true);
+                    // If it's a reference-blocking message, show as warning (no "Failed" badge)
+                    // A blocked delete is NOT a failure — it's a "remove references first" guide
+                    const isBlocked = msg.includes('Cannot delete') || msg.includes('reference(s) must be removed first');
+                    this._addAgentMsg(msg, false, !isBlocked);
                 }
             })
             .catch(err => {
@@ -740,11 +913,47 @@ export default class MetadataDashboard extends LightningElement {
 
     // ── Mass delete intent: show confirmation message ─────────
     _handleMassDeleteIntent(intent) {
-        const { type, names } = intent;
+        let { type, names } = intent;
 
         if (!names || names.length === 0) {
             this._addAgentMsg('No component names detected. Please use comma-separated names.\nExamples:\n  "delete apex ClassA, ClassB, ClassC"\n  "delete flow Flow1, Flow2"\n  "delete field Account.Field1__c, Account.Field2__c"');
             return;
+        }
+
+        // ── Auto-detect type if missing: probe with first name against loaded lists ──
+        if (!type) {
+            const probe = (names[0] || '').replace(/ /g, '_').toLowerCase();
+            const checkList = (list) => list && list.some(item => item.name && item.name.toLowerCase() === probe);
+
+            // Flows: must match against allFlowObjects.label or .apiName, not the formatted list string
+            const flowMatch = this.flowSummary && this.flowSummary.allFlowObjects &&
+                this.flowSummary.allFlowObjects.some(f =>
+                    (f.label  && f.label.toLowerCase().replace(/ /g, '_')  === probe) ||
+                    (f.apiName && f.apiName.toLowerCase() === probe)
+                );
+            if (flowMatch) {
+                type = META_TYPE.FLOW;
+            } else if (checkList([...(this.unusedClassList || []), ...(this.usedClassList || []), ...(this.testClassList || []), ...(this.standardClassList || [])])) {
+                type = META_TYPE.APEX;
+            } else if (checkList([...(this.activeTriggerList || []), ...(this.inactiveTriggerList || []), ...(this.unusedTriggerList || [])])) {
+                type = META_TYPE.TRIGGER;
+            } else if (checkList(this.allLwcList)) {
+                type = META_TYPE.LWC;
+            } else if (checkList(this.allAuraList)) {
+                type = META_TYPE.AURA;
+            }
+
+            // Still null — ask user to clarify
+            if (!type) {
+                this._addAgentMsg(
+                    `⚠️ Could not detect metadata type for: "${names[0]}"\n\n` +
+                    `Please include the type in your command. Examples:\n` +
+                    `  "delete flow ${names.join(', ')}"\n` +
+                    `  "delete apex class ${names.join(', ')}"\n` +
+                    `  "delete trigger ${names.join(', ')}"`
+                );
+                return;
+            }
         }
 
         const typeLabels = {
@@ -816,7 +1025,13 @@ export default class MetadataDashboard extends LightningElement {
         massDeletePromise
             .then(result => {
                 this._removeMessage(typingId);
-                let msg = `✅ Mass Delete Complete\n\n${result.summary}`;
+
+                // Build result message
+                const allSucceeded = result.failureCount === 0;
+                const allFailed    = result.successCount === 0;
+
+                let msg = `${allSucceeded ? '✅' : allFailed ? '❌' : '⚠️'} Mass Delete Complete\n\n${result.summary}`;
+
                 if (result.succeeded && result.succeeded.length > 0) {
                     msg += `\n\n✔ Deleted (${result.successCount}):\n` +
                            result.succeeded.map(n => `  • ${n}`).join('\n');
@@ -825,7 +1040,9 @@ export default class MetadataDashboard extends LightningElement {
                     msg += `\n\n✘ Failed (${result.failureCount}):\n` +
                            result.failed.map(n => `  • ${n}`).join('\n');
                 }
-                this._addAgentMsg(msg, false, result.failureCount > 0);
+
+                // isError only when ALL items failed; partial success shows as warning (not red)
+                this._addAgentMsg(msg, allSucceeded, allFailed);
                 this._refreshAfterDelete(type);
             })
             .catch(err => {
