@@ -1,4 +1,4 @@
-@SuppressWarnings('PMD.CognitiveComplexity,PMD.NcssMethodCount')
+@SuppressWarnings('PMD.CognitiveComplexity,PMD.NcssMethodCount,PMD.ApexDoc')
 public without sharing class ApexClassAgentAction {
 
     public class ApexRequest {

@@ -1,3 +1,4 @@
+@SuppressWarnings('PMD.ApexDoc,PMD.CognitiveComplexity,PMD.NcssMethodCount')
 public without sharing class CustomFieldAgentAction {
 
     public class FieldRequest {
@@ -60,7 +61,7 @@ public without sharing class CustomFieldAgentAction {
             ? (info.hasData ? ' | HasData: Yes' : ' | HasData: No')
             : '';
         return (idx + 1) + '. ' + info.objectName + '.' + info.name +
-               (String.isNotBlank(info.namespacePrefix) ? ' [' + info.namespacePrefix + ']' : '') +
+               '' +
                MetadataConstants.COL_TYPE + (String.isNotBlank(info.dataType) ? info.dataType : MetadataConstants.NA) +
                dataInfo + '\n';
     }

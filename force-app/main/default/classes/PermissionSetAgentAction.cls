@@ -1,3 +1,4 @@
+@SuppressWarnings('PMD.ApexDoc,PMD.CognitiveComplexity,PMD.NcssMethodCount')
 public without sharing class PermissionSetAgentAction {
 
     public class PermSetRequest {
@@ -72,7 +73,7 @@ public without sharing class PermissionSetAgentAction {
             MetadataEngine.PermissionSetInfo info = summary.usedPermSets[i];
             result += (i + 1) + '. ' + info.label +
                         ' (' + info.name + ')' +
-                        (String.isNotBlank(info.namespacePrefix) ? ' [' + info.namespacePrefix + ']' : '') +
+                        '' +
                         MetadataConstants.COL_ASSIGNMENTS + info.assignmentCount + '\n';
         }
         return result;
@@ -87,7 +88,7 @@ public without sharing class PermissionSetAgentAction {
             MetadataEngine.PermissionSetInfo info = summary.unusedPermSets[i];
             result += (i + 1) + '. ' + info.label +
                           ' (' + info.name + ')' +
-                          (String.isNotBlank(info.namespacePrefix) ? ' [' + info.namespacePrefix + ']' : '') +
+                          '' +
                           ' | Assignments: 0\n';
         }
         return result;
@@ -100,7 +101,7 @@ public without sharing class PermissionSetAgentAction {
             MetadataEngine.PermissionSetInfo info = permSets[i];
             result += (i + 1) + '. ' + info.label +
                       ' (' + info.name + ')' +
-                      (String.isNotBlank(info.namespacePrefix) ? ' [' + info.namespacePrefix + ']' : '') +
+                      '' +
                       MetadataConstants.COL_ASSIGNMENTS + info.assignmentCount + '\n';
         }
         return result;

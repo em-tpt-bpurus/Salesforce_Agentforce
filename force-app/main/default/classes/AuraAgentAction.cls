@@ -1,4 +1,4 @@
-@SuppressWarnings('PMD.CognitiveComplexity')
+@SuppressWarnings('PMD.CognitiveComplexity,PMD.ApexDoc')
 public without sharing class AuraAgentAction {
 
     public class AuraRequest {
@@ -71,7 +71,7 @@ public without sharing class AuraAgentAction {
                     ? (info.isReferenced ? ' | Referenced: Yes' : ' | Unreferenced')
                     : '';
                 allList += (i + 1) + '. ' + info.name +
-                           (String.isNotBlank(info.namespacePrefix) ? ' [' + info.namespacePrefix + ']' : '') +
+                           '' +
                            MetadataConstants.COL_API + (String.isNotBlank(info.apiVersion) ? info.apiVersion : MetadataConstants.NA) +
                            refInfo + '\n';
             }
@@ -80,7 +80,7 @@ public without sharing class AuraAgentAction {
             for (Integer i = 0; i < summary.unreferencedComponents.size(); i++) {
                 MetadataEngine.AuraComponentInfo info = summary.unreferencedComponents[i];
                 unreferencedList += (i + 1) + '. ' + info.name +
-                    (String.isNotBlank(info.namespacePrefix) ? ' [' + info.namespacePrefix + ']' : '') +
+                    '' +
                     MetadataConstants.COL_API + (String.isNotBlank(info.apiVersion) ? info.apiVersion : MetadataConstants.NA) + '\n';
             }
         } else {
@@ -96,7 +96,7 @@ public without sharing class AuraAgentAction {
             for (Integer i = 0; i < summary.filteredComponents.size(); i++) {
                 MetadataEngine.AuraComponentInfo info = summary.filteredComponents[i];
                 filteredList += (i + 1) + '. ' + info.name +
-                                (String.isNotBlank(info.namespacePrefix) ? ' [' + info.namespacePrefix + ']' : '') +
+                                '' +
                                 MetadataConstants.COL_API + (String.isNotBlank(info.apiVersion) ? info.apiVersion : MetadataConstants.NA) +
                                 MetadataConstants.COL_MODIFIED + (String.isNotBlank(info.lastModifiedDate) ? info.lastModifiedDate : MetadataConstants.NA) + '\n';
             }
@@ -131,5 +131,15 @@ public without sharing class AuraAgentAction {
         output.allAuraObjects = summary.allComponents;
         System.debug('AURA SUMMARY: ' + output.summary);
         return output;
+    }
+
+    // ── Returns Governance App Registry records for namespace/app mapping ──
+    @AuraEnabled(cacheable=true)
+    public static List<Governance_App_Registry__mdt> getGovernanceRegistry() {
+        return [
+            SELECT Label, Namespace__c, Prefix_Patterns__c, Metadata_Types__c, Is_Active__c
+            FROM Governance_App_Registry__mdt
+            WHERE Is_Active__c = true WITH SECURITY_ENFORCED
+        ];
     }
 }

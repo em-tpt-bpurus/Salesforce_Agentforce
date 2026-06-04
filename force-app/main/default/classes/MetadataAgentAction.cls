@@ -1,3 +1,4 @@
+@SuppressWarnings('PMD.ApexDoc,PMD.CognitiveComplexity,PMD.NcssMethodCount')
 public without sharing class MetadataAgentAction {
 
     public class FlowRequest {
@@ -20,6 +21,12 @@ public without sharing class MetadataAgentAction {
 
         @AuraEnabled @InvocableVariable(label='Inactive Count' description='Number of inactive flows')
         public String inactiveCount;
+
+        @AuraEnabled @InvocableVariable(label='Used Count' description='Number of flows actively in use (IN_USE, SCHEDULED, MANAGED)')
+        public String usedCount;
+
+        @AuraEnabled @InvocableVariable(label='Unused Count' description='Number of flows not actively in use (INACTIVE, SAFE_TO_REVIEW)')
+        public String unusedCount;
 
         @AuraEnabled @InvocableVariable(label='Active Flows' description='Numbered list of ALL active flows')
         public String activeFlows;
@@ -74,6 +81,8 @@ public without sharing class MetadataAgentAction {
         output.totalCount             = String.valueOf(summary.total);
         output.activeCount            = String.valueOf(summary.active);
         output.inactiveCount          = String.valueOf(summary.inactive);
+        output.usedCount              = String.valueOf(summary.used   != null ? summary.used   : 0);
+        output.unusedCount            = String.valueOf(summary.unused != null ? summary.unused : 0);
         output.activeFlows            = activeList;
         output.inactiveFlows          = inactiveList;
         output.filteredCount          = String.valueOf(filteredTotal);

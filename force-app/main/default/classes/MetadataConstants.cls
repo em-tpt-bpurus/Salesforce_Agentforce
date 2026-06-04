@@ -78,7 +78,7 @@ public class MetadataConstants {
     public static final String SEC_ALL_COMPONENTS       = '--- ALL';
     public static final String SEC_SUFFIX_CLOSE         = ') ---\n';
     public static final String SEC_HINT_NO_DELETE       = ' — Do NOT delete ---\n';
-    public static final String SEC_HINT_SAFE_DELETE     = ' — Safe to delete ---\n';
+    public static final String SEC_HINT_SAFE_DELETE     = ' — Possibly unused — verify before deleting ---\n';
     public static final String SEC_HINT_SAFE_REVIEW     = ' — Safe to review ---\n';
     public static final String SEC_HINT_ACTIVE_USERS    = ' — Assigned to active users ---\n';
     public static final String SEC_HINT_NO_USERS        = ' — No active user assignments ---\n';

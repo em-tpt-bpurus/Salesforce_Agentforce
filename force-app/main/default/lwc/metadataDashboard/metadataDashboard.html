@@ -19,7 +19,7 @@
                     </div>
                     <div>
                         <h1 class="header-title">Org Metadata Dashboard</h1>
-                        <p class="header-subtitle">Flows · Apex · Triggers · LWC · Aura · Profiles · Permission Sets · Fields · Objects · Validation Rules</p>
+                        <p class="header-subtitle">Flows · Apex · Triggers · LWC · Aura · Profiles · Permission Sets · Fields · Objects · Validation Rules · VF Pages · VF Components</p>
                     </div>
                 </div>
                 <button class="refresh-btn" onclick={handleRefreshAll} disabled={isLoading}>
@@ -106,6 +106,22 @@
                     </svg>
                     Val. Rules <span class={vrTabBadgeClass}>{vrTabBadge}</span>
                 </button>
+                <!-- VF Pages tab -->
+                <button class={vfTabClass} onclick={showVf}>
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                        <rect x="2" y="3" width="12" height="10" rx="1.5" stroke="currentColor" stroke-width="1.5"/>
+                        <path d="M5 7l2 2-2 2M9 11h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                    VF Pages <span class={vfTabBadgeClass}>{vfTabBadge}</span>
+                </button>
+                <!-- VF Components tab -->
+                <button class={vfcTabClass} onclick={showVfc}>
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                        <rect x="2" y="3" width="12" height="10" rx="1.5" stroke="currentColor" stroke-width="1.5"/>
+                        <path d="M5 7h2M5 9h4M9 7l2 2-2 2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                    VF Comp <span class={vfcTabBadgeClass}>{vfcTabBadge}</span>
+                </button>
             </div>
 
             <!-- Namespace Filter Bar -->
@@ -180,7 +196,17 @@
                             <div class={cardClassInactive} data-filter="inactive" onclick={handleStatCardClick} title="Click to filter">
                                 <div class="stat-dot dot-gray"></div>
                                 <div class="stat-value">{flowInactiveDisplay}</div>
-                                <div class="stat-label">Inactive (Unused)</div>
+                                <div class="stat-label">Inactive</div>
+                            </div>
+                            <div class={cardClassUsed} data-filter="used" onclick={handleStatCardClick} title="Click to filter">
+                                <div class="stat-dot dot-teal"></div>
+                                <div class="stat-value">{flowUsedDisplay}</div>
+                                <div class="stat-label">Used</div>
+                            </div>
+                            <div class={cardClassUnused} data-filter="unused" onclick={handleStatCardClick} title="Click to filter">
+                                <div class="stat-dot dot-orange"></div>
+                                <div class="stat-value">{flowUnusedDisplay}</div>
+                                <div class="stat-label">Unused</div>
                             </div>
                         </div>
                         <template if:true={showActiveSection}>
@@ -196,6 +222,7 @@
                                             <span class="status-dot dot-green"></span>
                                             <span class="item-index">{flow.index}.</span>
                                             <span class="item-name">{flow.name}</span>
+                                            <span class="flow-type-badge">{flow.processTypeLabel}</span>
                                         </li>
                                     </template>
                                 </ul>
@@ -219,7 +246,66 @@
                                             <span class="status-dot dot-gray"></span>
                                             <span class="item-index">{flow.index}.</span>
                                             <span class="item-name">{flow.name}</span>
-                                            <button class="agent-delete-btn" data-type="flow" data-name={flow.name} onclick={handleAgentDeleteFromList} title="Ask agent to delete">
+                                            <span class="flow-type-badge">{flow.processTypeLabel}</span>
+                                        </li>
+                                    </template>
+                                </ul>
+                            </template>
+                            <template if:false={inactiveFlowDisplayList.length}>
+                                <p class="empty-state">No inactive flows found matching {nsActiveFilterLabel}.</p>
+                            </template>
+                        </div>
+                        </template>
+                        <template if:true={showUsedSection}>
+                        <div class="list-section">
+                            <div class="list-header">
+                                <span class="list-title">Used Flows</span>
+                                <span class="list-count teal">{flowUsedDisplay}</span>
+                                <span class="protect-badge">Actively referenced</span>
+                            </div>
+                            <template if:true={usedFlowDisplayList.length}>
+                                <ul class="metadata-list">
+                                    <template for:each={usedFlowDisplayList} for:item="flow">
+                                        <li key={flow.index} class="list-item">
+                                            <span class="status-dot dot-teal"></span>
+                                            <span class="item-index">{flow.index}.</span>
+                                            <span class="item-name">{flow.name}</span>
+                                            <template if:true={flow.isInactive}>
+                                                <span class="flow-warning-badge">Inactive</span>
+                                            </template>
+                                            <template if:false={flow.isInactive}>
+                                                <span class="flow-warning-badge flow-warning-badge--active">Active</span>
+                                            </template>
+                                        </li>
+                                    </template>
+                                </ul>
+                            </template>
+                            <template if:false={usedFlowDisplayList.length}>
+                                <p class="empty-state">No used flows found.</p>
+                            </template>
+                        </div>
+                        </template>
+                        <template if:true={showUnusedSection}>
+                        <div class="list-section list-section-warn">
+                            <div class="list-header">
+                                <span class="list-title">Unused Flows</span>
+                                <span class="list-count orange">{flowUnusedDisplay}</span>
+                                <span class="delete-badge">Safe to review / delete</span>
+                            </div>
+                            <template if:true={unusedFlowDisplayList.length}>
+                                <ul class="metadata-list">
+                                    <template for:each={unusedFlowDisplayList} for:item="flow">
+                                        <li key={flow.index} class="list-item list-item-warn">
+                                            <span class="status-dot dot-orange"></span>
+                                            <span class="item-index">{flow.index}.</span>
+                                            <span class="item-name">{flow.name}</span>
+                                            <template if:true={flow.isActive}>
+                                                <span class="flow-warning-badge flow-warning-badge--active">Active</span>
+                                            </template>
+                                            <template if:false={flow.isActive}>
+                                                <span class="flow-warning-badge">Inactive</span>
+                                            </template>
+                                            <button class="agent-delete-btn" data-type="flow" data-name={flow.apiName} onclick={handleAgentDeleteFromList} title="Ask agent to delete">
                                                 <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
                                                     <path d="M3 4h10M5 4V3h6v1M6 7v5M10 7v5M4 4l1 9h6l1-9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
                                                 </svg>
@@ -228,8 +314,8 @@
                                     </template>
                                 </ul>
                             </template>
-                            <template if:false={inactiveFlowDisplayList.length}>
-                                <p class="empty-state">No inactive flows found matching {nsActiveFilterLabel}.</p>
+                            <template if:false={unusedFlowDisplayList.length}>
+                                <p class="empty-state">No unused flows found.</p>
                             </template>
                         </div>
                         </template>
@@ -317,9 +403,9 @@
                         <template if:true={showUnusedSection}>
                         <div class="list-section list-section-warn">
                             <div class="list-header">
-                                <span class="list-title">Custom Unused Classes</span>
+                                <span class="list-title">Custom Possibly-Unused Classes</span>
                                 <span class="list-count orange">{apexUnusedDisplay}</span>
-                                <span class="delete-badge">Safe to delete</span>
+                                <span class="delete-badge">Verify before deleting</span>
                             </div>
                             <template if:true={unusedClassDisplayList.length}>
                                 <ul class="metadata-list">
@@ -457,7 +543,7 @@
                             <div class="list-header">
                                 <span class="list-title">Unused Triggers</span>
                                 <span class="list-count orange">{triggerUnusedDisplay}</span>
-                                <span class="delete-badge">Safe to delete</span>
+                                <span class="delete-badge">Verify before deleting</span>
                             </div>
                             <template if:true={unusedTriggerDisplayList.length}>
                                 <ul class="metadata-list">
@@ -520,8 +606,33 @@
                             <div class={cardClassTotal} data-filter="total" onclick={handleStatCardClick} title="Click to filter"><div class="stat-value">{lwcTotalDisplay}</div><div class="stat-label">Total LWC</div></div>
                             <div class={cardClassWithNs} data-filter="withNs" onclick={handleStatCardClick} title="Click to filter"><div class="stat-dot dot-blue"></div><div class="stat-value">{lwcWithNsDisplay}</div><div class="stat-label">With Namespace</div></div>
                             <div class={cardClassNoNs} data-filter="noNs" onclick={handleStatCardClick} title="Click to filter"><div class="stat-dot dot-gray"></div><div class="stat-value">{lwcNoNsDisplay}</div><div class="stat-label">No Namespace</div></div>
+                            <div class={cardClassRef} data-filter="referenced" onclick={handleStatCardClick} title="Click to filter"><div class="stat-dot dot-green"></div><div class="stat-value">{lwcReferencedDisplay}</div><div class="stat-label">Referenced</div></div>
                             <div class={cardClassUnref} data-filter="unreferenced" onclick={handleStatCardClick} title="Click to filter"><div class="stat-dot dot-orange"></div><div class="stat-value">{lwcUnreferencedDisplay}</div><div class="stat-label">Unreferenced</div></div>
                         </div>
+                        <template if:true={showReferencedSection}>
+                        <div class="list-section">
+                            <div class="list-header">
+                                <span class="list-title">Referenced LWC Components</span>
+                                <span class="list-count blue">{lwcReferencedDisplay}</span>
+                                <span class="delete-badge" style="background:#e8f5e9;color:#2e7d32;">In use</span>
+                            </div>
+                            <template if:true={referencedLwcDisplayList.length}>
+                                <ul class="metadata-list">
+                                    <template for:each={referencedLwcDisplayList} for:item="cmp">
+                                        <li key={cmp.index} class="list-item">
+                                            <span class="status-dot dot-green"></span>
+                                            <span class="item-index">{cmp.index}.</span>
+                                            <div class="item-detail">
+                                                <span class="item-name">{cmp.name}</span>
+                                                <span class="item-meta">{cmp.meta}</span>
+                                            </div>
+                                        </li>
+                                    </template>
+                                </ul>
+                            </template>
+                            <template if:false={referencedLwcDisplayList.length}><p class="empty-state">No referenced LWC components found matching {nsActiveFilterLabel}.</p></template>
+                        </div>
+                        </template>
                         <template if:true={showUnreferencedSection}>
                         <div class="list-section list-section-warn">
                             <div class="list-header">
@@ -549,11 +660,13 @@
                             <template if:false={unreferencedLwcDisplayList.length}><p class="empty-state">No unreferenced LWC components found matching {nsActiveFilterLabel}.</p></template>
                         </div>
                         </template>
+                        <template if:true={showAllSections}>
                         <div class="list-section">
-                            <div class="list-header"><span class="list-title">All LWC Components — {nsFilterLabel}</span><span class="list-count blue">{lwcDisplayList.length}</span></div>
-                            <template if:true={lwcDisplayList.length}><ul class="metadata-list"><template for:each={lwcDisplayList} for:item="cmp"><li key={cmp.index} class="list-item"><span class="status-dot dot-blue"></span><span class="item-index">{cmp.index}.</span><div class="item-detail"><span class="item-name">{cmp.name}</span><span class="item-meta">{cmp.meta}</span></div></li></template></ul></template>
+                            <div class="list-header"><span class="list-title">All LWC Components — {lwcCardFilterLabel}</span><span class="list-count blue">{lwcDisplayList.length}</span></div>
+                            <template if:true={lwcDisplayList.length}><ul class="metadata-list"><template for:each={lwcDisplayList} for:item="cmp"><li key={cmp.index} class="list-item"><span class={cmp.dotClass}></span><span class="item-index">{cmp.index}.</span><div class="item-detail"><span class="item-name">{cmp.name}</span><span class="item-meta">{cmp.meta}</span></div></li></template></ul></template>
                             <template if:false={lwcDisplayList.length}><p class="empty-state">No LWC components found matching {nsActiveFilterLabel}.</p></template>
                         </div>
+                        </template>
                     </div>
                 </template>
             </template>
@@ -565,6 +678,7 @@
                             <div class={cardClassTotal} data-filter="total" onclick={handleStatCardClick} title="Click to filter"><div class="stat-value">{auraTotalDisplay}</div><div class="stat-label">Total Aura</div></div>
                             <div class={cardClassWithNs} data-filter="withNs" onclick={handleStatCardClick} title="Click to filter"><div class="stat-dot dot-blue"></div><div class="stat-value">{auraWithNsDisplay}</div><div class="stat-label">With Namespace</div></div>
                             <div class={cardClassNoNs} data-filter="noNs" onclick={handleStatCardClick} title="Click to filter"><div class="stat-dot dot-gray"></div><div class="stat-value">{auraNoNsDisplay}</div><div class="stat-label">No Namespace</div></div>
+                            <div class={cardClassRef} data-filter="referenced" onclick={handleStatCardClick} title="Click to filter"><div class="stat-dot dot-green"></div><div class="stat-value">{auraReferencedDisplay}</div><div class="stat-label">Referenced</div></div>
                             <div class={cardClassUnref} data-filter="unreferenced" onclick={handleStatCardClick} title="Click to filter"><div class="stat-dot dot-orange"></div><div class="stat-value">{auraUnreferencedDisplay}</div><div class="stat-label">Unreferenced</div></div>
                         </div>
                         <template if:true={showUnreferencedSection}>
@@ -594,11 +708,60 @@
                             <template if:false={unreferencedAuraDisplayList.length}><p class="empty-state">No unreferenced Aura components found matching {nsActiveFilterLabel}.</p></template>
                         </div>
                         </template>
+                        <template if:true={showReferencedSection}>
                         <div class="list-section">
-                            <div class="list-header"><span class="list-title">All Aura Components — {nsFilterLabel}</span><span class="list-count blue">{auraDisplayList.length}</span></div>
-                            <template if:true={auraDisplayList.length}><ul class="metadata-list"><template for:each={auraDisplayList} for:item="cmp"><li key={cmp.index} class="list-item"><span class="status-dot dot-blue"></span><span class="item-index">{cmp.index}.</span><div class="item-detail"><span class="item-name">{cmp.name}</span><span class="item-meta">{cmp.meta}</span></div></li></template></ul></template>
+                            <div class="list-header">
+                                <span class="list-title">Referenced Aura Components</span>
+                                <span class="list-count green">{auraReferencedDisplay}</span>
+                                <span class="delete-badge" style="background:#e8f5e9;color:#2e7d32;">In use</span>
+                            </div>
+                            <template if:true={referencedAuraDisplayList.length}>
+                                <ul class="metadata-list">
+                                    <template for:each={referencedAuraDisplayList} for:item="cmp">
+                                        <li key={cmp.index} class="list-item">
+                                            <span class="status-dot dot-green"></span>
+                                            <span class="item-index">{cmp.index}.</span>
+                                            <div class="item-detail">
+                                                <span class="item-name">{cmp.name}</span>
+                                                <span class="item-meta">{cmp.meta}</span>
+                                            </div>
+                                        </li>
+                                    </template>
+                                </ul>
+                            </template>
+                            <template if:false={referencedAuraDisplayList.length}><p class="empty-state">No referenced Aura components found matching {nsActiveFilterLabel}.</p></template>
+                        </div>
+                        </template>
+                        <template if:true={showAllSections}>
+                        <div class="list-section">
+                            <div class="list-header"><span class="list-title">All Aura Components — {auraCardFilterLabel}</span><span class="list-count blue">{auraDisplayList.length}</span></div>
+                            <template if:true={auraDisplayList.length}>
+                                <table class="gov-table">
+                                    <thead>
+                                        <tr>
+                                            <th>#</th>
+                                            <th>Component Name</th>
+                                            <th>Namespace</th>
+                                            <th>Application</th>
+                                            <th>Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <template for:each={auraDisplayList} for:item="cmp">
+                                            <tr key={cmp.index}>
+                                                <td>{cmp.index}</td>
+                                                <td class="gov-name">{cmp.name}</td>
+                                                <td>{cmp.nsDisplay}</td>
+                                                <td>{cmp.appName}</td>
+                                                <td><span class={cmp.statusClass}>{cmp.status}</span></td>
+                                            </tr>
+                                        </template>
+                                    </tbody>
+                                </table>
+                            </template>
                             <template if:false={auraDisplayList.length}><p class="empty-state">No Aura components found matching {nsActiveFilterLabel}.</p></template>
                         </div>
+                        </template>
                     </div>
                 </template>
             </template>
@@ -662,6 +825,7 @@
                             <div class={cardClassTotal} data-filter="total" onclick={handleStatCardClick} title="Click to filter"><div class="stat-value">{fieldTotalDisplay}</div><div class="stat-label">Total Fields</div></div>
                             <div class={cardClassWithNs} data-filter="withNs" onclick={handleStatCardClick} title="Click to filter"><div class="stat-dot dot-blue"></div><div class="stat-value">{fieldWithNsDisplay}</div><div class="stat-label">With Namespace</div></div>
                             <div class={cardClassNoNs} data-filter="noNs" onclick={handleStatCardClick} title="Click to filter"><div class="stat-dot dot-gray"></div><div class="stat-value">{fieldNoNsDisplay}</div><div class="stat-label">No Namespace</div></div>
+                            <div class={cardClassRef} data-filter="referenced" onclick={handleStatCardClick} title="Click to filter"><div class="stat-dot dot-green"></div><div class="stat-value">{fieldInUseDisplay}</div><div class="stat-label">In Use</div></div>
                             <div class={cardClassEmpty} data-filter="empty" onclick={handleStatCardClick} title="Click to filter"><div class="stat-dot dot-orange"></div><div class="stat-value">{fieldEmptyDisplay}</div><div class="stat-label">No Data</div></div>
                         </div>
                         <template if:true={showEmptySection}>
@@ -691,11 +855,37 @@
                             <template if:false={emptyFieldDisplayList.length}><p class="empty-state">No empty fields found matching {nsActiveFilterLabel}.</p></template>
                         </div>
                         </template>
+                        <template if:true={showReferencedSection}>
                         <div class="list-section">
-                            <div class="list-header"><span class="list-title">Custom Fields — {nsFilterLabel}</span><span class="list-count blue">{fieldDisplayList.length}</span></div>
+                            <div class="list-header">
+                                <span class="list-title">Fields In Use</span>
+                                <span class="list-count blue">{fieldInUseDisplay}</span>
+                                <span class="delete-badge" style="background:#e8f5e9;color:#2e7d32;">Has data</span>
+                            </div>
+                            <template if:true={fieldInUseDisplayList.length}>
+                                <ul class="metadata-list">
+                                    <template for:each={fieldInUseDisplayList} for:item="fld">
+                                        <li key={fld.index} class="list-item">
+                                            <span class="status-dot dot-green"></span>
+                                            <span class="item-index">{fld.index}.</span>
+                                            <div class="item-detail">
+                                                <span class="item-name">{fld.name}</span>
+                                                <span class="item-meta">{fld.meta}</span>
+                                            </div>
+                                        </li>
+                                    </template>
+                                </ul>
+                            </template>
+                            <template if:false={fieldInUseDisplayList.length}><p class="empty-state">No in-use fields found matching {nsActiveFilterLabel}.</p></template>
+                        </div>
+                        </template>
+                        <template if:true={showAllSections}>
+                        <div class="list-section">
+                            <div class="list-header"><span class="list-title">Custom Fields — {fieldCardFilterLabel}</span><span class="list-count blue">{fieldDisplayList.length}</span></div>
                             <template if:true={fieldDisplayList.length}><ul class="metadata-list"><template for:each={fieldDisplayList} for:item="fld"><li key={fld.index} class="list-item"><span class="status-dot dot-blue"></span><span class="item-index">{fld.index}.</span><div class="item-detail"><span class="item-name">{fld.name}</span><span class="item-meta">{fld.meta}</span></div></li></template></ul></template>
                             <template if:false={fieldDisplayList.length}><p class="empty-state">No custom fields found matching {nsActiveFilterLabel}.</p></template>
                         </div>
+                        </template>
                     </div>
                 </template>
             </template>
@@ -707,6 +897,7 @@
                             <div class={cardClassTotal} data-filter="total" onclick={handleStatCardClick} title="Click to filter"><div class="stat-value">{objectTotalDisplay}</div><div class="stat-label">Total Objects</div></div>
                             <div class={cardClassWithNs} data-filter="withNs" onclick={handleStatCardClick} title="Click to filter"><div class="stat-dot dot-blue"></div><div class="stat-value">{objectWithNsDisplay}</div><div class="stat-label">With Namespace</div></div>
                             <div class={cardClassNoNs} data-filter="noNs" onclick={handleStatCardClick} title="Click to filter"><div class="stat-dot dot-gray"></div><div class="stat-value">{objectNoNsDisplay}</div><div class="stat-label">No Namespace</div></div>
+                            <div class={cardClassRef} data-filter="referenced" onclick={handleStatCardClick} title="Click to filter"><div class="stat-dot dot-green"></div><div class="stat-value">{objectWithRecordsDisplay}</div><div class="stat-label">With Records</div></div>
                             <div class={cardClassEmpty} data-filter="empty" onclick={handleStatCardClick} title="Click to filter"><div class="stat-dot dot-orange"></div><div class="stat-value">{objectEmptyDisplay}</div><div class="stat-label">Empty (0 Records)</div></div>
                         </div>
                         <template if:true={showEmptySection}>
@@ -736,11 +927,37 @@
                             <template if:false={emptyObjectDisplayList.length}><p class="empty-state">No empty custom objects found matching {nsActiveFilterLabel}.</p></template>
                         </div>
                         </template>
+                        <template if:true={showReferencedSection}>
                         <div class="list-section">
-                            <div class="list-header"><span class="list-title">Custom Objects — {nsFilterLabel}</span><span class="list-count blue">{objectDisplayList.length}</span></div>
+                            <div class="list-header">
+                                <span class="list-title">Custom Objects With Records</span>
+                                <span class="list-count blue">{objectWithRecordsDisplay}</span>
+                                <span class="delete-badge" style="background:#e8f5e9;color:#2e7d32;">Has records</span>
+                            </div>
+                            <template if:true={objectWithRecordsDisplayList.length}>
+                                <ul class="metadata-list">
+                                    <template for:each={objectWithRecordsDisplayList} for:item="obj">
+                                        <li key={obj.index} class="list-item">
+                                            <span class="status-dot dot-green"></span>
+                                            <span class="item-index">{obj.index}.</span>
+                                            <div class="item-detail">
+                                                <span class="item-name">{obj.name}</span>
+                                                <span class="item-meta">{obj.meta}</span>
+                                            </div>
+                                        </li>
+                                    </template>
+                                </ul>
+                            </template>
+                            <template if:false={objectWithRecordsDisplayList.length}><p class="empty-state">No custom objects with records found matching {nsActiveFilterLabel}.</p></template>
+                        </div>
+                        </template>
+                        <template if:true={showAllSections}>
+                        <div class="list-section">
+                            <div class="list-header"><span class="list-title">Custom Objects — {objectCardFilterLabel}</span><span class="list-count blue">{objectDisplayList.length}</span></div>
                             <template if:true={objectDisplayList.length}><ul class="metadata-list"><template for:each={objectDisplayList} for:item="obj"><li key={obj.index} class="list-item"><span class="status-dot dot-blue"></span><span class="item-index">{obj.index}.</span><div class="item-detail"><span class="item-name">{obj.name}</span><span class="item-meta">{obj.meta}</span></div></li></template></ul></template>
                             <template if:false={objectDisplayList.length}><p class="empty-state">No custom objects found matching {nsActiveFilterLabel}.</p></template>
                         </div>
+                        </template>
                     </div>
                 </template>
             </template>
@@ -756,15 +973,252 @@
                         <template if:true={showActiveSection}>
                         <div class="list-section">
                             <div class="list-header"><span class="list-title">Active Validation Rules</span><span class="list-count green">{vrActiveDisplay}</span></div>
-                            <template if:true={activeVrDisplayList.length}><ul class="metadata-list"><template for:each={activeVrDisplayList} for:item="rule"><li key={rule.index} class="list-item"><span class="status-dot dot-green"></span><span class="item-index">{rule.index}.</span><div class="item-detail"><span class="item-name">{rule.name}</span><span class="item-meta">{rule.meta}</span></div></li></template></ul></template>
+                            <template if:true={activeVrDisplayList.length}><ul class="metadata-list"><template for:each={activeVrDisplayList} for:item="rule"><li key={rule.index} class="list-item"><span class="status-dot dot-green"></span><span class="item-index">{rule.index}.</span><div class="item-detail"><span class="item-name">{rule.name}</span><span class="item-meta">{rule.meta}</span></div><button class="agent-delete-btn" data-type="vr" data-name={rule.dotName} onclick={handleAgentDeleteFromList} title="Ask agent to delete"><svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M3 4h10M5 4V3h6v1M6 7v5M10 7v5M4 4l1 9h6l1-9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button></li></template></ul></template>
                             <template if:false={activeVrDisplayList.length}><p class="empty-state">No active validation rules found matching {nsActiveFilterLabel}.</p></template>
                         </div>
                         </template>
                         <template if:true={showInactiveSection}>
                         <div class="list-section list-section-warn">
                             <div class="list-header"><span class="list-title">Inactive Validation Rules</span><span class="list-count orange">{vrInactiveDisplay}</span><span class="delete-badge">Safe to review</span></div>
-                            <template if:true={inactiveVrDisplayList.length}><ul class="metadata-list"><template for:each={inactiveVrDisplayList} for:item="rule"><li key={rule.index} class="list-item list-item-warn"><span class="status-dot dot-orange"></span><span class="item-index">{rule.index}.</span><div class="item-detail"><span class="item-name">{rule.name}</span><span class="item-meta">{rule.meta}</span></div></li></template></ul></template>
+                            <template if:true={inactiveVrDisplayList.length}><ul class="metadata-list"><template for:each={inactiveVrDisplayList} for:item="rule"><li key={rule.index} class="list-item list-item-warn"><span class="status-dot dot-orange"></span><span class="item-index">{rule.index}.</span><div class="item-detail"><span class="item-name">{rule.name}</span><span class="item-meta">{rule.meta}</span></div><button class="agent-delete-btn" data-type="vr" data-name={rule.dotName} onclick={handleAgentDeleteFromList} title="Ask agent to delete"><svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M3 4h10M5 4V3h6v1M6 7v5M10 7v5M4 4l1 9h6l1-9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button></li></template></ul></template>
                             <template if:false={inactiveVrDisplayList.length}><p class="empty-state">No inactive validation rules found matching {nsActiveFilterLabel}.</p></template>
+                        </div>
+                        </template>
+                    </div>
+                </template>
+            </template>
+
+            <!-- ═══════════════════════════════════════════════ -->
+            <!-- VISUALFORCE PAGES TAB                           -->
+            <!-- ═══════════════════════════════════════════════ -->
+            <template if:true={showVfTab}>
+                <template if:false={isLoading}>
+                    <div class="section-fade">
+                        <div class="stats-row">
+                            <div class={cardClassTotal} data-filter="total" onclick={handleStatCardClick} title="Click to filter">
+                                <div class="stat-value">{vfTotalDisplay}</div>
+                                <div class="stat-label">Total VF Pages</div>
+                            </div>
+                            <div class={cardClassWithNs} data-filter="withNs" onclick={handleStatCardClick} title="Click to filter">
+                                <div class="stat-dot dot-blue"></div>
+                                <div class="stat-value">{vfWithNsDisplay}</div>
+                                <div class="stat-label">With Namespace</div>
+                            </div>
+                            <div class={cardClassNoNs} data-filter="noNs" onclick={handleStatCardClick} title="Click to filter">
+                                <div class="stat-dot dot-gray"></div>
+                                <div class="stat-value">{vfNoNsDisplay}</div>
+                                <div class="stat-label">No Namespace</div>
+                            </div>
+                            <div class={cardClassRef} data-filter="referenced" onclick={handleStatCardClick} title="Click to filter">
+                                <div class="stat-dot dot-green"></div>
+                                <div class="stat-value">{vfReferencedDisplay}</div>
+                                <div class="stat-label">Referenced</div>
+                            </div>
+                            <div class={cardClassUnref} data-filter="unreferenced" onclick={handleStatCardClick} title="Click to filter">
+                                <div class="stat-dot dot-orange"></div>
+                                <div class="stat-value">{vfUnreferencedDisplay}</div>
+                                <div class="stat-label">Unreferenced</div>
+                            </div>
+                        </div>
+                        <!-- Referenced VF Pages -->
+                        <template if:true={showReferencedSection}>
+                        <div class="list-section">
+                            <div class="list-header">
+                                <span class="list-title">Referenced VF Pages</span>
+                                <span class="list-count green">{vfReferencedDisplay}</span>
+                                <span class="delete-badge" style="background:#e8f5e9;color:#2e7d32;">In use</span>
+                            </div>
+                            <template if:true={referencedVfDisplayList.length}>
+                                <ul class="metadata-list">
+                                    <template for:each={referencedVfDisplayList} for:item="pg">
+                                        <li key={pg.index} class="list-item">
+                                            <span class="status-dot dot-green"></span>
+                                            <span class="item-index">{pg.index}.</span>
+                                            <div class="item-detail">
+                                                <span class="item-name">{pg.name}</span>
+                                                <span class="item-meta">{pg.meta}</span>
+                                            </div>
+                                        </li>
+                                    </template>
+                                </ul>
+                            </template>
+                            <template if:false={referencedVfDisplayList.length}>
+                                <p class="empty-state">No referenced VF pages found matching {nsActiveFilterLabel}.</p>
+                            </template>
+                        </div>
+                        </template>
+                        <!-- Unreferenced VF Pages — safe to review -->
+                        <template if:true={showUnreferencedSection}>
+                        <div class="list-section list-section-warn">
+                            <div class="list-header">
+                                <span class="list-title">Unreferenced VF Pages</span>
+                                <span class="list-count orange">{vfUnreferencedDisplay}</span>
+                                <span class="delete-badge">Not referenced by Apex / Tab / FlexiPage</span>
+                            </div>
+                            <template if:true={unreferencedVfDisplayList.length}>
+                                <ul class="metadata-list">
+                                    <template for:each={unreferencedVfDisplayList} for:item="pg">
+                                        <li key={pg.index} class="list-item list-item-warn">
+                                            <span class="status-dot dot-orange"></span>
+                                            <span class="item-index">{pg.index}.</span>
+                                            <div class="item-detail">
+                                                <span class="item-name">{pg.name}</span>
+                                                <span class="item-meta">{pg.meta}</span>
+                                            </div>
+                                            <button class="agent-delete-btn" data-type="vf" data-name={pg.name} onclick={handleAgentDeleteFromList} title="Ask agent to delete">
+                                                <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                                                    <path d="M3 4h10M5 4V3h6v1M6 7v5M10 7v5M4 4l1 9h6l1-9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                                                </svg>
+                                            </button>
+                                        </li>
+                                    </template>
+                                </ul>
+                            </template>
+                            <template if:false={unreferencedVfDisplayList.length}>
+                                <p class="empty-state">No unreferenced VF pages found matching {nsActiveFilterLabel}.</p>
+                            </template>
+                        </div>
+                        </template>
+                        <!-- All VF Pages -->
+                        <template if:true={showAllSections}>
+                        <div class="list-section">
+                            <div class="list-header">
+                                <span class="list-title">All VF Pages — {vfCardFilterLabel}</span>
+                                <span class="list-count blue">{vfDisplayList.length}</span>
+                            </div>
+                            <template if:true={vfDisplayList.length}>
+                                <ul class="metadata-list">
+                                    <template for:each={vfDisplayList} for:item="pg">
+                                        <li key={pg.index} class="list-item">
+                                            <span class="status-dot dot-blue"></span>
+                                            <span class="item-index">{pg.index}.</span>
+                                            <div class="item-detail">
+                                                <span class="item-name">{pg.name}</span>
+                                                <span class="item-meta">{pg.meta}</span>
+                                            </div>
+                                        </li>
+                                    </template>
+                                </ul>
+                            </template>
+                            <template if:false={vfDisplayList.length}>
+                                <p class="empty-state">No VF pages found matching {nsActiveFilterLabel}.</p>
+                            </template>
+                        </div>
+                        </template>
+                    </div>
+                </template>
+            </template>
+
+            <!-- ═══════════════════════════════════════════════ -->
+            <!-- VISUALFORCE COMPONENTS TAB                      -->
+            <!-- ═══════════════════════════════════════════════ -->
+            <template if:true={showVfcTab}>
+                <template if:false={isLoading}>
+                    <div class="section-fade">
+                        <div class="stats-row">
+                            <div class={cardClassTotal} data-filter="total" onclick={handleStatCardClick} title="Click to filter">
+                                <div class="stat-value">{vfcTotalDisplay}</div>
+                                <div class="stat-label">Total VF Components</div>
+                            </div>
+                            <div class={cardClassWithNs} data-filter="withNs" onclick={handleStatCardClick} title="Click to filter">
+                                <div class="stat-dot dot-blue"></div>
+                                <div class="stat-value">{vfcWithNsDisplay}</div>
+                                <div class="stat-label">With Namespace</div>
+                            </div>
+                            <div class={cardClassNoNs} data-filter="noNs" onclick={handleStatCardClick} title="Click to filter">
+                                <div class="stat-dot dot-gray"></div>
+                                <div class="stat-value">{vfcNoNsDisplay}</div>
+                                <div class="stat-label">No Namespace</div>
+                            </div>
+                            <div class={cardClassRef} data-filter="referenced" onclick={handleStatCardClick} title="Click to filter">
+                                <div class="stat-dot dot-green"></div>
+                                <div class="stat-value">{vfcReferencedDisplay}</div>
+                                <div class="stat-label">Referenced</div>
+                            </div>
+                            <div class={cardClassUnref} data-filter="unreferenced" onclick={handleStatCardClick} title="Click to filter">
+                                <div class="stat-dot dot-orange"></div>
+                                <div class="stat-value">{vfcUnreferencedDisplay}</div>
+                                <div class="stat-label">Unreferenced</div>
+                            </div>
+                        </div>
+                        <!-- Referenced VF Components -->
+                        <template if:true={showReferencedSection}>
+                        <div class="list-section">
+                            <div class="list-header">
+                                <span class="list-title">Referenced VF Components</span>
+                                <span class="list-count green">{vfcReferencedDisplay}</span>
+                                <span class="delete-badge" style="background:#e8f5e9;color:#2e7d32;">In use</span>
+                            </div>
+                            <template if:true={referencedVfcDisplayList.length}>
+                                <ul class="metadata-list">
+                                    <template for:each={referencedVfcDisplayList} for:item="comp">
+                                        <li key={comp.index} class="list-item">
+                                            <span class="status-dot dot-green"></span>
+                                            <span class="item-index">{comp.index}.</span>
+                                            <div class="item-detail">
+                                                <span class="item-name">{comp.name}</span>
+                                                <span class="item-meta">{comp.meta}</span>
+                                            </div>
+                                        </li>
+                                    </template>
+                                </ul>
+                            </template>
+                            <template if:false={referencedVfcDisplayList.length}>
+                                <p class="empty-state">No referenced VF components found matching {nsActiveFilterLabel}.</p>
+                            </template>
+                        </div>
+                        </template>
+                        <!-- Unreferenced VF Components -->
+                        <template if:true={showUnreferencedSection}>
+                        <div class="list-section list-section-warn">
+                            <div class="list-header">
+                                <span class="list-title">Unreferenced VF Components</span>
+                                <span class="list-count orange">{vfcUnreferencedDisplay}</span>
+                                <span class="delete-badge">Not referenced by VF Page / Apex</span>
+                            </div>
+                            <template if:true={unreferencedVfcDisplayList.length}>
+                                <ul class="metadata-list">
+                                    <template for:each={unreferencedVfcDisplayList} for:item="comp">
+                                        <li key={comp.index} class="list-item list-item-warn">
+                                            <span class="status-dot dot-orange"></span>
+                                            <span class="item-index">{comp.index}.</span>
+                                            <div class="item-detail">
+                                                <span class="item-name">{comp.name}</span>
+                                                <span class="item-meta">{comp.meta}</span>
+                                            </div>
+                                        </li>
+                                    </template>
+                                </ul>
+                            </template>
+                            <template if:false={unreferencedVfcDisplayList.length}>
+                                <p class="empty-state">No unreferenced VF components found matching {nsActiveFilterLabel}.</p>
+                            </template>
+                        </div>
+                        </template>
+                        <!-- All VF Components -->
+                        <template if:true={showAllSections}>
+                        <div class="list-section">
+                            <div class="list-header">
+                                <span class="list-title">All VF Components — {vfCardFilterLabel}</span>
+                                <span class="list-count blue">{vfcDisplayList.length}</span>
+                            </div>
+                            <template if:true={vfcDisplayList.length}>
+                                <ul class="metadata-list">
+                                    <template for:each={vfcDisplayList} for:item="comp">
+                                        <li key={comp.index} class="list-item">
+                                            <span class="status-dot dot-blue"></span>
+                                            <span class="item-index">{comp.index}.</span>
+                                            <div class="item-detail">
+                                                <span class="item-name">{comp.name}</span>
+                                                <span class="item-meta">{comp.meta}</span>
+                                            </div>
+                                        </li>
+                                    </template>
+                                </ul>
+                            </template>
+                            <template if:false={vfcDisplayList.length}>
+                                <p class="empty-state">No VF components found matching {nsActiveFilterLabel}.</p>
+                            </template>
                         </div>
                         </template>
                     </div>
@@ -793,6 +1247,30 @@
                         {agentHeaderStatus}
                     </span>
                 </div>
+
+                <!-- Live Org Health Gauge -->
+                <div class={liveScoreFlashClass} title={liveHealthLabel}>
+                    <svg class="health-gauge__ring" width="64" height="64" viewBox="0 0 64 64">
+                        <!-- Background track -->
+                        <circle cx="32" cy="32" r="28" fill="none" stroke="#e8e8e8" stroke-width="5"/>
+                        <!-- Score arc — stroke-dashoffset driven by liveHealthRingOffset -->
+                        <circle cx="32" cy="32" r="28" fill="none" stroke-width="5"
+                            stroke-linecap="round"
+                            stroke-dasharray="175.9"
+                            stroke-dashoffset={liveHealthRingOffset}
+                            stroke={liveHealthColor}
+                            transform="rotate(-90 32 32)"/>
+                        <!-- Score number -->
+                        <text x="32" y="36" text-anchor="middle" class="health-gauge__num">{liveHealthPercent}</text>
+                    </svg>
+                    <div class="health-gauge__info">
+                        <span class="health-gauge__label">{liveHealthLabel}</span>
+                        <span class="health-gauge__issues">{liveIssueCount} issues</span>
+                        <template if:true={showDeltaBadge}>
+                            <span class="health-gauge__delta">{deltaBadgeText}</span>
+                        </template>
+                    </div>
+                </div>
             </div>
 
 
@@ -816,10 +1294,61 @@
                             </template>
                             <template if:false={msg.isTyping}>
                                 <template if:true={msg.isReferenceReport}>
-                                    <pre class="msg-ref-report">{msg.text}</pre>
+                                    <template if:true={msg.isDataLossReport}>
+                                        <pre class="msg-ref-report msg-ref-report--dataloss">{msg.text}</pre>
+                                    </template>
+                                    <template if:false={msg.isDataLossReport}>
+                                        <pre class="msg-ref-report">{msg.text}</pre>
+                                    </template>
+                                </template>
+                                <template if:true={msg.isOrgHealth}>
+                                    <div class="health-card">
+                                        <!-- Header: title + score badge -->
+                                        <div class="health-card__header">
+                                            <span class="health-card__title">&#x1F3E5; Org Health Report</span>
+                                            <span class={msg.orgHealth.scoreClass}>{msg.orgHealth.score}</span>
+                                        </div>
+                                        <!-- Total issues pill -->
+                                        <div class="health-card__issues">
+                                            &#x26A0; Total Issues: <strong>{msg.orgHealth.totalIssues}</strong>
+                                        </div>
+                                        <!-- Org size summary grid -->
+                                        <div class="health-card__section-label">&#x1F4CA; Org Size Summary</div>
+                                        <div class="health-summary-grid">
+                                            <template for:each={msg.orgHealth.summaryRows} for:item="row">
+                                                <div key={row.label} class="health-summary-row">
+                                                    <span class="health-summary-label">{row.label}</span>
+                                                    <span class="health-summary-value">{row.value}</span>
+                                                </div>
+                                            </template>
+                                            <template if:false={msg.orgHealth.hasSummaryRows}>
+                                                <div class="health-summary-empty">No summary data available</div>
+                                            </template>
+                                        </div>
+                                        <!-- Cleanup recommendations -->
+                                        <template if:true={msg.orgHealth.recs.length}>
+                                            <div class="health-card__section-label">&#x1F5D1; Cleanup Recommendations</div>
+                                            <template for:each={msg.orgHealth.recs} for:item="rec">
+                                                <div key={rec.num} class={rec.recClass}>
+                                                    <div class="health-rec__header">
+                                                        <span class={rec.levelClass}>{rec.level}</span>
+                                                        <span class="health-rec__text">{rec.num}. {rec.text}</span>
+                                                    </div>
+                                                    <template for:each={rec.actions} for:item="action">
+                                                        <div key={action} class="health-rec__action">{action}</div>
+                                                    </template>
+                                                </div>
+                                            </template>
+                                        </template>
+                                        <template if:false={msg.orgHealth.recs.length}>
+                                            <div class="health-rec-empty">&#x2705; No cleanup recommendations — org looks clean!</div>
+                                        </template>
+                                    </div>
                                 </template>
                                 <template if:false={msg.isReferenceReport}>
-                                    <p class="msg-text">{msg.text}</p>
+                                    <template if:false={msg.isOrgHealth}>
+                                        <p class="msg-text">{msg.text}</p>
+                                    </template>
                                 </template>
                                 <template if:true={msg.isSuccess}>
                                     <div class="msg-success-tag">
@@ -852,6 +1381,8 @@
                 <button class="chip" data-query="Show unassigned Profiles" onclick={handleChipClick}>Unused Profiles</button>
                 <button class="chip" data-query="Show unused Permission Sets" onclick={handleChipClick}>Unused Perm Sets</button>
                 <button class="chip" data-query="Show inactive validation rules" onclick={handleChipClick}>Inactive Val. Rules</button>
+                <button class="chip chip--vf" data-query="Show unreferenced VF pages" onclick={handleChipClick}>VF Pages</button>
+                <button class="chip chip--vf" data-query="Show unreferenced VF components" onclick={handleChipClick}>VF Components</button>
                 <!-- Export Button — opens modal -->
                 <button class="export-btn" onclick={toggleExportDropdown}>
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

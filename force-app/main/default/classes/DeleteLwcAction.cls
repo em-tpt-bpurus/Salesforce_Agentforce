@@ -1,3 +1,4 @@
+@SuppressWarnings('PMD.ApexDoc,PMD.CognitiveComplexity,PMD.NcssMethodCount')
 public without sharing class DeleteLwcAction {
     public class DeleteLwcRequest {
         @InvocableVariable(label='LWC Component Name' description='DeveloperName of the LWC component to delete')

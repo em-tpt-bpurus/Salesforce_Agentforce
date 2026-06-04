@@ -62,18 +62,24 @@ public without sharing class LwcAgentAction {
 
         String allList = '';
         String unreferencedList = '';
+        Integer unknownCount = 0;
         if (summary.allComponents == null || summary.allComponents.isEmpty()) {
             allList = MetadataConstants.NONE;
         } else {
             for (Integer i = 0; i < summary.allComponents.size(); i++) {
                 MetadataEngine.LwcComponentInfo info = summary.allComponents[i];
-                String refInfo = (info.isReferenced != null)
-                    ? (info.isReferenced
-                        ? MetadataConstants.COL_REF_BY + (String.isNotBlank(info.referencedBy) ? info.referencedBy : 'Yes')
-                        : ' | Unreferenced')
-                    : '';
+                String refInfo;
+                if (info.isReferenced == true) {
+                    refInfo = MetadataConstants.COL_REF_BY + (String.isNotBlank(info.referencedBy) ? info.referencedBy : 'Yes');
+                } else if (info.isReferenced == false) {
+                    refInfo = ' | Unreferenced';
+                } else {
+                    // isReferenced == null → UNKNOWN: scan was incomplete
+                    refInfo = ' | Unknown (scan incomplete — FlexiPage API unavailable in this org)';
+                    unknownCount++;
+                }
                 allList += (i + 1) + '. ' + info.name +
-                           (String.isNotBlank(info.namespacePrefix) ? ' [' + info.namespacePrefix + ']' : '') +
+                           '' +
                            MetadataConstants.COL_API + (String.isNotBlank(info.apiVersion) ? info.apiVersion : MetadataConstants.NA) +
                            refInfo + '\n';
             }
@@ -82,7 +88,7 @@ public without sharing class LwcAgentAction {
             for (Integer i = 0; i < summary.unreferencedComponents.size(); i++) {
                 MetadataEngine.LwcComponentInfo info = summary.unreferencedComponents[i];
                 unreferencedList += (i + 1) + '. ' + info.name +
-                    (String.isNotBlank(info.namespacePrefix) ? ' [' + info.namespacePrefix + ']' : '') +
+                    '' +
                     MetadataConstants.COL_API + (String.isNotBlank(info.apiVersion) ? info.apiVersion : MetadataConstants.NA) + '\n';
             }
         } else {
@@ -98,7 +104,7 @@ public without sharing class LwcAgentAction {
             for (Integer i = 0; i < summary.filteredComponents.size(); i++) {
                 MetadataEngine.LwcComponentInfo info = summary.filteredComponents[i];
                 filteredList += (i + 1) + '. ' + info.name +
-                                (String.isNotBlank(info.namespacePrefix) ? ' [' + info.namespacePrefix + ']' : '') +
+                                '' +
                                 MetadataConstants.COL_API + (String.isNotBlank(info.apiVersion) ? info.apiVersion : MetadataConstants.NA) +
                                 MetadataConstants.COL_MODIFIED + (String.isNotBlank(info.lastModifiedDate) ? info.lastModifiedDate : MetadataConstants.NA) + '\n';
             }
@@ -121,7 +127,10 @@ public without sharing class LwcAgentAction {
             'This org has ' + summary.total + ' LWC components. ' +
             summary.withNamespace + ' have a namespace prefix, ' +
             summary.withoutNamespace + ' do not. ' +
-            output.unreferencedCount + ' are unreferenced (not used in any page or component).\n\n' +
+            output.unreferencedCount + ' are confirmed unreferenced.' +
+            (unknownCount > 0
+                ? ' ' + unknownCount + ' show as Unknown because the FlexiPage Metadata API is not available in this org — they may be referenced. Do not delete Unknown components without manual verification in Setup → Lightning App Builder.'
+                : '') + '\n\n' +
             'Namespace Filter: ' + nsDisplay + '\n' +
             'Matching Components: ' + output.filteredCount + '\n\n' +
             MetadataConstants.SEC_ALL_COMPONENTS + ' LWC COMPONENTS (' + summary.total + ') ---\n' + allList + '\n' +

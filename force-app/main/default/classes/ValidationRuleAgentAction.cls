@@ -1,3 +1,4 @@
+@SuppressWarnings('PMD.ApexDoc,PMD.CognitiveComplexity,PMD.NcssMethodCount')
 public without sharing class ValidationRuleAgentAction {
 
     public class VRRequest {
@@ -57,7 +58,7 @@ public without sharing class ValidationRuleAgentAction {
     // ── Shared logic ──────────────────────────────────────────
     private static String formatVrEntry(Integer index, MetadataEngine.ValidationRuleInfo info, String activeLabel) {
         return (index + 1) + '. ' + info.objectName + '.' + info.name +
-               (String.isNotBlank(info.namespacePrefix) ? ' [' + info.namespacePrefix + ']' : '') +
+               '' +
                MetadataConstants.COL_ACTIVE + activeLabel + '\n';
     }
 
@@ -131,14 +132,14 @@ public without sharing class ValidationRuleAgentAction {
         if (s.activeRules != null) {
             for (MetadataEngine.ValidationRuleInfo info : s.activeRules) {
                 allRulesList += idx++ + '. ' + info.objectName + '.' + info.name +
-                    (String.isNotBlank(info.namespacePrefix) ? ' [' + info.namespacePrefix + ']' : '') +
+                    '' +
                     ' [ACTIVE]\n';
             }
         }
         if (s.inactiveRules != null) {
             for (MetadataEngine.ValidationRuleInfo info : s.inactiveRules) {
                 allRulesList += idx++ + '. ' + info.objectName + '.' + info.name +
-                    (String.isNotBlank(info.namespacePrefix) ? ' [' + info.namespacePrefix + ']' : '') +
+                    '' +
                     ' [INACTIVE]\n';
             }
         }
