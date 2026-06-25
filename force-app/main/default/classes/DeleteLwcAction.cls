@@ -1,3 +1,4 @@
+@SuppressWarnings('PMD.ApexDoc,PMD.CognitiveComplexity,PMD.NcssMethodCount')
 public without sharing class DeleteLwcAction {
     public class DeleteLwcRequest {
         @InvocableVariable(label='LWC Component Name' description='DeveloperName of the LWC component to delete')
@@ -33,5 +34,18 @@ public without sharing class DeleteLwcAction {
         MetadataEngine.DeleteResult r = MetadataEngine.deleteLwcByName(componentName.trim());
         out.success = r.success; out.message = r.message;
         return out;
+    }
+
+    // ── Mass delete: called by LWC for bulk operations ────────
+    @AuraEnabled(cacheable=false)
+    public static MetadataEngine.MassDeleteResult massDeleteLwcDirect(List<String> componentNames) {
+        if (componentNames == null || componentNames.isEmpty()) {
+            MetadataEngine.MassDeleteResult r = new MetadataEngine.MassDeleteResult();
+            r.totalRequested = 0; r.successCount = 0; r.failureCount = 0;
+            r.succeeded = new List<String>(); r.failed = new List<String>();
+            r.summary = 'No LWC component names provided.';
+            return r;
+        }
+        return MetadataEngine.massDeleteLwcComponents(componentNames);
     }
 }

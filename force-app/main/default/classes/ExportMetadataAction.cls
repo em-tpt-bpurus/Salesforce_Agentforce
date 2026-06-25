@@ -32,22 +32,22 @@ public without sharing class ExportMetadataAction {
 
         try {
             // Normalise extension — never double-append
-            String ext      = String.isBlank(fileType) ? 'csv' : fileType.toLowerCase().trim();
+            String ext      = String.isBlank(fileType) ? MetadataConstants.FORMAT_CSV : fileType.toLowerCase().trim();
             String baseName = fileName.endsWith('.' + ext)
                               ? fileName
                               : (fileName.contains('.') ? fileName.substringBeforeLast('.') : fileName) + '.' + ext;
 
             // Determine MIME type for PathOnClient so Salesforce previews it correctly
-            String mime = ext == 'json' ? 'application/json'
-                        : ext == 'txt'  ? 'text/plain'
-                        : 'text/csv';
+            String mime = ext == MetadataConstants.FORMAT_JSON ? MetadataConstants.MIME_JSON
+                        : ext == MetadataConstants.FORMAT_TXT  ? MetadataConstants.MIME_TXT
+                        : MetadataConstants.MIME_CSV;
 
             ContentVersion cv  = new ContentVersion();
             cv.Title           = baseName;
             cv.PathOnClient    = baseName;
             cv.VersionData     = Blob.valueOf(fileContent);
             cv.IsMajorVersion  = true;
-            cv.ContentLocation = 'S';          // S = Salesforce storage
+            cv.ContentLocation = MetadataConstants.CONTENT_LOCATION;          // S = Salesforce storage
             insert cv;
 
             res.success = true;

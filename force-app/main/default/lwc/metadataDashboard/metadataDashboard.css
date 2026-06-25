@@ -1,3 +1,8 @@
+:host {
+    display: block;
+    height: 100%;
+}
+
 /* ================================================================
    Metadata Dashboard LWC — Styles
    ================================================================ */
@@ -7,6 +12,7 @@
     display: flex;
     align-items: stretch;
     min-height: 100vh;
+    height: 100%;
     font-family: 'Salesforce Sans', sans-serif;
     background: #f3f2f2;
 }
@@ -145,6 +151,44 @@
 
 .tab-btn--active .tab-badge { background: #e8f4ff; color: #0070D2; }
 
+/* Filtered state — orange badge showing filtered/total */
+.tab-badge--filtered {
+    background: #fff3e0;
+    color: #e65100;
+    font-size: 0.7rem;
+    font-weight: 700;
+    padding: 0.1rem 0.45rem;
+    border-radius: 12px;
+    min-width: 1.4rem;
+    text-align: center;
+    line-height: 1.6;
+    animation: badge-pop 0.2s ease;
+}
+.tab-btn--active .tab-badge--filtered { background: #ffe0b2; color: #bf360c; }
+
+@keyframes badge-pop {
+    0%   { transform: scale(0.8); opacity: 0.5; }
+    100% { transform: scale(1);   opacity: 1;   }
+}
+
+/* ── Namespace Active Filter Bar ───────────────────────────────── */
+.ns-active-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: #e8f4ff;
+    border-bottom: 2px solid #0070D2;
+    padding: 0.45rem 1.5rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #0070D2;
+}
+.ns-active-bar-hint {
+    font-weight: 400;
+    color: #706e6b;
+    font-size: 0.78rem;
+}
+
 /* ── Namespace Filter Bar ──────────────────────────────────────── */
 .ns-filter-bar {
     display: flex;
@@ -185,6 +229,21 @@
 }
 
 .ns-filter-apply:hover:not(:disabled) { background: #005fb2; }
+.ns-filter-apply--active { background: #005fb2; box-shadow: 0 0 0 2px rgba(0,112,210,0.35); }
+.ns-filter-clear {
+    padding: 0.35rem 0.6rem;
+    background: transparent;
+    border: 1px solid #c23934;
+    color: #c23934;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.75rem;
+    font-weight: 700;
+    line-height: 1;
+    transition: background 0.15s;
+    flex-shrink: 0;
+}
+.ns-filter-clear:hover { background: #fef1ee; }
 .ns-filter-apply:active:not(:disabled) { transform: scale(0.97); }
 .ns-filter-apply:disabled { opacity: 0.55; cursor: not-allowed; }
 
@@ -281,6 +340,7 @@
 /* ── List Sections ────────────────────────────────────────────── */
 .list-section { background: #ffffff; border: 1px solid #dddbda; border-radius: 10px; overflow: hidden; }
 .list-section-warn { border-color: #f4bcb8; }
+.list-section-success { border-color: #b3d9c2; }
 .list-subheader { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #706e6b; padding: 0.4rem 1rem 0.2rem; }
 .list-section-highlight { border-color: #0070D2; box-shadow: 0 0 0 1px rgba(0,112,210,0.18); }
 .list-section-highlight .list-header { background: #e8f4ff; border-bottom-color: #b8d9f8; }
@@ -295,6 +355,23 @@
 }
 
 .list-section-warn .list-header { background: #fef9f4; border-bottom-color: #f4bcb8; }
+.list-section-success .list-header { background: #f3f9f5; border-bottom-color: #b3d9c2; }
+
+.list-caveat {
+    margin: 0;
+    padding: 0.55rem 1rem 0.65rem;
+    background: #fef9f4;
+    border-bottom: 1px solid #f4bcb8;
+    font-size: 0.72rem;
+    line-height: 1.5;
+    color: #5c4a36;
+}
+.list-caveat code {
+    background: rgba(0,0,0,0.05);
+    padding: 0 0.25rem;
+    border-radius: 3px;
+    font-size: 0.7rem;
+}
 
 .list-title { font-size: 0.8rem; font-weight: 700; color: #3e3e3c; flex: 1; text-transform: uppercase; letter-spacing: 0.04em; }
 
@@ -312,6 +389,7 @@
 
 .protect-badge { font-size: 0.68rem; font-weight: 600; color: #2e844a; background: #e3f1e9; padding: 0.12rem 0.5rem; border-radius: 12px; }
 .delete-badge  { font-size: 0.68rem; font-weight: 600; color: #a3500a; background: #fef4e5; padding: 0.12rem 0.5rem; border-radius: 12px; }
+.delete-badge--success { color: #1a6636; background: #e3f1e9; }
 
 /* ── Metadata List ────────────────────────────────────────────── */
 .metadata-list { list-style: none; margin: 0; padding: 0; max-height: 320px; overflow-y: auto; }
@@ -382,11 +460,14 @@
     border-left: 1px solid #dddbda;
     display: flex;
     flex-direction: column;
-    height: 100vh;
+    height: calc(100vh - 56px);
+    min-height: 500px;
     position: sticky;
     top: 0;
     overflow: hidden;
+    scrollbar-width: none;
 }
+.agent-panel::-webkit-scrollbar { display: none; }
 
 /* ── Agent Header ────────────────────────────────────────────── */
 .agent-header {
@@ -458,15 +539,18 @@
 .agent-messages {
     flex: 1;
     overflow-y: auto;
-    padding: 0.875rem 1rem;
+    padding: 0.875rem 1rem 0.25rem;
     display: flex;
     flex-direction: column;
     gap: 0.75rem;
     scroll-behavior: smooth;
+    min-height: 120px;
 }
 
-.agent-messages::-webkit-scrollbar { width: 4px; }
-.agent-messages::-webkit-scrollbar-thumb { background: #dddbda; border-radius: 2px; }
+.agent-messages::-webkit-scrollbar { width: 3px; }
+.agent-messages::-webkit-scrollbar-track { background: transparent; }
+.agent-messages::-webkit-scrollbar-thumb { background: #c8c6c4; border-radius: 2px; }
+.agent-messages::-webkit-scrollbar-thumb:hover { background: #a09e9c; }
 
 /* ── Message bubbles ─────────────────────────────────────────── */
 .agent-msg {
@@ -498,6 +582,11 @@
     line-height: 1.55;
 }
 
+/* Reference reports need more horizontal space */
+.agent-msg--agent .msg-bubble:has(.msg-ref-report) {
+    max-width: 96%;
+}
+
 .agent-msg--agent .msg-bubble {
     background: #f3f2f2;
     border-bottom-left-radius: 4px;
@@ -514,6 +603,37 @@
     margin: 0;
     white-space: pre-wrap;
     word-break: break-word;
+}
+
+/* ── Reference report card (blocking delete message) ─────── */
+.msg-ref-report {
+    margin: 0;
+    padding: 0.5rem 0.6rem;
+    font-family: inherit;
+    font-size: 0.8rem;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-word;
+    background: #fff8f7;
+    border: 1px solid #f4c9c5;
+    border-left: 3px solid #c23934;
+    border-radius: 6px;
+}
+
+/* ── Data-loss reference report variant (orange-red) ────────── */
+.msg-ref-report--dataloss {
+    background: #fff3e0;
+    border-color: #ff9800;
+    border-left-color: #e65100;
+}
+.msg-ref-report--dataloss::before {
+    content: '\1F6A8  DATA LOSS WARNING\A';
+    display: block;
+    font-weight: 700;
+    color: #e65100;
+    font-size: 0.78rem;
+    margin-bottom: 0.4rem;
+    white-space: pre;
 }
 
 /* ── Status tags ─────────────────────────────────────────────── */
@@ -561,7 +681,7 @@
     display: flex;
     flex-wrap: wrap;
     gap: 0.4rem;
-    padding: 0.6rem 1rem;
+    padding: 0.4rem 1rem;
     border-top: 1px solid #f3f2f2;
     flex-shrink: 0;
 }
@@ -582,12 +702,20 @@
 .chip:hover { background: #cce6ff; }
 .chip:active { transform: scale(0.96); }
 
+/* VF-specific chip variant — purple/violet tone */
+.chip--vf {
+    color: #6B21A8;
+    background: #F3E8FF;
+    border-color: #D8B4FE;
+}
+.chip--vf:hover { background: #EDE9FE; }
+
 /* ── Input row ───────────────────────────────────────────────── */
 .agent-input-row {
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    padding: 0.75rem 1rem;
+    padding: 0.5rem 1rem;
     border-top: 1px solid #dddbda;
     background: #fafaf9;
     flex-shrink: 0;
@@ -675,27 +803,12 @@
     transform: scale(0.96);
 }
 
-.stat-card--clickable::after {
-    content: '▼';
-    position: absolute;
-    bottom: 4px;
-    right: 6px;
-    font-size: 7px;
-    opacity: 0.35;
-    letter-spacing: 0;
-}
-
 /* Active/selected state — highlighted ring */
 .stat-card--clickable.stat-card--active {
     outline: 2.5px solid #0070d2;
     outline-offset: -2px;
     box-shadow: 0 0 0 4px rgba(0, 112, 210, 0.15);
     transform: translateY(-1px);
-}
-
-.stat-card--clickable.stat-card--active::after {
-    content: '▲';
-    opacity: 0.65;
 }
 
 /* Hint tooltip text shown below filter when active */
@@ -903,3 +1016,492 @@
 }
 .export-action-btn--save:hover { background: #0EA25F; }
 .export-action-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+
+/* ── Visualforce tab pair — visually grouped ─────────────── */
+.tab-nav-row2 .tab-btn.vf-pages-tab {
+    border-right: none;
+    padding-right: 0.5rem;
+}
+.tab-nav-row2 .tab-btn.vf-comp-tab {
+    padding-left: 0.5rem;
+}
+
+/* ── Org Health Report Card ─────────────────────────────────── */
+
+/* Score badge colours */
+/* ── Health card — score badges ──────────────────────────────────── */
+.health-score--green  { display:inline-flex; align-items:center; gap:0.3rem; background:#e3f1e9; color:#2e844a; font-weight:700; padding:0.25rem 0.75rem; border-radius:20px; font-size:0.72rem; white-space:nowrap; border:1px solid #b7dfc6; }
+.health-score--yellow { display:inline-flex; align-items:center; gap:0.3rem; background:#fef9e3; color:#7a6000; font-weight:700; padding:0.25rem 0.75rem; border-radius:20px; font-size:0.72rem; white-space:nowrap; border:1px solid #f5e08a; }
+.health-score--orange { display:inline-flex; align-items:center; gap:0.3rem; background:#fff0e3; color:#a85100; font-weight:700; padding:0.25rem 0.75rem; border-radius:20px; font-size:0.72rem; white-space:nowrap; border:1px solid #f5c97a; }
+.health-score--red    { display:inline-flex; align-items:center; gap:0.3rem; background:#fef1ee; color:#c23934; font-weight:700; padding:0.25rem 0.75rem; border-radius:20px; font-size:0.72rem; white-space:nowrap; border:1px solid #f5b3ae; }
+.health-score--green::before  { content:'●'; color:#2e844a; font-size:0.55rem; }
+.health-score--yellow::before { content:'●'; color:#dd9900; font-size:0.55rem; }
+.health-score--orange::before { content:'●'; color:#c45500; font-size:0.55rem; }
+.health-score--red::before    { content:'●'; color:#c23934; font-size:0.55rem; }
+
+/* ── Health card — compact redesign ─────────────────────────────── */
+.health-card {
+    width: 100%;
+    font-size: 0.75rem;
+    display: block;
+    min-width: 0;
+}
+.health-card__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin-bottom: 0.4rem;
+    padding-bottom: 0.4rem;
+    border-bottom: 1px solid #f0f0f0;
+}
+.health-card__title {
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: #1a1a1a;
+}
+.health-card__issues {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    background: #fef1ee;
+    color: #c23934;
+    border: 1px solid #f5b3ae;
+    border-radius: 20px;
+    padding: 0.15rem 0.55rem;
+    font-size: 0.68rem;
+    font-weight: 600;
+    margin-bottom: 0.45rem;
+}
+.health-card__section-label {
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #aaa;
+    margin: 0.5rem 0 0.25rem;
+}
+
+/* ── Summary grid — 2 columns ────────────────────────────────────── */
+.health-summary-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0.18rem;
+    margin-bottom: 0.4rem;
+    width: 100%;
+}
+.health-summary-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 0.3rem;
+    padding: 0.18rem 0.4rem;
+    border-radius: 3px;
+    background: #f8f8f8;
+    border: 1px solid #ebebeb;
+    min-width: 0;
+    overflow: hidden;
+}
+.health-summary-label {
+    color: #666;
+    font-size: 0.67rem;
+    white-space: nowrap;
+    flex-shrink: 0;
+    line-height: 1.3;
+}
+.health-summary-value {
+    color: #1a1a1a;
+    font-weight: 600;
+    font-size: 0.67rem;
+    text-align: right;
+    min-width: 0;
+    line-height: 1.3;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+/* highlight counts with issues */
+.health-summary-value--issue {
+    color: #c23934;
+}
+
+/* ── Recommendation items — compact single-line ──────────────────── */
+.health-rec {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.35rem;
+    background: #fafafa;
+    border: 1px solid #ebebeb;
+    border-left: 3px solid #ccc;
+    border-radius: 0 5px 5px 0;
+    padding: 0.3rem 0.5rem;
+    margin-bottom: 0.2rem;
+}
+.health-rec:last-child { margin-bottom: 0; }
+.health-rec--high   { border-left-color: #c23934; }
+.health-rec--medium { border-left-color: #dd7a00; }
+.health-rec--low    { border-left-color: #2e844a; }
+.health-rec__header { display:flex; align-items:center; gap:0.3rem; flex: 1; min-width: 0; margin-bottom: 0; }
+.health-rec__text   { font-weight:600; color:#1a1a1a; font-size:0.72rem; line-height:1.3; flex:1; min-width:0; }
+/* Hide per-rec action hints — they make the card too tall; users can click the tab buttons */
+.health-rec__action { display: none; }
+.health-rec-empty {
+    font-size: 0.72rem;
+    color: #2e844a;
+    background: #e3f1e9;
+    border: 1px solid #b7dfc6;
+    border-radius: 5px;
+    padding: 0.35rem 0.55rem;
+    margin-top: 0.25rem;
+}
+.health-summary-empty {
+    font-size: 0.7rem;
+    color: #888;
+    padding: 0.25rem 0.4rem;
+    grid-column: 1 / -1;
+}
+
+/* Priority badges */
+.health-rec__badge {
+    font-size: 0.58rem;
+    font-weight: 700;
+    padding: 0.1rem 0.38rem;
+    border-radius: 20px;
+    white-space: nowrap;
+    flex-shrink: 0;
+    border: 1px solid transparent;
+}
+.health-rec__badge--high   { background:#fef1ee; color:#c23934; border-color:#f5b3ae; }
+.health-rec__badge--medium { background:#fff0e3; color:#a85100; border-color:#f5c97a; }
+.health-rec__badge--low    { background:#e3f1e9; color:#2e844a; border-color:#b7dfc6; }
+
+/* Chat bubble — constrained width, no wider than needed */
+.agent-msg--agent .msg-bubble:has(.health-card) {
+    max-width: 90%;
+    width: auto;
+    background: #fff;
+    border: 1px solid #e0e0e0;
+    padding: 0.6rem 0.75rem;
+    box-sizing: border-box;
+}
+
+/* ── Live Org Health Gauge ──────────────────────────────────── */
+.health-gauge {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    margin-left: auto;
+    padding: 0.3rem 0.5rem;
+    border-radius: 10px;
+    background: #f3f2f2;
+    transition: background 0.4s;
+    cursor: default;
+}
+.health-gauge--flash {
+    background: #e3f1e9;
+    animation: gauge-flash 1.6s ease-out forwards;
+}
+@keyframes gauge-flash {
+    0%   { background: #c8edda; box-shadow: 0 0 0 3px #2e844a33; }
+    60%  { background: #e3f1e9; box-shadow: 0 0 0 1px #2e844a11; }
+    100% { background: #f3f2f2; box-shadow: none; }
+}
+.health-gauge__ring {
+    flex-shrink: 0;
+    transition: stroke-dashoffset 0.8s cubic-bezier(.4,0,.2,1), stroke 0.8s ease;
+}
+.health-gauge__ring circle:last-of-type {
+    transition: stroke-dashoffset 0.9s cubic-bezier(.4,0,.2,1), stroke 0.9s ease;
+}
+.health-gauge__num {
+    font-size: 13px;
+    font-weight: 700;
+    fill: #1a1a1a;
+    font-family: 'Salesforce Sans', sans-serif;
+}
+.health-gauge__info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    min-width: 80px;
+}
+.health-gauge__label {
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: #1a1a1a;
+    white-space: nowrap;
+}
+.health-gauge__issues {
+    font-size: 0.65rem;
+    color: #777;
+    white-space: nowrap;
+}
+.health-gauge__delta {
+    font-size: 0.65rem;
+    font-weight: 700;
+    color: #2e844a;
+    background: #e3f1e9;
+    padding: 0.05rem 0.35rem;
+    border-radius: 8px;
+    width: fit-content;
+    animation: delta-pop 0.4s cubic-bezier(.17,.67,.42,1.4);
+}
+@keyframes delta-pop {
+    0%   { transform: scale(0.6); opacity: 0; }
+    100% { transform: scale(1);   opacity: 1; }
+}
+
+/* Widen agent-header to accommodate gauge */
+.agent-header {
+    flex-wrap: nowrap;
+    gap: 0.5rem;
+}
+
+/* ── Governance Table (Aura / LWC / Apex tabs) ── */
+.gov-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8rem;
+    margin-top: 0.5rem;
+}
+.gov-table th {
+    background: var(--color-bg-raised, #f3f4f6);
+    color: var(--color-text-secondary, #6b7280);
+    font-weight: 600;
+    text-align: left;
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--color-border, #e5e7eb);
+    white-space: nowrap;
+}
+.gov-table td {
+    padding: 0.45rem 0.75rem;
+    border-bottom: 1px solid var(--color-border, #f0f0f0);
+    vertical-align: middle;
+}
+.gov-table tr:hover td {
+    background: var(--color-bg-hover, #f9fafb);
+}
+.gov-name {
+    font-weight: 500;
+    color: var(--color-text-primary, #111827);
+    word-break: break-all;
+}
+.gov-badge {
+    display: inline-block;
+    padding: 0.15rem 0.5rem;
+    border-radius: 9999px;
+    font-size: 0.72rem;
+    font-weight: 600;
+}
+.gov-badge--active {
+    background: #dcfce7;
+    color: #166534;
+}
+.gov-badge--warn {
+    background: #fff3cd;
+    color: #92400e;
+}
+/* Flow list badges */
+.flow-type-badge { font-size: 0.68rem; font-weight: 600; color: #0070d2; background: #e8f4fd; padding: 0.12rem 0.5rem; border-radius: 12px; margin-left: 0.4rem; white-space: nowrap; }
+.flow-warning-badge { font-size: 0.68rem; font-weight: 600; color: #706e6b; background: #f3f2f2; padding: 0.12rem 0.5rem; border-radius: 12px; margin-left: 0.4rem; white-space: nowrap; }
+.flow-warning-badge--active { color: #2e844a; background: #e3f1e9; }
+/* ── Health Pillar Breakdown ─────────────────────────────────── */
+.health-pillars {
+    display: flex;
+    gap: 0.5rem;
+    margin: 0.4rem 0 0.75rem;
+    flex-wrap: wrap;
+}
+.health-pillar {
+    flex: 1;
+    min-width: 75px;
+    background: #f3f6fb;
+    border: 1px solid #dce3ed;
+    border-radius: 8px;
+    padding: 0.5rem 0.6rem;
+    text-align: center;
+}
+.health-pillar__top {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.25rem;
+    margin-bottom: 0.2rem;
+}
+.health-pillar__icon   { font-size: 0.8rem; }
+.health-pillar__label  { font-size: 0.62rem; font-weight: 700; color: #444; text-transform: uppercase; letter-spacing: 0.04em; }
+.health-pillar__weight { font-size: 0.58rem; color: #999; margin-left: 0.2rem; }
+.health-pillar__pct    { font-size: 1.15rem; font-weight: 800; color: #032D60; line-height: 1.1; }
+.health-pillar__status { font-size: 0.62rem; color: #666; margin-top: 0.15rem; }
+/* Status-based pct color — via modifier classes */
+.health-pillar--green  .health-pillar__pct { color: #2e844a; }
+.health-pillar--yellow .health-pillar__pct { color: #7a6000; }
+.health-pillar--orange .health-pillar__pct { color: #a85100; }
+.health-pillar--red    .health-pillar__pct { color: #c23934; }
+
+/* ── Security & License detail rows ─────────────────────────── */
+.health-sec__checks {
+    font-size: 0.72rem;
+    color: #555;
+    margin: 0.2rem 0 0.4rem;
+    padding-left: 0.25rem;
+    font-weight: 600;
+}
+.health-sec__finding {
+    font-size: 0.72rem;
+    color: #3e3e3c;
+    padding: 0.18rem 0.5rem;
+    border-left: 2px solid #dce3ed;
+    margin-bottom: 0.25rem;
+    background: #f8f9fb;
+    border-radius: 0 4px 4px 0;
+}
+.health-sec__finding:last-of-type {
+    margin-bottom: 0;
+}
+.health-lic__row {
+    font-size: 0.72rem;
+    color: #3e3e3c;
+    padding: 0.15rem 0.25rem;
+    white-space: pre-wrap;
+}
+
+/* ── License Detail — structured UI ─────────────────────────── */
+.lic-summary-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+}
+.lic-metric-card {
+    background: #f3f6fb;
+    border: 1px solid #dce3ed;
+    border-radius: 8px;
+    padding: 0.55rem 0.65rem;
+}
+.lic-metric-card__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.25rem;
+    margin-bottom: 0.3rem;
+    flex-wrap: wrap;
+}
+.lic-metric-card__title {
+    font-size: 0.63rem;
+    font-weight: 700;
+    color: #444;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.lic-metric-card__badge {
+    font-size: 0.58rem;
+    font-weight: 600;
+    border-radius: 20px;
+    padding: 0.1rem 0.45rem;
+    white-space: nowrap;
+}
+.lic-metric-card__badge--warn {
+    background: #fef1ee;
+    color: #c23934;
+    border: 1px solid #f5b3ae;
+}
+.lic-metric-card__badge--ok {
+    background: #e3f1e9;
+    color: #2e844a;
+    border: 1px solid #b7dfc6;
+}
+.lic-metric-card__nums {
+    display: flex;
+    align-items: baseline;
+    gap: 0.2rem;
+    margin-bottom: 0.35rem;
+}
+.lic-metric-card__used {
+    font-size: 1.25rem;
+    font-weight: 800;
+    color: #032D60;
+    line-height: 1;
+}
+.lic-metric-card__sep {
+    font-size: 0.8rem;
+    color: #aaa;
+    font-weight: 400;
+}
+.lic-metric-card__total {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #666;
+}
+.lic-metric-card__label {
+    font-size: 0.63rem;
+    color: #999;
+    margin-left: 0.1rem;
+}
+.lic-progress {
+    background: #dce3ed;
+    border-radius: 4px;
+    height: 5px;
+    overflow: hidden;
+    margin-bottom: 0.3rem;
+}
+.lic-progress__bar {
+    height: 100%;
+    background: linear-gradient(90deg, #0070D2, #032D60);
+    border-radius: 4px;
+    min-width: 3px;
+    transition: width 0.3s ease;
+}
+.lic-progress__bar--ul  { width: var(--ul-bar-width,  2%); }
+.lic-progress__bar--psl { width: var(--psl-bar-width, 2%); }
+.lic-metric-card__util {
+    font-size: 0.62rem;
+    color: #888;
+}
+
+/* ── Waste tables ───────────────────────────────────────────── */
+.lic-waste-section {
+    margin-bottom: 0.6rem;
+}
+.lic-waste-section__title {
+    font-size: 0.63rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #aaa;
+    margin-bottom: 0.25rem;
+}
+.lic-waste-table {
+    background: #fafafa;
+    border: 1px solid #ebebeb;
+    border-radius: 6px;
+    overflow: hidden;
+}
+.lic-waste-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.22rem 0.6rem;
+    border-bottom: 1px solid #f0f0f0;
+    gap: 0.5rem;
+}
+.lic-waste-row:last-child {
+    border-bottom: none;
+}
+.lic-waste-row__name {
+    font-size: 0.68rem;
+    color: #3e3e3c;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.lic-waste-row__qty {
+    font-size: 0.65rem;
+    font-weight: 600;
+    color: #c23934;
+    white-space: nowrap;
+    flex-shrink: 0;
+}

@@ -1,3 +1,4 @@
+@SuppressWarnings('PMD.ApexDoc,PMD.CognitiveComplexity,PMD.NcssMethodCount')
 public without sharing class DeleteFlowAction {
 
     public class DeleteFlowRequest {
@@ -37,5 +38,21 @@ public without sharing class DeleteFlowAction {
             return r;
         }
         return MetadataEngine.deleteFlowByApiName(flowApiName.trim());
+    }
+
+    // ── Mass delete: called by LWC for bulk operations ────────
+    @AuraEnabled(cacheable=false)
+    public static MetadataEngine.MassDeleteResult massDeleteFlowsDirect(List<String> flowApiNames) {
+        if (flowApiNames == null || flowApiNames.isEmpty()) {
+            MetadataEngine.MassDeleteResult r = new MetadataEngine.MassDeleteResult();
+            r.totalRequested = 0;
+            r.successCount   = 0;
+            r.failureCount   = 0;
+            r.succeeded      = new List<String>();
+            r.failed         = new List<String>();
+            r.summary        = 'No flow names provided.';
+            return r;
+        }
+        return MetadataEngine.massDeleteFlows(flowApiNames);
     }
 }

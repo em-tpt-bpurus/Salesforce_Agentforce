@@ -1,3 +1,4 @@
+@SuppressWarnings('PMD.ApexDoc,PMD.CognitiveComplexity,PMD.NcssMethodCount')
 public without sharing class MetadataAgentAction {
 
     public class FlowRequest {
@@ -20,6 +21,12 @@ public without sharing class MetadataAgentAction {
 
         @AuraEnabled @InvocableVariable(label='Inactive Count' description='Number of inactive flows')
         public String inactiveCount;
+
+        @AuraEnabled @InvocableVariable(label='Used Count' description='Number of flows actively in use (IN_USE, SCHEDULED, MANAGED)')
+        public String usedCount;
+
+        @AuraEnabled @InvocableVariable(label='Unused Count' description='Number of flows not actively in use (INACTIVE, SAFE_TO_REVIEW)')
+        public String unusedCount;
 
         @AuraEnabled @InvocableVariable(label='Active Flows' description='Numbered list of ALL active flows')
         public String activeFlows;
@@ -67,13 +74,15 @@ public without sharing class MetadataAgentAction {
         String filteredActiveList   = buildNumberedList(summary.filteredActiveFlows);
         String filteredInactiveList = buildNumberedList(summary.filteredInactiveFlows);
 
-        String  nsDisplay     = String.isNotBlank(namespaceFilter) ? namespaceFilter : 'None (showing all)';
+        String  nsDisplay     = String.isNotBlank(namespaceFilter) ? namespaceFilter : MetadataConstants.NS_ALL;
         Integer filteredTotal = summary.filteredTotal != null ? summary.filteredTotal : 0;
 
         FlowOutput output             = new FlowOutput();
         output.totalCount             = String.valueOf(summary.total);
         output.activeCount            = String.valueOf(summary.active);
         output.inactiveCount          = String.valueOf(summary.inactive);
+        output.usedCount              = String.valueOf(summary.used   != null ? summary.used   : 0);
+        output.unusedCount            = String.valueOf(summary.unused != null ? summary.unused : 0);
         output.activeFlows            = activeList;
         output.inactiveFlows          = inactiveList;
         output.filteredCount          = String.valueOf(filteredTotal);
@@ -81,12 +90,28 @@ public without sharing class MetadataAgentAction {
         output.filteredActiveFlows    = filteredActiveList;
         output.filteredInactiveFlows  = filteredInactiveList;
         output.allFlowObjects         = summary.allFlowObjects;
+        // Build combined ALL flows list (active first, then inactive)
+        String allFlowsList = '';
+        Integer allFIdx = 1;
+        if (summary.allFlowObjects != null) {
+            for (MetadataEngine.FlowInfo info : summary.allFlowObjects) {
+                allFlowsList += allFIdx++ + '. ' + info.label +
+                    ' (' + info.apiName + ')' +
+                    (String.isNotBlank(info.processType) ? ' [' + info.processType + ']' : '') +
+                    (info.isActive ? ' [ACTIVE]' : ' [INACTIVE]') + '\n';
+            }
+        }
+        if (String.isBlank(allFlowsList)) {
+            allFlowsList = MetadataConstants.NONE;
+        }
+
         output.summary =
             'This org has ' + summary.total + ' flows in total. ' +
             summary.active + ' are active and ' + summary.inactive + ' are inactive.\n\n' +
             'Namespace Filter: ' + nsDisplay + '\n\n' +
-            '--- ACTIVE FLOWS (' + summary.active + ') ---\n' + activeList + '\n' +
-            '--- INACTIVE FLOWS (' + summary.inactive + ') ---\n' + inactiveList +
+            '--- ALL FLOWS (' + summary.total + ') ---\n' + allFlowsList + '\n' +
+            MetadataConstants.SEC_ACTIVE_FLOWS + ' (' + summary.active + ') ---\n' + activeList + '\n' +
+            MetadataConstants.SEC_INACTIVE_FLOWS + ' (' + summary.inactive + ') ---\n' + inactiveList +
             (String.isNotBlank(namespaceFilter)
                 ? '\n\n--- FILTERED BY NAMESPACE: ' + namespaceFilter + ' (' + filteredTotal + ') ---\n' +
                   'Active:\n' + filteredActiveList + '\nInactive:\n' + filteredInactiveList
@@ -98,7 +123,7 @@ public without sharing class MetadataAgentAction {
 
     private static String buildNumberedList(List<String> items) {
         if (items == null || items.isEmpty()) {
-            return 'None';
+            return MetadataConstants.NONE;
         }
         String result = '';
         for (Integer i = 0; i < items.size(); i++) {

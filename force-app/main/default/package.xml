@@ -22,11 +22,13 @@
         <members>DeleteValidationRuleAction</members>
         <members>DeletePermissionSetAction</members>
         <members>DeactivateProfileAction</members>
+        <members>MetadataConstants</members>
+        <members>OrgCleanupAgentAction</members>
         <name>ApexClass</name>
     </types>
     <types>
         <members>metadataDashboard</members>
         <name>LightningComponentBundle</name>
     </types>
-    <version>60.0</version>
+    <version>62.0</version>
 </Package>

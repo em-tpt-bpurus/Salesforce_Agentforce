@@ -1,4 +1,4 @@
-@SuppressWarnings('PMD.CognitiveComplexity')
+@SuppressWarnings('PMD.CognitiveComplexity,PMD.ApexDoc')
 public without sharing class AuraAgentAction {
 
     public class AuraRequest {
@@ -31,6 +31,12 @@ public without sharing class AuraAgentAction {
         @AuraEnabled @InvocableVariable(label='Filtered Components' description='Numbered list of namespace-filtered Aura components')
         public String filteredComponents;
 
+        @AuraEnabled @InvocableVariable(label='Unreferenced Count' description='Number of Aura components not referenced in any app or component')
+        public String unreferencedCount;
+
+        @AuraEnabled @InvocableVariable(label='Unreferenced Components' description='Numbered list of Aura components with no references — safe to review')
+        public String unreferencedComponents;
+
         @AuraEnabled
         public List<MetadataEngine.AuraComponentInfo> allAuraObjects;
     }
@@ -55,34 +61,48 @@ public without sharing class AuraAgentAction {
         MetadataEngine.AuraSummary summary = MetadataEngine.getAuraComponents(namespaceFilter);
 
         String allList = '';
+        String unreferencedList = '';
         if (summary.allComponents == null || summary.allComponents.isEmpty()) {
-            allList = 'None';
+            allList = MetadataConstants.NONE;
         } else {
             for (Integer i = 0; i < summary.allComponents.size(); i++) {
                 MetadataEngine.AuraComponentInfo info = summary.allComponents[i];
+                String refInfo = (info.isReferenced != null)
+                    ? (info.isReferenced ? ' | Referenced: Yes' : ' | Unreferenced')
+                    : '';
                 allList += (i + 1) + '. ' + info.name +
-                           (String.isNotBlank(info.namespacePrefix) ? ' [' + info.namespacePrefix + ']' : '') +
-                           ' | API: ' + (String.isNotBlank(info.apiVersion) ? info.apiVersion : 'N/A') +
-                           ' | Modified: ' + (String.isNotBlank(info.lastModifiedDate) ? info.lastModifiedDate : 'N/A') + '\n';
+                           '' +
+                           MetadataConstants.COL_API + (String.isNotBlank(info.apiVersion) ? info.apiVersion : MetadataConstants.NA) +
+                           refInfo + '\n';
             }
+        }
+        if (summary.unreferencedComponents != null && !summary.unreferencedComponents.isEmpty()) {
+            for (Integer i = 0; i < summary.unreferencedComponents.size(); i++) {
+                MetadataEngine.AuraComponentInfo info = summary.unreferencedComponents[i];
+                unreferencedList += (i + 1) + '. ' + info.name +
+                    '' +
+                    MetadataConstants.COL_API + (String.isNotBlank(info.apiVersion) ? info.apiVersion : MetadataConstants.NA) + '\n';
+            }
+        } else {
+            unreferencedList = MetadataConstants.NONE;
         }
 
         String filteredList = '';
         if (summary.filteredComponents == null || summary.filteredComponents.isEmpty()) {
             filteredList = String.isNotBlank(namespaceFilter)
                 ? 'No Aura components found with namespace: ' + namespaceFilter
-                : 'None';
+                : MetadataConstants.NONE;
         } else {
             for (Integer i = 0; i < summary.filteredComponents.size(); i++) {
                 MetadataEngine.AuraComponentInfo info = summary.filteredComponents[i];
                 filteredList += (i + 1) + '. ' + info.name +
-                                (String.isNotBlank(info.namespacePrefix) ? ' [' + info.namespacePrefix + ']' : '') +
-                                ' | API: ' + (String.isNotBlank(info.apiVersion) ? info.apiVersion : 'N/A') +
-                                ' | Modified: ' + (String.isNotBlank(info.lastModifiedDate) ? info.lastModifiedDate : 'N/A') + '\n';
+                                '' +
+                                MetadataConstants.COL_API + (String.isNotBlank(info.apiVersion) ? info.apiVersion : MetadataConstants.NA) +
+                                MetadataConstants.COL_MODIFIED + (String.isNotBlank(info.lastModifiedDate) ? info.lastModifiedDate : MetadataConstants.NA) + '\n';
             }
         }
 
-        String nsDisplay = String.isNotBlank(namespaceFilter) ? namespaceFilter : 'None (showing all)';
+        String nsDisplay = String.isNotBlank(namespaceFilter) ? namespaceFilter : MetadataConstants.NS_ALL;
 
         AuraOutput output             = new AuraOutput();
         output.totalCount             = String.valueOf(summary.total);
@@ -93,19 +113,33 @@ public without sharing class AuraAgentAction {
         output.namespaceFilterApplied = nsDisplay;
         output.allComponents          = allList;
         output.filteredComponents     = filteredList;
+        output.unreferencedCount      = String.valueOf(summary.unreferencedCount != null ? summary.unreferencedCount : 0);
+        output.unreferencedComponents = unreferencedList;
         output.summary =
-            'This org has ' + summary.total + ' Aura components in total. ' +
+            'This org has ' + summary.total + ' Aura components. ' +
             summary.withNamespace + ' have a namespace prefix, ' +
-            summary.withoutNamespace + ' do not.\n\n' +
+            summary.withoutNamespace + ' do not. ' +
+            output.unreferencedCount + ' are unreferenced (not used in any app or component).\n\n' +
             'Namespace Filter: ' + nsDisplay + '\n' +
             'Matching Components: ' + output.filteredCount + '\n\n' +
-            '--- ALL AURA COMPONENTS (' + summary.total + ') ---\n' + allList + '\n' +
+            MetadataConstants.SEC_ALL_COMPONENTS + ' AURA COMPONENTS (' + summary.total + ') ---\n' + allList + '\n' +
+            MetadataConstants.SEC_UNREFERENCED_AURA + ' (' + output.unreferencedCount + ') ---\n' + unreferencedList + '\n' +
             (String.isNotBlank(namespaceFilter)
-                ? '--- FILTERED BY NAMESPACE: ' + namespaceFilter + ' (' + output.filteredCount + ') ---\n' + filteredList
+                ? MetadataConstants.SEC_FILTERED_NS + namespaceFilter + ' (' + output.filteredCount + ') ---\n' + filteredList
                 : '');
 
         output.allAuraObjects = summary.allComponents;
         System.debug('AURA SUMMARY: ' + output.summary);
         return output;
+    }
+
+    // ── Returns Governance App Registry records for namespace/app mapping ──
+    @AuraEnabled(cacheable=true)
+    public static List<Governance_App_Registry__mdt> getGovernanceRegistry() {
+        return [
+            SELECT Label, Namespace__c, Prefix_Patterns__c, Metadata_Types__c, Is_Active__c
+            FROM Governance_App_Registry__mdt
+            WHERE Is_Active__c = true WITH SECURITY_ENFORCED
+        ];
     }
 }

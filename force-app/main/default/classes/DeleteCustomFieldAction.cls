@@ -1,3 +1,4 @@
+@SuppressWarnings('PMD.ApexDoc,PMD.CognitiveComplexity,PMD.NcssMethodCount')
 public without sharing class DeleteCustomFieldAction {
 
     public class DeleteFieldRequest {
@@ -20,18 +21,15 @@ public without sharing class DeleteCustomFieldAction {
     @InvocableMethod(label='Delete Custom Field' description='Deletes a custom field by Object and Field DeveloperName')
     public static List<DeleteFieldOutput> deleteField(List<DeleteFieldRequest> requests) {
         List<DeleteFieldOutput> outputs = new List<DeleteFieldOutput>();
-
         for (DeleteFieldRequest req : requests) {
             DeleteFieldOutput out = new DeleteFieldOutput();
-
             if (String.isBlank(req.objectName) || String.isBlank(req.fieldName)) {
                 out.success = false;
                 out.message = 'Both Object Name and Field Name must be provided.';
             } else {
                 try {
                     MetadataEngine.DeleteResult r = MetadataEngine.deleteCustomFieldByName(
-                        req.objectName.trim(),
-                        req.fieldName.trim()
+                        req.objectName.trim(), req.fieldName.trim()
                     );
                     out.success = r.success;
                     out.message = r.message;
@@ -40,7 +38,6 @@ public without sharing class DeleteCustomFieldAction {
                     out.message = 'Unexpected error: ' + e.getMessage();
                 }
             }
-
             outputs.add(out);
         }
         return outputs;
@@ -50,17 +47,14 @@ public without sharing class DeleteCustomFieldAction {
     @AuraEnabled(cacheable=false)
     public static DeleteFieldOutput deleteFieldFromLWC(String objectName, String fieldName) {
         DeleteFieldOutput out = new DeleteFieldOutput();
-
         if (String.isBlank(objectName) || String.isBlank(fieldName)) {
             out.success = false;
             out.message = 'Both Object Name and Field Name must be provided.';
             return out;
         }
-
         try {
             MetadataEngine.DeleteResult r = MetadataEngine.deleteCustomFieldByName(
-                objectName.trim(),
-                fieldName.trim()
+                objectName.trim(), fieldName.trim()
             );
             out.success = r.success;
             out.message = r.message;
@@ -68,7 +62,19 @@ public without sharing class DeleteCustomFieldAction {
             out.success = false;
             out.message = 'Unexpected error: ' + e.getMessage();
         }
-
         return out;
+    }
+
+    // ── Mass delete: called by LWC — names must be "Object.Field" format ──
+    @AuraEnabled(cacheable=false)
+    public static MetadataEngine.MassDeleteResult massDeleteCustomFieldsDirect(List<String> dotNames) {
+        if (dotNames == null || dotNames.isEmpty()) {
+            MetadataEngine.MassDeleteResult r = new MetadataEngine.MassDeleteResult();
+            r.totalRequested = 0; r.successCount = 0; r.failureCount = 0;
+            r.succeeded = new List<String>(); r.failed = new List<String>();
+            r.summary = 'No field names provided.';
+            return r;
+        }
+        return MetadataEngine.massDeleteCustomFields(dotNames);
     }
 }

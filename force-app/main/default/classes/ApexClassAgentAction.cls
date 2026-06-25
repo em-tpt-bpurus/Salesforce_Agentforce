@@ -1,4 +1,4 @@
-@SuppressWarnings('PMD.CognitiveComplexity')
+@SuppressWarnings('PMD.CognitiveComplexity,PMD.NcssMethodCount,PMD.ApexDoc')
 public without sharing class ApexClassAgentAction {
 
     public class ApexRequest {
@@ -55,6 +55,123 @@ public without sharing class ApexClassAgentAction {
         public List<MetadataEngine.ApexClassInfo> unusedApexObjects;
     }
 
+
+    public class ApexReferencesRequest {
+        @InvocableVariable(label='Class Name' description='The Apex class name to look up references for')
+        public String className;
+    }
+
+    public class ApexReferencesOutput {
+        @AuraEnabled @InvocableVariable(label='Report' description='Full formatted reference report')
+        public String report;
+
+        @AuraEnabled @InvocableVariable(label='Has References' description='True if the class has any references')
+        public Boolean hasReferences;
+
+        @AuraEnabled @InvocableVariable(label='Total Reference Count' description='Total number of references found')
+        public Integer totalReferenceCount;
+
+        @AuraEnabled @InvocableVariable(label='Flows' description='Flows that reference this class')
+        public String flows;
+
+        @AuraEnabled @InvocableVariable(label='Triggers' description='Triggers that reference this class')
+        public String triggers;
+
+        @AuraEnabled @InvocableVariable(label='Test Classes' description='Test classes for this class')
+        public String testClasses;
+
+        @AuraEnabled @InvocableVariable(label='Apex Classes' description='Other Apex classes that reference this class')
+        public String apexClasses;
+
+        @AuraEnabled @InvocableVariable(label='LWC Components' description='LWC components that reference this class')
+        public String lwcComponents;
+
+        @AuraEnabled @InvocableVariable(label='Aura Components' description='Aura components that reference this class')
+        public String auraComponents;
+
+        @AuraEnabled @InvocableVariable(label='Agent Actions' description='Generative AI / Agent Actions using this class')
+        public String agentActions;
+
+        @AuraEnabled @InvocableVariable(label='Agent Topics' description='Generative AI / Agent Topics using this class')
+        public String agentTopics;
+
+        @AuraEnabled @InvocableVariable(label='Other References' description='Any other reference types')
+        public String otherReferences;
+    }
+
+    @AuraEnabled(cacheable=false)
+    public static List<ApexReferencesOutput> getReferences(List<ApexReferencesRequest> requests) {
+        String className = (requests != null && !requests.isEmpty() && requests[0] != null)
+            ? requests[0].className : null;
+        return new List<ApexReferencesOutput>{ buildReferencesOutput(className) };
+    }
+
+    @AuraEnabled(cacheable=false)
+    public static ApexReferencesOutput getApexClassReferences(String className) {
+        return buildReferencesOutput(className);
+    }
+
+    private static ApexReferencesOutput buildReferencesOutput(String className) {
+        // Run ALL 16 reference checks so the chatbot sees every blocking reference:
+        //   1.  MetadataComponentDependency  — Flows, LWC, Aura, VF, FlexiPages, Triggers...
+        //   2.  SymbolTable (Apex-to-Apex)   — classes calling/extending/implementing this class
+        //   3.  Live Scheduled Jobs          — CronTrigger + AsyncApexJob (ScheduledApex)
+        //   4.  Active Batch/Queueable jobs  — AsyncApexJob (Queued/Processing)
+        //   5.  Approval Processes
+        //   6.  Assignment Rules
+        //   7.  Escalation Rules
+        //   8.  Auto-Response Rules
+        //   9.  Email Services               — EmailServicesFunction handler
+        //  10.  Test Classes + Test Suite Membership
+        //  11.  Sharing Rules
+        //  12.  Experience Cloud / Sites
+        //  13.  Custom Metadata Records
+        //  14.  Reports & Dashboards
+        //  15.  LWC Static Resource advisory
+        //  16.  Permission Sets & Profiles   — SetupEntityAccess
+        MetadataEngine.ApexReferenceCheckResult allRefs = MetadataEngine.checkAllApexReferences(className);
+
+        ApexReferencesOutput out = new ApexReferencesOutput();
+        out.report              = allRefs.formattedReport;
+        out.hasReferences       = allRefs.hasBlockingReferences;
+        out.totalReferenceCount = allRefs.referenceCount;
+
+        // Build per-group string fields from the full references list
+        Map<String, String> groupMap = new Map<String, String>();
+        Integer idx = 1;
+        for (MetadataEngine.ReferenceItem item : allRefs.references) {
+            String key  = item.groupLabel != null ? item.groupLabel : 'Other';
+            String line = idx++ + '. ' + item.name + '\n';
+            groupMap.put(key, (groupMap.containsKey(key) ? groupMap.get(key) : '') + line);
+        }
+
+        out.flows          = groupMap.get('Flows');
+        out.triggers       = groupMap.get('Triggers');
+        out.testClasses    = groupMap.get('Test Classes');
+        out.apexClasses    = groupMap.get('Apex Classes');
+        out.lwcComponents  = groupMap.get('LWC Components');
+        out.auraComponents = groupMap.get('Aura Components');
+        out.agentActions   = groupMap.get('Agentforce - Agent Actions');
+        out.agentTopics    = groupMap.get('Agentforce - Topics');
+
+        // Collect everything else (Permission Sets, Profiles, Email Services, etc.) into otherReferences
+        Set<String> knownGroups = new Set<String>{
+            'Flows', 'Triggers', 'Test Classes', 'Apex Classes', 'LWC Components',
+            'Aura Components', 'Agentforce - Agent Actions', 'Agentforce - Topics'
+        };
+        String others = '';
+        for (String grp : groupMap.keySet()) {
+            if (!knownGroups.contains(grp)) {
+                others += grp + ':\n' + groupMap.get(grp) + '\n';
+            }
+        }
+        if (String.isNotBlank(others)) {
+            out.otherReferences = others;
+        }
+
+        return out;
+    }
+
     // ── Called by Agentforce via @InvocableMethod ──────────────
     @InvocableMethod(label='Apex Class Metadata' description='Returns full Apex Class Summary with namespace filtering for Agentforce')
     public static List<ApexOutput> run(List<ApexRequest> requests) {
@@ -70,70 +187,118 @@ public without sharing class ApexClassAgentAction {
         return buildOutput(namespaceFilter);
     }
 
+    // ── Build individual category lists ───────────────────────
+    private static String buildStandardList(MetadataEngine.ApexSummary summary) {
+        if (summary.standardClassNames == null || summary.standardClassNames.isEmpty()) {
+            return MetadataConstants.NONE;
+        }
+        String result = '';
+        for (Integer i = 0; i < summary.standardClassNames.size(); i++) {
+            result += (i + 1) + '. ' + summary.standardClassNames[i] + '\n';
+        }
+        return result;
+    }
+
+    private static String buildUsedList(MetadataEngine.ApexSummary summary) {
+        if (summary.usedClassNames == null || summary.usedClassNames.isEmpty()) {
+            return MetadataConstants.NONE;
+        }
+        String result = '';
+        for (Integer i = 0; i < summary.usedClassNames.size(); i++) {
+            result += (i + 1) + '. ' + summary.usedClassNames[i] + '\n';
+        }
+        return result;
+    }
+
+    private static String buildUnusedList(MetadataEngine.ApexSummary summary) {
+        if (summary.unusedClasses == null || summary.unusedClasses.isEmpty()) {
+            return MetadataConstants.NONE;
+        }
+        String result = '';
+        for (Integer i = 0; i < summary.unusedClasses.size(); i++) {
+            MetadataEngine.ApexClassInfo info = summary.unusedClasses[i];
+            // Append [PS] tag if the class is granted in a Permission Set or Profile.
+            // This signals the LWC to show a ⚠️ badge — class is UNUSED by code
+            // but actively referenced in org security setup; verify before deleting.
+            String psTag = (info.hasPermSetAccess == true) ? ' | PS_ACCESS' : '';
+            result += (i + 1) + '. ' + info.name +
+                      MetadataConstants.COL_LINES + info.linesOfCode +
+                      ' | Last Modified: ' + info.lastModifiedDate + psTag + '\n';
+        }
+        return result;
+    }
+
+    private static String buildTestList(MetadataEngine.ApexSummary summary) {
+        if (summary.testClassNames == null || summary.testClassNames.isEmpty()) {
+            return MetadataConstants.NONE;
+        }
+        String result = '';
+        for (Integer i = 0; i < summary.testClassNames.size(); i++) {
+            result += (i + 1) + '. ' + summary.testClassNames[i] + '\n';
+        }
+        return result;
+    }
+
+    private static String buildFilteredList(MetadataEngine.ApexSummary summary, String namespaceFilter) {
+        if (summary.filteredClasses == null || summary.filteredClasses.isEmpty()) {
+            return String.isNotBlank(namespaceFilter)
+                ? 'No Apex classes found with namespace: ' + namespaceFilter
+                : MetadataConstants.NONE;
+        }
+        String result = '';
+        for (Integer i = 0; i < summary.filteredClasses.size(); i++) {
+            MetadataEngine.ApexClassInfo info = summary.filteredClasses[i];
+            result += (i + 1) + '. ' + info.name +
+                      (info.linesOfCode != null && info.linesOfCode > 0
+                          ? MetadataConstants.COL_LINES + info.linesOfCode : '') +
+                      (String.isNotBlank(info.lastModifiedDate)
+                          ? ' | Last Modified: ' + info.lastModifiedDate : '') + '\n';
+        }
+        return result;
+    }
+
+    private static String buildAllApexList(MetadataEngine.ApexSummary summary) {
+        String result = '';
+        Integer idx = 1;
+        if (summary.usedClassNames != null) {
+            for (String n : summary.usedClassNames) {
+                result += idx++ + '. ' + n + ' [USED]\n';
+            }
+        }
+        if (summary.unusedClasses != null) {
+            for (MetadataEngine.ApexClassInfo info : summary.unusedClasses) {
+                result += idx++ + '. ' + info.name +
+                    MetadataConstants.COL_LINES + info.linesOfCode +
+                    ' | Last Modified: ' + info.lastModifiedDate + ' [UNUSED]\n';
+            }
+        }
+        if (summary.testClassNames != null) {
+            for (String n : summary.testClassNames) {
+                result += idx++ + '. ' + n + ' [TEST]\n';
+            }
+        }
+        if (summary.standardClassNames != null) {
+            for (String n : summary.standardClassNames) {
+                result += idx++ + '. ' + n + ' [STANDARD/PACKAGE]\n';
+            }
+        }
+        return String.isBlank(result) ? MetadataConstants.NONE : result;
+    }
+
     // ── Shared logic ──────────────────────────────────────────
     private static ApexOutput buildOutput(String namespaceFilter) {
         MetadataEngine.ApexSummary summary = MetadataEngine.getApexClasses(namespaceFilter);
 
-        String standardList = '';
-        if (summary.standardClassNames == null || summary.standardClassNames.isEmpty()) {
-            standardList = 'None';
-        } else {
-            for (Integer i = 0; i < summary.standardClassNames.size(); i++) {
-                standardList += (i + 1) + '. ' + summary.standardClassNames[i] + '\n';
-            }
-        }
-
-        String usedList = '';
-        if (summary.usedClassNames.isEmpty()) {
-            usedList = 'None';
-        } else {
-            for (Integer i = 0; i < summary.usedClassNames.size(); i++) {
-                usedList += (i + 1) + '. ' + summary.usedClassNames[i] + '\n';
-            }
-        }
-
-        String unusedList = '';
-        if (summary.unusedClasses.isEmpty()) {
-            unusedList = 'None';
-        } else {
-            for (Integer i = 0; i < summary.unusedClasses.size(); i++) {
-                MetadataEngine.ApexClassInfo info = summary.unusedClasses[i];
-                unusedList += (i + 1) + '. ' + info.name +
-                              ' | Lines: ' + info.linesOfCode +
-                              ' | Last Modified: ' + info.lastModifiedDate + '\n';
-            }
-        }
-
-        String testList = '';
-        if (summary.testClassNames == null || summary.testClassNames.isEmpty()) {
-            testList = 'None';
-        } else {
-            for (Integer i = 0; i < summary.testClassNames.size(); i++) {
-                testList += (i + 1) + '. ' + summary.testClassNames[i] + '\n';
-            }
-        }
-
-        // Namespace-filtered list
-        String filteredList = '';
-        Integer filteredTotal = summary.filteredTotal != null ? summary.filteredTotal : 0;
-        if (summary.filteredClasses == null || summary.filteredClasses.isEmpty()) {
-            filteredList = String.isNotBlank(namespaceFilter)
-                ? 'No Apex classes found with namespace: ' + namespaceFilter
-                : 'None';
-        } else {
-            for (Integer i = 0; i < summary.filteredClasses.size(); i++) {
-                MetadataEngine.ApexClassInfo info = summary.filteredClasses[i];
-                filteredList += (i + 1) + '. ' + info.name +
-                                (info.linesOfCode != null && info.linesOfCode > 0
-                                    ? ' | Lines: ' + info.linesOfCode : '') +
-                                (String.isNotBlank(info.lastModifiedDate)
-                                    ? ' | Last Modified: ' + info.lastModifiedDate : '') + '\n';
-            }
-        }
-
-        String nsDisplay = String.isNotBlank(namespaceFilter) ? namespaceFilter : 'None (showing all)';
-        Integer stdCount = summary.standardClassNames != null ? summary.standardClassNames.size() : 0;
-        Integer tstCount = summary.testClassNames     != null ? summary.testClassNames.size()     : 0;
+        String  standardList  = buildStandardList(summary);
+        String  usedList      = buildUsedList(summary);
+        String  unusedList    = buildUnusedList(summary);
+        String  testList      = buildTestList(summary);
+        String  filteredList  = buildFilteredList(summary, namespaceFilter);
+        String  allApexList   = buildAllApexList(summary);
+        String  nsDisplay     = String.isNotBlank(namespaceFilter) ? namespaceFilter : MetadataConstants.NS_ALL;
+        Integer stdCount      = summary.standardClassNames != null ? summary.standardClassNames.size() : 0;
+        Integer tstCount      = summary.testClassNames     != null ? summary.testClassNames.size()     : 0;
+        Integer filteredTotal = summary.filteredTotal      != null ? summary.filteredTotal              : 0;
 
         ApexOutput output             = new ApexOutput();
         output.totalCount             = String.valueOf(summary.total);
@@ -151,15 +316,19 @@ public without sharing class ApexClassAgentAction {
         output.summary =
             'This org has ' + summary.total + ' Apex classes in total.\n\n' +
             'Namespace Filter: ' + nsDisplay + '\n\n' +
-            '--- STANDARD / PACKAGE CLASSES (' + stdCount + ') — Do NOT delete ---\n' + standardList + '\n' +
-            '--- CUSTOM USED CLASSES (' + summary.used + ') — Actively in use ---\n' + usedList + '\n' +
-            '--- CUSTOM UNUSED CLASSES (' + summary.unused + ') — Safe to delete ---\n' + unusedList + '\n' +
-            '--- TEST CLASSES (' + tstCount + ') — Do NOT delete ---\n' + testList +
+            '--- ALL APEX CLASSES (' + summary.total + ') ---\n' + allApexList + '\n' +
+            MetadataConstants.SEC_USED_CLASSES + ' (' + summary.used + MetadataConstants.SEC_HINT_IN_USE + usedList + '\n' +
+            MetadataConstants.SEC_UNUSED_CLASSES + ' (' + summary.unused + MetadataConstants.SEC_HINT_SAFE_DELETE + unusedList + '\n' +
+            MetadataConstants.SEC_TEST_CLASSES + ' (' + tstCount + MetadataConstants.SEC_HINT_NO_DELETE + testList + '\n' +
+            MetadataConstants.SEC_STANDARD_CLASSES + ' (' + stdCount + MetadataConstants.SEC_HINT_NO_DELETE + standardList +
             (String.isNotBlank(namespaceFilter)
                 ? '\n\n--- FILTERED BY NAMESPACE: ' + namespaceFilter + ' (' + filteredTotal + ') ---\n' + filteredList
                 : '');
 
-        output.allApexObjects    = summary.filteredClasses;
+        output.allApexObjects = new List<MetadataEngine.ApexClassInfo>();
+        if (summary.unusedClasses != null) {
+            output.allApexObjects.addAll(summary.unusedClasses);
+        }
         output.unusedApexObjects = summary.unusedClasses;
         System.debug('APEX SUMMARY : ' + output.summary);
         return output;
