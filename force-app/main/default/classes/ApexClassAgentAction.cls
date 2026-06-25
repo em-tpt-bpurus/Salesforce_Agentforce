@@ -217,9 +217,13 @@ public without sharing class ApexClassAgentAction {
         String result = '';
         for (Integer i = 0; i < summary.unusedClasses.size(); i++) {
             MetadataEngine.ApexClassInfo info = summary.unusedClasses[i];
+            // Append [PS] tag if the class is granted in a Permission Set or Profile.
+            // This signals the LWC to show a ⚠️ badge — class is UNUSED by code
+            // but actively referenced in org security setup; verify before deleting.
+            String psTag = (info.hasPermSetAccess == true) ? ' | PS_ACCESS' : '';
             result += (i + 1) + '. ' + info.name +
                       MetadataConstants.COL_LINES + info.linesOfCode +
-                      ' | Last Modified: ' + info.lastModifiedDate + '\n';
+                      ' | Last Modified: ' + info.lastModifiedDate + psTag + '\n';
         }
         return result;
     }

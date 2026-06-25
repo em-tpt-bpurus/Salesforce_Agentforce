@@ -20,6 +20,7 @@ import findReferencesForVfPage  from '@salesforce/apex/DeleteVfPageAction.findRe
 
 // Agent actions — new backend class
 import handleAgentQuery         from '@salesforce/apex/OrgCleanupAgentAction.handleAgentQuery';
+import getCombinedScore          from '@salesforce/apex/OrgHealthScoreEngine.getCombinedScore';
 import checkReferences          from '@salesforce/apex/OrgCleanupAgentAction.checkReferences';
 import deleteApexClass          from '@salesforce/apex/DeleteApexClassAction.deleteApexClassDirect';
 import massDeleteApexClasses    from '@salesforce/apex/DeleteApexClassAction.massDeleteApexClassesDirect';
@@ -259,34 +260,25 @@ export default class MetadataDashboard extends LightningElement {
     // Background-only org health fetch — populates _agentIssueCount + _agentHealthScore
     // so the gauge is accurate on first paint. Does NOT add a message to the chat.
     _prefetchOrgHealth() {
-        // eslint-disable-next-line no-console
-        console.log('[OrgHealth Prefetch] Starting...');
-        handleAgentQuery({ userQuery: 'org health' })
-            .then(response => {
-                // eslint-disable-next-line no-console
-                console.log('[OrgHealth Prefetch] Got response, type:', typeof response, 'preview:', String(response).substring(0, 200));
-                if (!response) return;
-                const text = typeof response === 'string' ? response : (response.message || response.text || JSON.stringify(response));
-                if (!text) return;
-                const parsed = this._parseOrgHealth(text);
-                // eslint-disable-next-line no-console
-                console.log('[OrgHealth Prefetch] Parsed result:', JSON.stringify(parsed));
-                if (!parsed) return;
-                const issues = parseInt(parsed.totalIssues, 10);
-                if (!isNaN(issues)) {
-                    this._agentIssueCount = issues;
-                    // eslint-disable-next-line no-console
-                    console.log('[OrgHealth Prefetch] Set _agentIssueCount =', issues);
+        // Silently fetch the combined health score using the structured Apex method —
+        // avoids going through handleAgentQuery (which triggers Agentforce / adds a chat message).
+        // Only updates the gauge numbers; never adds a visible message to the chat.
+        const metadataIssues = this.liveIssueCount;
+        const metadataScore  = Math.max(0, Math.round(100 - Math.min(metadataIssues / 2, 100)));
+        getCombinedScore({ metadataScore })
+            .then(result => {
+                if (!result) return;
+                if (result.combinedScore != null && !isNaN(result.combinedScore)) {
+                    this._agentHealthScore = result.combinedScore;
                 }
-                if (parsed.scorePct != null && !isNaN(parsed.scorePct)) {
-                    this._agentHealthScore = parsed.scorePct;
-                    // eslint-disable-next-line no-console
-                    console.log('[OrgHealth Prefetch] Set _agentHealthScore =', parsed.scorePct);
+                // Derive issue count from scores — (100 - score) * 2 approximation
+                const inferredIssues = Math.round((100 - (result.combinedScore || 50)) * 2);
+                if (inferredIssues > this._agentIssueCount || this._agentIssueCount === null) {
+                    this._agentIssueCount = inferredIssues;
                 }
             })
-            .catch(err => {
-                // eslint-disable-next-line no-console
-                console.error('[OrgHealth Prefetch] FAILED:', err && err.body ? err.body.message : err);
+            .catch(() => {
+                // Silently ignore — gauge falls back to locally computed values
             });
     }
 
@@ -428,14 +420,26 @@ export default class MetadataDashboard extends LightningElement {
             const parsed = parseInt(orgHealth.totalIssues, 10);
             if (!isNaN(parsed)) this._agentIssueCount = parsed;
 
-            // NEW: if agent included an explicit percentage (format "55% — Cleanup Recommended"),
-            // use it directly. This is the cleanliness percentage that improves as items get deleted.
-            // Falls back to legacy issue-count formula for backwards compat with older agent output.
-            if (orgHealth.scorePct != null && !isNaN(orgHealth.scorePct)) {
-                this._agentHealthScore = orgHealth.scorePct;
-            } else {
-                // Legacy: 0 issues=100, 200+ issues=0
-                this._agentHealthScore = isNaN(parsed) ? null : Math.max(0, Math.round(100 - Math.min(parsed / 2, 100)));
+            // FIX: The gauge must always show the true weighted combined score
+            // (40% Metadata + 35% Security + 25% License) already fetched from
+            // OrgHealthScoreEngine.getCombinedScore() via _prefetchOrgHealth().
+            // The report text contains a metadata-only derived score (e.g. 31%)
+            // which is lower than the combined score (e.g. 57%) and must NOT
+            // overwrite the accurate prefetched value.
+            // Only set from the report text if no prefetch score exists yet.
+            if (this._agentHealthScore === null) {
+                if (orgHealth.scorePct != null && !isNaN(orgHealth.scorePct)) {
+                    this._agentHealthScore = orgHealth.scorePct;
+                } else {
+                    this._agentHealthScore = isNaN(parsed) ? null : Math.max(0, Math.round(100 - Math.min(parsed / 2, 100)));
+                }
+            }
+
+            // Inject CSS vars for progress bar widths (LWC blocks inline style bindings)
+            if (orgHealth.licData && orgHealth.licData.summary) {
+                const s = orgHealth.licData.summary;
+                this.template.host.style.setProperty('--ul-bar-width',  `${s.ulUsedPct  || 2}%`);
+                this.template.host.style.setProperty('--psl-bar-width', `${s.pslUtil    || 2}%`);
             }
 
             // Store parsed org health for export
@@ -505,11 +509,17 @@ export default class MetadataDashboard extends LightningElement {
         const summaryRows = [];
         let inSummary = false;
         for (const l of lines) {
+            // Apex backend: section starts at "PILLAR 1 — METADATA" or "Org Size Summary"
             if (/org size summary/i.test(l))                    { inSummary = true;  continue; }
+            if (/pillar\s+1.*metadata/i.test(l))                { inSummary = true;  continue; }
+            // End of summary section
+            if (/pillar\s+[23]/i.test(l))                       { inSummary = false; }
             if (/prioritized|cleanup rec|looks clean/i.test(l)) { inSummary = false; }
             if (!inSummary) continue;
             const raw = l.trim();
             if (!raw) continue;
+            // Skip the "Total issues: X out of Y" line — not a summary row
+            if (/total issues/i.test(raw)) continue;
 
             // Format 1 — "Flows  85 (51 active, 34 inactive)"  (2+ space gap)
             const parenMatch = raw.match(/^([A-Za-z][\w\s,]+?)\s{2,}(\d.*)$/);
@@ -598,7 +608,116 @@ export default class MetadataDashboard extends LightningElement {
                        :                        'health-rec health-rec--low';
         });
 
-        return { score, scorePct, scoreClass, totalIssues, summaryRows, hasSummaryRows, recs };
+        // ── Pillar Breakdown (from banner lines) ─────────────────────────────
+        // Apex format: "  🗂️  Metadata Score  : 31%  🔴 Critical  (40% weight)"
+        // Strip emojis from status — capture only the plain English word(s) after the emoji
+        const stripEmoji = s => s.replace(/[\u{1F000}-\u{1FFFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\uFE0F\u20E3\u200D]+/gu, '').trim();
+        const pillars = [];
+        for (const l of lines) {
+            // Match "Score  : 31%  <anything>  (40% weight)"
+            const pm = l.match(/Metadata Score\s*:\s*(\d+)%\s+(.+?)\s+\(\d+%/);
+            const ps = l.match(/Security Score\s*:\s*(\d+)%\s+(.+?)\s+\(\d+%/);
+            const pl = l.match(/License Score\s*:\s*(\d+)%\s+(.+?)\s+\(\d+%/);
+            const pillarColor = pct => parseInt(pct, 10) >= 90 ? 'green' : parseInt(pct, 10) >= 70 ? 'yellow' : parseInt(pct, 10) >= 50 ? 'orange' : 'red';
+            if (pm) pillars.push({ icon: '🗂️', label: 'Metadata', pct: pm[1], status: stripEmoji(pm[2]), weight: '40%', pillarClass: `health-pillar health-pillar--${pillarColor(pm[1])}` });
+            if (ps) pillars.push({ icon: '🔐', label: 'Security', pct: ps[1], status: stripEmoji(ps[2]), weight: '35%', pillarClass: `health-pillar health-pillar--${pillarColor(ps[1])}` });
+            if (pl) pillars.push({ icon: '💰', label: 'License',  pct: pl[1], status: stripEmoji(pl[2]), weight: '25%', pillarClass: `health-pillar health-pillar--${pillarColor(pl[1])}` });
+        }
+
+        // ── Security Pillar detail ───────────────────────────────────────────
+        const secFindings = [];
+        let secChecks = '';
+        let inSec = false;
+        for (const l of lines) {
+            if (/pillar\s+2.*security/i.test(l)) { inSec = true; continue; }
+            if (/pillar\s+3/i.test(l))            { inSec = false; }
+            if (!inSec) continue;
+            const raw = l.trim();
+            if (!raw) continue;
+            if (/^[━─═\-]{3,}/.test(raw)) continue; // skip separator lines
+            const cm = raw.match(/Checks passed:\s*(\d+\s*\/\s*\d+)/i);
+            if (cm) { secChecks = cm[1]; continue; }
+            secFindings.push(raw);
+        }
+
+        // ── License Pillar detail — structured parsing ───────────────────────
+        const licWasted = [];   // 💸 user license waste items
+        const pslWasted = [];   // 💸 PSL waste items
+        const licFindings = []; // ✅ / ⚠️ summary findings
+        let licSummary = null;  // { ulPurchased, ulUsed, ulUtil, ulWasted, pslPurchased, pslUsed, pslWasted }
+        let inLic = false;
+        for (const l of lines) {
+            if (/pillar\s+3.*license/i.test(l))          { inLic = true; continue; }
+            if (/metadata cleanup|prioritized/i.test(l)) { inLic = false; }
+            if (!inLic) continue;
+            const raw = l.trim();
+            if (!raw) continue;
+            if (/^[━─═\-]{3,}/.test(raw)) continue; // skip separator lines
+            const ulMatch = raw.match(/User Licenses\s*:\s*([\d,]+)\s+purchased,\s*([\d,]+)\s+used.*\(([\d.]+)%/i);
+            if (ulMatch) {
+                if (!licSummary) licSummary = {};
+                licSummary.ulPurchased = ulMatch[1];
+                licSummary.ulUsed      = ulMatch[2];
+                licSummary.ulUtil      = ulMatch[3];
+                const ulPct = Math.min(100, Math.round(parseFloat(ulMatch[3])));
+                licSummary.ulUsedPct   = Math.max(2, ulPct);
+                continue;
+            }
+            const ulWastedMatch = raw.match(/Wasted Lic types\s*:\s*(\d+)/i);
+            if (ulWastedMatch) {
+                if (!licSummary) licSummary = {};
+                licSummary.ulWasted = ulWastedMatch[1];
+                continue;
+            }
+            const pslMatch = raw.match(/PSL Licenses\s*:\s*([\d,]+)\s+purchased,\s*([\d,]+)\s+used/i);
+            if (pslMatch) {
+                if (!licSummary) licSummary = {};
+                licSummary.pslPurchased = pslMatch[1];
+                licSummary.pslUsed      = pslMatch[2];
+                const pslUtil = licSummary.pslPurchased > 0
+                    ? Math.min(100, Math.round((parseInt(pslMatch[2], 10) / parseInt(pslMatch[1], 10)) * 100))
+                    : 0;
+                licSummary.pslUtil     = Math.max(2, pslUtil);
+                licSummary.pslUtilPct  = pslUtil + '%';
+                continue;
+            }
+            const pslWastedMatch = raw.match(/Wasted PSL types\s*:\s*(\d+)/i);
+            if (pslWastedMatch) {
+                if (!licSummary) licSummary = {};
+                licSummary.pslWasted = pslWastedMatch[1];
+                continue;
+            }
+
+            // Waste findings: "💸 PSL "Name": N purchased, 0 assigned"  or  "💸 Name: N purchased, 0 used"
+            if (/^💸/.test(raw)) {
+                const pslFinding = raw.match(/💸\s+PSL\s+"([^"]+)":\s*([\d,]+)\s+purchased/i);
+                if (pslFinding) {
+                    pslWasted.push({ name: pslFinding[1], qty: pslFinding[2] });
+                } else {
+                    const ulFinding = raw.match(/💸\s+([^:]+):\s*([\d,]+)\s+purchased/i);
+                    if (ulFinding) licWasted.push({ name: ulFinding[1].trim(), qty: ulFinding[2] });
+                }
+                continue;
+            }
+
+            // Remaining ✅ / ⚠️ findings
+            if (/^[✅⚠❌🔴🟡🟢ℹ]/.test(raw)) licFindings.push(raw);
+        }
+
+        // Attach wasted counts to summary if not already parsed from text
+        if (licSummary) {
+            if (!licSummary.ulWasted)  licSummary.ulWasted  = licWasted.length;
+            if (!licSummary.pslWasted) licSummary.pslWasted = pslWasted.length;
+        }
+
+        const licData = licSummary
+            ? { hasSummary: true, summary: licSummary, licWasted, pslWasted, licFindings,
+                hasLicWasted: licWasted.length > 0, hasPslWasted: pslWasted.length > 0,
+                hasFindings: licFindings.length > 0 }
+            : null;
+
+        return { score, scorePct, scoreClass, totalIssues, summaryRows, hasSummaryRows, recs,
+                 pillars, secFindings, secChecks, licData };
     }
 
     _addTypingIndicator() {
@@ -1193,6 +1312,11 @@ export default class MetadataDashboard extends LightningElement {
             const p2 = (tokens[0] && tokens[1]) ? (tokens[0] + ' ' + tokens[1]).toLowerCase() : '';
             const p3 = (tokens[0] && tokens[1] && tokens[2])
                        ? (tokens[0] + ' ' + tokens[1] + ' ' + tokens[2]).toLowerCase() : '';
+            // Case-preserved version — used ONLY for rawName extraction below.
+            // normalized is derived from query.toLowerCase(), so it loses original casing.
+            // Salesforce FlowDefinitionView.ApiName SOQL WHERE clauses are case-sensitive,
+            // so "bsr_case" won't match "BSR_Case". We extract names from the original query.
+            const afterDeleteOrigCase = query.replace(/^delete\s+/i, '').trim();
 
             // Strict exact-match type token table
             // Two-word tokens must be checked before one-word to avoid "apex" matching "apex class"
@@ -1243,19 +1367,23 @@ export default class MetadataDashboard extends LightningElement {
             // Extract name — strip the type token(s) from the front
             let rawName = null;
             if (typeStrip > 0) {
-                rawName = tokens.slice(typeStrip).join(' ').trim() || null;
+                // Strip the type keyword token(s) from the ORIGINAL-CASE string so the
+                // component name preserves its casing (e.g. "BSR_Case" not "bsr_case").
+                // Salesforce SOQL WHERE ApiName = '...' is case-sensitive.
+                const origTokens = afterDeleteOrigCase.split(/\s+/);
+                rawName = origTokens.slice(typeStrip).join(' ').trim() || null;
             } else {
                 // No type keyword — dot notation check for field/vr, otherwise ambiguous
                 const dotNameMatch = query.match(/delete\s+([A-Za-z0-9_]+\.[A-Za-z0-9_]+)/i);
                 if (dotNameMatch) {
-                    const dotName = afterDelete.trim();
+                    const dotName = afterDeleteOrigCase.trim();
                     // Search VR lists (now enriched with dotName) to distinguish VR from Field
                     const allVr = [...(this.activeVrList || []), ...(this.inactiveVrList || [])];
                     const vrMatch = allVr.find(r => r.dotName && r.dotName.toLowerCase() === dotName.toLowerCase());
                     type    = vrMatch ? META_TYPE.VR : META_TYPE.FIELD;
                     rawName = dotName;
                 } else {
-                    rawName = afterDelete || null;
+                    rawName = afterDeleteOrigCase || null;
                 }
             }
 
@@ -2535,27 +2663,56 @@ export default class MetadataDashboard extends LightningElement {
             const ts  = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ` +
                         `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
 
+            // ── shared helpers ──
+            const licWastedList   = (h.licData && h.licData.licWasted)   ? h.licData.licWasted   : [];
+            const pslWastedList   = (h.licData && h.licData.pslWasted)   ? h.licData.pslWasted   : [];
+            const licFindingsList = (h.licData && h.licData.licFindings) ? h.licData.licFindings : [];
+            const ls              = h.licData && h.licData.summary ? h.licData.summary : null;
+            const secFindingsList = h.secFindings || [];
+
             if (this.exportFormat === FORMAT.JSON) {
                 const payload = {
-                    generatedAt      : ts,
-                    healthScore      : h.score || 'N/A',
-                    healthScorePct   : h.scorePct != null ? `${h.scorePct}%` : 'N/A',
-                    totalIssues      : h.totalIssues || '0',
-                    orgSizeSummary   : (h.summaryRows || []).map(r => ({ type: r.label, detail: r.value })),
-                    recommendations  : (h.recs || []).map(r => ({ priority: r.level, recommendation: r.text }))
+                    generatedAt     : ts,
+                    healthScore     : h.score || 'N/A',
+                    healthScorePct  : h.scorePct != null ? `${h.scorePct}%` : 'N/A',
+                    totalIssues     : h.totalIssues || '0',
+                    orgSizeSummary  : (h.summaryRows || []).map(r => ({ type: r.label, detail: r.value })),
+                    recommendations : (h.recs || []).map(r => ({ priority: r.level, recommendation: r.text })),
+                    pillarBreakdown : (h.pillars || []).map(p => ({ pillar: p.label, weight: p.weight, score: p.pct + '%', status: p.status })),
+                    securityPillar  : {
+                        checksPassedOf : h.secChecks || 'N/A',
+                        findings       : secFindingsList
+                    },
+                    licensePillar   : {
+                        userLicenses : ls ? {
+                            purchased   : ls.ulPurchased || 'N/A',
+                            used        : ls.ulUsed      || 'N/A',
+                            utilisation : ls.ulUtil != null ? `${ls.ulUtil}%` : 'N/A',
+                            wastedTypes : ls.ulWasted || 0
+                        } : null,
+                        permSetLicenses : ls ? {
+                            purchased   : ls.pslPurchased || 'N/A',
+                            used        : ls.pslUsed      || 'N/A',
+                            utilisation : ls.pslUtilPct   || 'N/A',
+                            wastedTypes : ls.pslWasted    || 0
+                        } : null,
+                        unusedUserLicenseTypes    : licWastedList.map(w => ({ name: w.name, purchased: w.qty })),
+                        unusedPermSetLicenseTypes : pslWastedList.map(w => ({ name: w.name, purchased: w.qty })),
+                        findings                  : licFindingsList
+                    }
                 };
                 return JSON.stringify(payload, null, 2);
             }
 
             if (this.exportFormat === FORMAT.TXT) {
-                const sep  = '='.repeat(50);
-                const sep2 = '-'.repeat(50);
+                const sep  = '='.repeat(55);
+                const sep2 = '-'.repeat(55);
                 const lines = [
                     'ORG HEALTH REPORT',
                     sep,
-                    `Generated   : ${ts}`,
-                    `Health Score: ${h.score || 'N/A'}${h.scorePct != null ? ` (${h.scorePct}%)` : ''}`,
-                    `Total Issues: ${h.totalIssues || '0'}`,
+                    `Generated    : ${ts}`,
+                    `Health Score : ${h.score || 'N/A'}${h.scorePct != null ? ` (${h.scorePct}%)` : ''}`,
+                    `Total Issues : ${h.totalIssues || '0'}`,
                     '',
                     'ORG SIZE SUMMARY',
                     sep2,
@@ -2567,16 +2724,47 @@ export default class MetadataDashboard extends LightningElement {
                 lines.push('CLEANUP RECOMMENDATIONS');
                 lines.push(sep2);
                 if (h.recs && h.recs.length) {
-                    h.recs.forEach((r, i) => {
-                        lines.push(`  [${r.level}] ${i + 1}. ${r.text}`);
-                    });
+                    h.recs.forEach((r, i) => lines.push(`  [${r.level}] ${i + 1}. ${r.text}`));
                 } else {
                     lines.push('  ✅ No cleanup recommendations — org looks clean!');
+                }
+                if (h.pillars && h.pillars.length) {
+                    lines.push('');
+                    lines.push('PILLAR BREAKDOWN');
+                    lines.push(sep2);
+                    h.pillars.forEach(p => lines.push(`  ${p.label.padEnd(12)} Weight: ${p.weight.padEnd(6)} Score: ${p.pct}%  (${p.status})`));
+                }
+                lines.push('');
+                lines.push('SECURITY FINDINGS');
+                lines.push(sep2);
+                if (h.secChecks) lines.push(`  Checks Passed : ${h.secChecks}`);
+                if (secFindingsList.length) {
+                    secFindingsList.forEach(f => lines.push(`  ${f}`));
+                } else {
+                    lines.push('  No security findings recorded.');
+                }
+                lines.push('');
+                lines.push('LICENSE DETAILS');
+                lines.push(sep2);
+                if (ls) {
+                    lines.push(`  User Licenses       : ${ls.ulPurchased || 'N/A'} purchased, ${ls.ulUsed || 'N/A'} used (${ls.ulUtil != null ? ls.ulUtil + '%' : 'N/A'} utilisation), ${ls.ulWasted || 0} wasted type(s)`);
+                    lines.push(`  Perm Set Licenses   : ${ls.pslPurchased || 'N/A'} purchased, ${ls.pslUsed || 'N/A'} used (${ls.pslUtilPct || 'N/A'} utilisation), ${ls.pslWasted || 0} wasted type(s)`);
+                }
+                if (licFindingsList.length) { lines.push(''); licFindingsList.forEach(f => lines.push(`  ${f}`)); }
+                if (licWastedList.length) {
+                    lines.push('');
+                    lines.push('  Unused User License Types:');
+                    licWastedList.forEach(w => lines.push(`    - ${w.name}: ${w.qty} purchased`));
+                }
+                if (pslWastedList.length) {
+                    lines.push('');
+                    lines.push('  Unused Permission Set License Types:');
+                    pslWastedList.forEach(w => lines.push(`    - ${w.name}: ${w.qty} purchased`));
                 }
                 return lines.join('\n');
             }
 
-            // Default: CSV — two sections separated by blank line + comment header
+            // ── Default: CSV ──────────────────────────────────────────────────
             const csvLines = [
                 '# ORG HEALTH REPORT',
                 `# Generated: ${ts}`,
@@ -2589,16 +2777,63 @@ export default class MetadataDashboard extends LightningElement {
             (h.summaryRows || []).forEach(r => {
                 csvLines.push(`"${e(r.label)}","${e(r.value)}"`);
             });
+
             csvLines.push('');
             csvLines.push('# CLEANUP RECOMMENDATIONS');
             csvLines.push('"Priority","#","Recommendation"');
             if (h.recs && h.recs.length) {
-                h.recs.forEach((r, i) => {
-                    csvLines.push(`"${e(r.level)}","${i + 1}","${e(r.text)}"`);
-                });
+                h.recs.forEach((r, i) => csvLines.push(`"${e(r.level)}","${i + 1}","${e(r.text)}"`));
             } else {
                 csvLines.push('"","","No cleanup recommendations — org looks clean!"');
             }
+
+            if (h.pillars && h.pillars.length) {
+                csvLines.push('');
+                csvLines.push('# PILLAR BREAKDOWN');
+                csvLines.push('"Pillar","Weight","Score","Status"');
+                h.pillars.forEach(p => csvLines.push(`"${e(p.label)}","${e(p.weight)}","${e(p.pct)}%","${e(p.status)}"`));
+            }
+
+            csvLines.push('');
+            csvLines.push('# SECURITY FINDINGS');
+            csvLines.push('"Checks Passed","Finding"');
+            if (secFindingsList.length) {
+                secFindingsList.forEach((f, i) => csvLines.push(`"${i === 0 ? e(h.secChecks || '') : ''}","${e(f)}"`));
+            } else {
+                csvLines.push(`"${e(h.secChecks || '')}","No security findings recorded."`);
+            }
+
+            csvLines.push('');
+            csvLines.push('# LICENSE DETAILS');
+            csvLines.push('"License Type","Purchased","Used","Utilisation","Wasted Types"');
+            if (ls) {
+                csvLines.push(`"User Licenses","${e(ls.ulPurchased || 'N/A')}","${e(ls.ulUsed || 'N/A')}","${e(ls.ulUtil != null ? ls.ulUtil + '%' : 'N/A')}","${e(ls.ulWasted || 0)}"`);
+                csvLines.push(`"Permission Set Licenses","${e(ls.pslPurchased || 'N/A')}","${e(ls.pslUsed || 'N/A')}","${e(ls.pslUtilPct || 'N/A')}","${e(ls.pslWasted || 0)}"`);
+            } else {
+                csvLines.push('"N/A","N/A","N/A","N/A","N/A"');
+            }
+
+            if (licFindingsList.length) {
+                csvLines.push('');
+                csvLines.push('# LICENSE FINDINGS');
+                csvLines.push('"Finding"');
+                licFindingsList.forEach(f => csvLines.push(`"${e(f)}"`));
+            }
+
+            if (licWastedList.length) {
+                csvLines.push('');
+                csvLines.push('# UNUSED USER LICENSE TYPES');
+                csvLines.push('"License Name","Purchased"');
+                licWastedList.forEach(w => csvLines.push(`"${e(w.name)}","${e(w.qty)}"`));
+            }
+
+            if (pslWastedList.length) {
+                csvLines.push('');
+                csvLines.push('# UNUSED PERMISSION SET LICENSE TYPES');
+                csvLines.push('"License Name","Purchased"');
+                pslWastedList.forEach(w => csvLines.push(`"${e(w.name)}","${e(w.qty)}"`));
+            }
+
             return csvLines.join('\n');
         }
 
@@ -3716,7 +3951,8 @@ export default class MetadataDashboard extends LightningElement {
         return raw.trim().split('\n').filter(l => l.trim()).map(line => {
             const m = line.match(/^(\d+)\.\s+([^|]+)\|?(.*)$/);
             if (!m) return null;
-            return { index: m[1], name: m[2].trim(), meta: m[3] ? m[3].replace(/\|/g, '·').trim() : '' };
+            let meta = m[3] ? m[3].replace(/\|/g, '·').trim() : '';
+            return { index: m[1], name: m[2].trim(), meta };
         }).filter(Boolean);
     }
 

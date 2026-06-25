@@ -4114,7 +4114,11 @@ public without sharing class OrgCleanupAgentAction {
                lower.contains('what should i clean') || lower.contains('cleanup report') ||
                lower.contains('how big is my org') || lower.contains('org size') ||
                lower.contains('org cleanup report') || lower.contains('prioritized recommendations') ||
-               lower.contains('what to clean');
+               lower.contains('what to clean') || lower.contains('security score') ||
+               lower.contains('license score') || lower.contains('combined score') ||
+               lower.contains('health score') || lower.contains('security check') ||
+               lower.contains('license check') || lower.contains('mfa check') ||
+               lower.contains('unused licenses');
     }
 
     private static String handleOrgHealth() {
@@ -4143,36 +4147,64 @@ public without sharing class OrgCleanupAgentAction {
         Integer totalIssues = flows.inactive + apex.unused + trigs.inactive + profs.unused + perms.unused + vrs.inactive
                             + lwcUnref + auraUnref + emptyFields + emptyObjs + vfpUnref + vfcUnref;
 
-        // FIX #13: Cleanliness percentage score that improves as the user deletes unused items.
-        // Formula: (cleanComponents / totalComponents) * 100
-        //   - Before cleanup: lots of issues → lower %
-        //   - After deleting unused items: total drops AND issues drop → % rises
-        //   - 100% = nothing to clean up
-        // Thresholds: >=90 Excellent, >=70 Good, >=50 Needs Attention, <50 Cleanup Recommended
         Integer totalComponents = flows.total + apex.total + trigs.total + lwc.total + aura.total
                                 + profs.total + perms.total + fields.total + objs.total + vrs.total
                                 + vfpTotal + vfcTotal;
-        Integer cleanComponents = totalComponents - totalIssues;
-        if (cleanComponents < 0) cleanComponents = 0;
-        Integer scorePct = totalComponents > 0
+        Integer cleanComponents = Math.max(0, totalComponents - totalIssues);
+        Integer metadataScorePct = totalComponents > 0
             ? Integer.valueOf(((Decimal) cleanComponents / (Decimal) totalComponents * 100).setScale(0))
             : 100;
 
-        // Also fixed: Apex does NOT support 32-bit \U0001fXXX Unicode escapes (only \uXXXX BMP).
-        // The original code wrote '\U0001f534 Cleanup Recommended' hoping for 🔴 but Apex parsed
-        // it as literal "f534 Cleanup Recommended". Using direct emoji characters instead.
-        String label = scorePct >= 90 ? '🟢 Excellent'
-                     : scorePct >= 70 ? '🟡 Good'
-                     : scorePct >= 50 ? '🟠 Needs Attention'
-                     : '🔴 Cleanup Recommended';
-        String score = scorePct + '% — ' + label;
+        // ── Security Pillar ────────────────────────────────────
+        OrgHealthScoreEngine.SecurityScoreResult secResult = null;
+        Integer secScore = 75; // default if query fails
+        try {
+            secResult = OrgHealthScoreEngine.getSecurityScore();
+            secScore  = secResult.score;
+        } catch (Exception ex) {
+            System.debug(LoggingLevel.WARN, 'Security score fetch failed: ' + ex.getMessage());
+        }
+
+        // ── License Pillar ─────────────────────────────────────
+        OrgHealthScoreEngine.LicenseScoreResult licResult = null;
+        Integer licScore = 75; // default if query fails
+        try {
+            licResult = OrgHealthScoreEngine.getLicenseScore();
+            licScore  = licResult.score;
+        } catch (Exception ex) {
+            System.debug(LoggingLevel.WARN, 'License score fetch failed: ' + ex.getMessage());
+        }
+
+        // ── Combined Score (40% metadata + 35% security + 25% license) ────────
+        Integer combinedScore = Integer.valueOf(
+            0.40 * metadataScorePct +
+            0.35 * secScore +
+            0.25 * licScore
+        );
+        combinedScore = Math.min(100, Math.max(0, combinedScore));
+
+
+        // ── Note: Apex does not allow local methods — inline helper ────────────
+        String combinedLbl  = combinedScore  >= 90 ? '🟢 Excellent' : combinedScore  >= 70 ? '🟡 Good' : combinedScore  >= 50 ? '🟠 Needs Attention' : '🔴 Critical';
+        String metadataLbl  = metadataScorePct >= 90 ? '🟢 Excellent' : metadataScorePct >= 70 ? '🟡 Good' : metadataScorePct >= 50 ? '🟠 Needs Attention' : '🔴 Critical';
+        String secLbl       = secScore  >= 90 ? '🟢 Excellent' : secScore  >= 70 ? '🟡 Good' : secScore  >= 50 ? '🟠 Needs Attention' : '🔴 Critical';
+        String licLbl       = licScore  >= 90 ? '🟢 Excellent' : licScore  >= 70 ? '🟡 Good' : licScore  >= 50 ? '🟠 Needs Attention' : '🔴 Critical';
 
         String resp = '🩺 ORG HEALTH REPORT\n';
-        resp += repeat('\u2550', 40) + '\n\n';
-        resp += 'Health Score : ' + score + '\n';
-        resp += 'Total issues : ' + totalIssues + ' out of ' + totalComponents + ' components\n\n';
+        resp += repeat('\u2550', 50) + '\n\n';
 
-        resp += '📊 ORG SIZE SUMMARY\n';
+        // ── 3-Pillar Summary Banner ────────────────────────────
+        resp += '🏆 COMBINED ORG HEALTH SCORE: ' + combinedScore + '% — ' + combinedLbl + '\n\n';
+        resp += '  PILLAR BREAKDOWN\n';
+        resp += '  ─────────────────────────────────────────────\n';
+        resp += '  🗂️  Metadata Score  : ' + metadataScorePct + '%  ' + metadataLbl + '  (40% weight)\n';
+        resp += '  🔐 Security Score  : ' + secScore + '%  ' + secLbl + '  (35% weight)\n';
+        resp += '  💰 License Score   : ' + licScore + '%  ' + licLbl + '  (25% weight)\n\n';
+
+        // ── Metadata Pillar Detail ─────────────────────────────
+        resp += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
+        resp += '🗂️  PILLAR 1 — METADATA  (' + metadataScorePct + '% — ' + metadataLbl + ')\n';
+        resp += '   Total issues: ' + totalIssues + ' out of ' + totalComponents + ' components\n\n';
         resp += '  Flows           : ' + flows.total  + ' (' + flows.active + ' active, '  + flows.inactive + ' inactive)\n';
         resp += '  Apex Classes    : ' + apex.total   + ' (' + apex.used   + ' used, '    + apex.unused    + ' unused)\n';
         resp += '  Triggers        : ' + trigs.total  + ' (' + trigs.active + ' active, '  + trigs.inactive + ' inactive)\n';
@@ -4186,72 +4218,99 @@ public without sharing class OrgCleanupAgentAction {
         resp += '  VF Pages        : ' + vfpTotal    + ' (' + vfpUnref    + ' unreferenced)\n';
         resp += '  VF Components   : ' + vfcTotal    + ' (' + vfcUnref    + ' unreferenced)\n\n';
 
-        if (totalIssues == 0) {
-            resp += '\u2705 Your org looks clean! No immediate cleanup needed.\n';
-            return resp;
+        // ── Security Pillar Detail ─────────────────────────────
+        resp += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
+        resp += '🔐 PILLAR 2 — SECURITY  (' + secScore + '% — ' + secLbl + ')\n\n';
+        if (secResult != null) {
+            resp += '  Checks passed: ' + secResult.passedChecks + ' / ' + secResult.totalChecks + '\n\n';
+            for (String f : secResult.findings) {
+                resp += '  ' + f + '\n';
+            }
+        } else {
+            resp += '  Security data unavailable.\n';
+        }
+        resp += '\n';
+
+        // ── License Pillar Detail ──────────────────────────────
+        resp += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
+        resp += '💰 PILLAR 3 — LICENSE  (' + licScore + '% — ' + licLbl + ')\n\n';
+        if (licResult != null) {
+            resp += '  User Licenses     : ' + licResult.totalLicenses + ' purchased, '
+                  + licResult.assignedLicenses + ' used  (' + licResult.utilPct + '% utilisation)\n';
+            resp += '  Wasted Lic types  : ' + licResult.wastedLicenses + '\n';
+            resp += '  PSL Licenses      : ' + licResult.permSetLicTotal + ' purchased, '
+                  + licResult.permSetLicUsed + ' used\n';
+            resp += '  Wasted PSL types  : ' + licResult.permSetLicWasted + '\n\n';
+            for (String f : licResult.findings) {
+                resp += '  ' + f + '\n';
+            }
+        } else {
+            resp += '  License data unavailable.\n';
+        }
+        resp += '\n';
+
+        // ── Metadata Cleanup Recommendations ──────────────────
+        if (totalIssues > 0) {
+            resp += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
+            resp += '🗑️ METADATA CLEANUP RECOMMENDATIONS\n\n';
+            Integer priority = 1;
+            if (apex.unused > 0) {
+                resp += priority++ + '. [HIGH] ' + apex.unused + ' unused Apex class(es)\n';
+                resp += '   \u2192 Type "show unused apex classes" to review\n\n';
+            }
+            if (flows.inactive > 0) {
+                resp += priority++ + '. [HIGH] ' + flows.inactive + ' inactive flow(s)\n';
+                resp += '   \u2192 Type "show inactive flows" to review\n\n';
+            }
+            if (emptyObjs > 0) {
+                resp += priority++ + '. [HIGH] ' + emptyObjs + ' custom object(s) with 0 records\n';
+                resp += '   \u2192 Type "show empty objects" to review\n\n';
+            }
+            if (emptyFields > 0) {
+                resp += priority++ + '. [MEDIUM] ' + emptyFields + ' custom field(s) with no data\n';
+                resp += '   \u2192 Type "show fields with no data" to review\n\n';
+            }
+            if (vfpUnref > 0) {
+                resp += priority++ + '. [MEDIUM] ' + vfpUnref + ' unreferenced VF page(s)\n';
+                resp += '   \u2192 Type "show vf pages" to review\n\n';
+            }
+            if (vfcUnref > 0) {
+                resp += priority++ + '. [MEDIUM] ' + vfcUnref + ' unreferenced VF component(s)\n';
+                resp += '   \u2192 Type "show vf components" to review\n\n';
+            }
+            if (lwcUnref > 0) {
+                resp += priority++ + '. [MEDIUM] ' + lwcUnref + ' unreferenced LWC component(s)\n';
+                resp += '   \u2192 Type "show unreferenced lwc" to review\n\n';
+            }
+            if (auraUnref > 0) {
+                resp += priority++ + '. [MEDIUM] ' + auraUnref + ' unreferenced Aura component(s)\n';
+                resp += '   \u2192 Type "show unreferenced aura" to review\n\n';
+            }
+            if (trigs.inactive > 0) {
+                resp += priority++ + '. [MEDIUM] ' + trigs.inactive + ' inactive trigger(s)\n';
+                resp += '   \u2192 Type "show inactive triggers" to review\n\n';
+            }
+            if (profs.unused > 0) {
+                resp += priority++ + '. [MEDIUM] ' + profs.unused + ' unassigned profile(s)\n';
+                resp += '   \u2192 Type "show unassigned profiles" to review\n\n';
+            }
+            if (perms.unused > 0) {
+                resp += priority++ + '. [LOW] ' + perms.unused + ' unassigned permission set(s)\n';
+                resp += '   \u2192 Type "show unassigned permission sets" to review\n\n';
+            }
+            if (vrs.inactive > 0) {
+                resp += priority++ + '. [LOW] ' + vrs.inactive + ' inactive validation rule(s)\n';
+                resp += '   \u2192 Type "show inactive validation rules" to review\n\n';
+            }
+        } else {
+            resp += '\u2705 Metadata looks clean! No immediate cleanup needed.\n\n';
         }
 
-        resp += '🗑️ PRIORITIZED CLEANUP RECOMMENDATIONS\n';
-        resp += repeat('\u2500', 40) + '\n\n';
-
-        Integer priority = 1;
-
-        if (apex.unused > 0) {
-            resp += priority++ + '. [HIGH] ' + apex.unused + ' unused Apex class(es)\n';
-            resp += '   \u2192 Type \"show unused apex classes\" to review\n';
-            resp += '   \u2192 Type \"delete apex class <Name>\" to remove\n\n';
-        }
-        if (flows.inactive > 0) {
-            resp += priority++ + '. [HIGH] ' + flows.inactive + ' inactive flow(s)\n';
-            resp += '   \u2192 Type \"show inactive flows\" to review\n';
-            resp += '   \u2192 Type \"delete flow <ApiName>\" to remove\n\n';
-        }
-        if (emptyObjs > 0) {
-            resp += priority++ + '. [HIGH] ' + emptyObjs + ' custom object(s) with 0 records\n';
-            resp += '   \u2192 Type \"show empty objects\" to review\n';
-            resp += '   \u2192 Type \"delete custom object <Name>\" to remove\n\n';
-        }
-        if (emptyFields > 0) {
-            resp += priority++ + '. [MEDIUM] ' + emptyFields + ' custom field(s) with no data\n';
-            resp += '   \u2192 Type \"show fields with no data\" to review\n';
-            resp += '   \u2192 Type \"delete field Object.FieldName\" to remove\n\n';
-        }
-        if (vfpUnref > 0) {
-            resp += priority++ + '. [MEDIUM] ' + vfpUnref + ' unreferenced Visualforce page(s)\n';
-            resp += '   \u2192 Type \"show vf pages\" to review\n';
-            resp += '   \u2192 Type \"delete vf page <Name>\" to remove\n\n';
-        }
-        if (vfcUnref > 0) {
-            resp += priority++ + '. [MEDIUM] ' + vfcUnref + ' unreferenced Visualforce component(s)\n';
-            resp += '   \u2192 Type \"show vf components\" to review\n';
-            resp += '   \u2192 Type \"delete vf component <Name>\" to remove\n\n';
-        }
-        if (lwcUnref > 0) {
-            resp += priority++ + '. [MEDIUM] ' + lwcUnref + ' unreferenced LWC component(s)\n';
-            resp += '   \u2192 Type \"show unreferenced lwc\" to review\n';
-            resp += '   \u2192 Type \"delete lwc <ComponentName>\" to remove\n\n';
-        }
-        if (auraUnref > 0) {
-            resp += priority++ + '. [MEDIUM] ' + auraUnref + ' unreferenced Aura component(s)\n';
-            resp += '   \u2192 Type \"show unreferenced aura\" to review\n';
-            resp += '   \u2192 Type \"delete aura <ComponentName>\" to remove\n\n';
-        }
-        if (trigs.inactive > 0) {
-            resp += priority++ + '. [MEDIUM] ' + trigs.inactive + ' inactive trigger(s)\n';
-            resp += '   \u2192 Type \"show inactive triggers\" to review\n\n';
-        }
-        if (profs.unused > 0) {
-            resp += priority++ + '. [MEDIUM] ' + profs.unused + ' unassigned profile(s)\n';
-            resp += '   \u2192 Type \"show unassigned profiles\" to review\n\n';
-        }
-        if (perms.unused > 0) {
-            resp += priority++ + '. [LOW] ' + perms.unused + ' unassigned permission set(s)\n';
-            resp += '   \u2192 Type \"show unassigned permission sets\" to review\n\n';
-        }
-        if (vrs.inactive > 0) {
-            resp += priority++ + '. [LOW] ' + vrs.inactive + ' inactive validation rule(s)\n';
-            resp += '   \u2192 Type \"show inactive validation rules\" to review\n\n';
-        }
+        // ── Combined score line (last, for LWC parser compatibility) ──────────
+        // The LWC _parseOrgHealth() regex looks for "N% —" to extract scorePct.
+        // We emit the combined score in that same format so the gauge updates correctly.
+        resp += 'Health Score : ' + combinedScore + '% — ' + combinedLbl + '\n';
+        resp += 'Total issues : ' + totalIssues + ' out of ' + totalComponents + ' components\n';
 
         return resp;
     }

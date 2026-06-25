@@ -1343,6 +1343,113 @@
                                         <template if:false={msg.orgHealth.recs.length}>
                                             <div class="health-rec-empty">&#x2705; No cleanup recommendations — org looks clean!</div>
                                         </template>
+
+                                        <!-- ── Pillar Breakdown ── -->
+                                        <template if:true={msg.orgHealth.pillars.length}>
+                                            <div class="health-card__section-label">&#x1F4CA; Pillar Breakdown</div>
+                                            <div class="health-pillars">
+                                                <template for:each={msg.orgHealth.pillars} for:item="p">
+                                                    <div key={p.label} class={p.pillarClass}>
+                                                        <div class="health-pillar__top">
+                                                            <span class="health-pillar__label">{p.label}</span>
+                                                            <span class="health-pillar__weight">{p.weight}</span>
+                                                        </div>
+                                                        <div class="health-pillar__pct">{p.pct}%</div>
+                                                        <div class="health-pillar__status">{p.status}</div>
+                                                    </div>
+                                                </template>
+                                            </div>
+                                        </template>
+
+                                        <!-- ── Security Pillar Detail ── -->
+                                        <template if:true={msg.orgHealth.secFindings.length}>
+                                            <div class="health-card__section-label">&#x1F510; Security Findings</div>
+                                            <template if:true={msg.orgHealth.secChecks}>
+                                                <div class="health-sec__checks">Checks passed: {msg.orgHealth.secChecks}</div>
+                                            </template>
+                                            <template for:each={msg.orgHealth.secFindings} for:item="f">
+                                                <div key={f} class="health-sec__finding">{f}</div>
+                                            </template>
+                                        </template>
+
+                                        <!-- ── License Pillar Detail ── -->
+                                        <template if:true={msg.orgHealth.licData}>
+                                            <div class="health-card__section-label">&#x1F4B0; License Details</div>
+                                            <div class="lic-summary-grid">
+                                                <!-- User Licenses card -->
+                                                <div class="lic-metric-card">
+                                                    <div class="lic-metric-card__header">
+                                                        <span class="lic-metric-card__title">User Licenses</span>
+                                                        <span class="lic-metric-card__badge lic-metric-card__badge--warn">{msg.orgHealth.licData.summary.ulWasted} wasted types</span>
+                                                    </div>
+                                                    <div class="lic-metric-card__nums">
+                                                        <span class="lic-metric-card__used">{msg.orgHealth.licData.summary.ulUsed}</span>
+                                                        <span class="lic-metric-card__sep">/</span>
+                                                        <span class="lic-metric-card__total">{msg.orgHealth.licData.summary.ulPurchased}</span>
+                                                        <span class="lic-metric-card__label">used</span>
+                                                    </div>
+                                                    <div class="lic-progress">
+                                                        <div class="lic-progress__bar lic-progress__bar--ul"></div>
+                                                    </div>
+                                                    <div class="lic-metric-card__util">{msg.orgHealth.licData.summary.ulUtil}% utilisation</div>
+                                                </div>
+                                                <!-- PSL Licenses card -->
+                                                <div class="lic-metric-card">
+                                                    <div class="lic-metric-card__header">
+                                                        <span class="lic-metric-card__title">Permission Set Licenses</span>
+                                                        <span class="lic-metric-card__badge lic-metric-card__badge--warn">{msg.orgHealth.licData.summary.pslWasted} wasted types</span>
+                                                    </div>
+                                                    <div class="lic-metric-card__nums">
+                                                        <span class="lic-metric-card__used">{msg.orgHealth.licData.summary.pslUsed}</span>
+                                                        <span class="lic-metric-card__sep">/</span>
+                                                        <span class="lic-metric-card__total">{msg.orgHealth.licData.summary.pslPurchased}</span>
+                                                        <span class="lic-metric-card__label">assigned</span>
+                                                    </div>
+                                                    <div class="lic-progress">
+                                                        <div class="lic-progress__bar lic-progress__bar--psl"></div>
+                                                    </div>
+                                                    <div class="lic-metric-card__util">{msg.orgHealth.licData.summary.pslUtilPct} utilisation</div>
+                                                </div>
+                                            </div>
+
+                                            <!-- Wasted User License types table -->
+                                            <template if:true={msg.orgHealth.licData.hasLicWasted}>
+                                                <div class="lic-waste-section">
+                                                    <div class="lic-waste-section__title">&#x1F4B8; Unused User License Types</div>
+                                                    <div class="lic-waste-table">
+                                                        <template for:each={msg.orgHealth.licData.licWasted} for:item="w">
+                                                            <div key={w.name} class="lic-waste-row">
+                                                                <span class="lic-waste-row__name">{w.name}</span>
+                                                                <span class="lic-waste-row__qty">{w.qty} purchased</span>
+                                                            </div>
+                                                        </template>
+                                                    </div>
+                                                </div>
+                                            </template>
+
+                                            <!-- Wasted PSL types table -->
+                                            <template if:true={msg.orgHealth.licData.hasPslWasted}>
+                                                <div class="lic-waste-section">
+                                                    <div class="lic-waste-section__title">&#x1F4B8; Unused Permission Set Licenses</div>
+                                                    <div class="lic-waste-table">
+                                                        <template for:each={msg.orgHealth.licData.pslWasted} for:item="w">
+                                                            <div key={w.name} class="lic-waste-row">
+                                                                <span class="lic-waste-row__name">{w.name}</span>
+                                                                <span class="lic-waste-row__qty">{w.qty} purchased</span>
+                                                            </div>
+                                                        </template>
+                                                    </div>
+                                                </div>
+                                            </template>
+
+                                            <!-- Summary findings (✅ / ⚠️) -->
+                                            <template if:true={msg.orgHealth.licData.hasFindings}>
+                                                <template for:each={msg.orgHealth.licData.licFindings} for:item="f">
+                                                    <div key={f} class="health-sec__finding">{f}</div>
+                                                </template>
+                                            </template>
+                                        </template>
+
                                     </div>
                                 </template>
                                 <template if:false={msg.isReferenceReport}>

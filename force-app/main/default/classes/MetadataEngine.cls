@@ -68,9 +68,9 @@ public without sharing class MetadataEngine {
         public String         namespaceFilter;
         /** allFlowObjects field. */
         public List<FlowInfo> allFlowObjects;
-        /** used field — flows with safetyStatus IN_USE, SCHEDULED, or MANAGED. */
+        /** used field -- flows with safetyStatus IN_USE, SCHEDULED, or MANAGED. */
         public Integer        used;
-        /** unused field — flows with safetyStatus INACTIVE or SAFE_TO_REVIEW. */
+        /** unused field -- flows with safetyStatus INACTIVE or SAFE_TO_REVIEW. */
         public Integer        unused;
     }
 
@@ -102,6 +102,8 @@ public without sharing class MetadataEngine {
         public Boolean isAuraEnabled;     // Has @AuraEnabled -> called by LWC/Aura
         /** safetyStatus field. */
         public String  safetyStatus;      // IN_USE / TEST_CLASS / MANAGED / SAFE_TO_REVIEW
+        /** hasPermSetAccess field -- true if this class is granted in any Permission Set or Profile. */
+        public Boolean hasPermSetAccess;  // Granted via SetupEntityAccess -> show  PS badge in UNUSED card
     }
 
     /** Wrapper class: ApexSummary. */
@@ -141,7 +143,7 @@ public without sharing class MetadataEngine {
         @AuraEnabled public String  message;
     }
 
-    // ── Mass delete result wrapper ─────────────────────────────
+    // -- Mass delete result wrapper -----------------------------
     /** Wrapper class: MassDeleteResult. */
     public class MassDeleteResult {
         @AuraEnabled public Integer          totalRequested;
@@ -577,7 +579,7 @@ public without sharing class MetadataEngine {
                       'FROM FlowDefinitionView ' +
                       'WHERE ProcessType != \'StandardInvocableAction\'';
 
-        // Paginate — REST API returns max 2000 per page; large orgs need multiple pages
+        // Paginate -- REST API returns max 2000 per page; large orgs need multiple pages
         String  flowEndpoint = BASE_URL + 'query?q=' + EncodingUtil.urlEncode(soql, 'UTF-8');
         Boolean flowDone     = false;
 
@@ -610,7 +612,7 @@ public without sharing class MetadataEngine {
                         String              nsPrefix = (String)  rec.get('NamespacePrefix');
                         String              durId    = (String)  rec.get('DurableId');
 
-                        // Removed [ns:XXX] suffix from display — was cluttering output for
+                        // Removed [ns:XXX] suffix from display -- was cluttering output for
                         // managed-package flows. Namespace is still preserved in fi.namespacePrefix
                         // for filters and dependency analysis; only the human-readable label changed.
                         String flowLabel = label + ' [' + procType + '] (' + apiName + ')';
@@ -650,16 +652,16 @@ public without sharing class MetadataEngine {
             }
         }
 
-        // ── Broad reference detection — 2 bulk callouts, covers ALL reference types ──
+        // -- Broad reference detection -- 2 bulk callouts, covers ALL reference types --
         //
         // QUERY 1: by RefMetadataComponentType IN ('Flow','FlowDefinition')
         //   Catches: Apex classes, VF pages, Quick Actions, Process Builder nodes,
-        //            Approval Processes, subflows — anything MCD indexes by type+name.
+        //            Approval Processes, subflows -- anything MCD indexes by type+name.
         //
         // QUERY 2: by RefMetadataComponentId IN (all flow DurableIds)
         //   Catches: references indexed by Id rather than name (common in newer orgs).
         //
-        // Both queries fetch ALL flows in one shot — NOT per-flow.
+        // Both queries fetch ALL flows in one shot -- NOT per-flow.
         // Cost: 2 extra Tooling callouts regardless of flow count.
         // Together these cover 90%+ of real references (same sources as pre-delete check).
         // Remaining edge cases (FlexiPage body scan, CronTrigger, Einstein Bots etc.)
@@ -671,10 +673,10 @@ public without sharing class MetadataEngine {
             if (String.isNotBlank(fi.durableId)) allDurableIds.add(fi.durableId.toLowerCase());
         }
 
-        // referencedFlowIds — union of DurableIds found referenced by ANY component
+        // referencedFlowIds -- union of DurableIds found referenced by ANY component
         Set<String> referencedFlowIds = new Set<String>();
 
-        // QUERY 1 — by RefMetadataComponentType IN ('Flow', 'FlowDefinition')
+        // QUERY 1 -- by RefMetadataComponentType IN ('Flow', 'FlowDefinition')
         // Returns RefMetadataComponentId so we can match back to DurableId
         try {
             String q1 = 'SELECT RefMetadataComponentId, RefMetadataComponentName ' +
@@ -699,7 +701,7 @@ public without sharing class MetadataEngine {
                         if (String.isNotBlank(refId) && allDurableIds.contains(refId.toLowerCase())) {
                             referencedFlowIds.add(refId.toLowerCase());
                         }
-                        // Also match by ApiName — some orgs index by name not Id
+                        // Also match by ApiName -- some orgs index by name not Id
                         if (String.isNotBlank(refNm)) {
                             for (MetadataEngine.FlowInfo fi : allFlowObjects) {
                                 if (refNm.equalsIgnoreCase(fi.apiName)) {
@@ -711,15 +713,15 @@ public without sharing class MetadataEngine {
                 }
             }
         } catch (Exception ex) {
-            System.debug(LoggingLevel.WARN, 'Broad ref check Q1 failed — continue: ' + ex.getMessage());
+            System.debug(LoggingLevel.WARN, 'Broad ref check Q1 failed -- continue: ' + ex.getMessage());
         }
 
-        // QUERY 2 — by RefMetadataComponentId IN (our DurableIds)
+        // QUERY 2 -- by RefMetadataComponentId IN (our DurableIds)
         // Catches references indexed by Id in orgs where Q1 may miss them
         // Only run if we have DurableIds to check
         if (!allDurableIds.isEmpty()) {
             try {
-                // Build IN clause — DurableIds are 15-char strings, safe to inline
+                // Build IN clause -- DurableIds are 15-char strings, safe to inline
                 List<String> idList = new List<String>(allDurableIds);
                 // Salesforce SOQL IN clause limit is 10000 values; flows are well under that
                 String inClause = '\'' + String.join(idList, '\',\'') + '\'';
@@ -745,14 +747,14 @@ public without sharing class MetadataEngine {
                     }
                 }
             } catch (Exception ex) {
-                System.debug(LoggingLevel.WARN, 'Broad ref check Q2 failed — continue: ' + ex.getMessage());
+                System.debug(LoggingLevel.WARN, 'Broad ref check Q2 failed -- continue: ' + ex.getMessage());
             }
         }
 
-        // Keep subflowRefs as an alias pointing to the same set — used below in isSubflow check
+        // Keep subflowRefs as an alias pointing to the same set -- used below in isSubflow check
         Set<String> subflowRefs = referencedFlowIds;
 
-        // ── FlowInterview check: detect flows that were ever run by a user ──
+        // -- FlowInterview check: detect flows that were ever run by a user --
         Set<String> interviewedFlowIds = new Set<String>();
         try {
             String intSoql = 'SELECT FlowVersionViewId, COUNT(Id) cnt FROM FlowInterview GROUP BY FlowVersionViewId';
@@ -775,7 +777,7 @@ public without sharing class MetadataEngine {
             }
         } catch (Exception ex) { System.debug(LoggingLevel.WARN, 'FlowInterview check failed: ' + ex.getMessage()); }
 
-        // ── ManageableState lookup ──────────────────────────────────────
+        // -- ManageableState lookup --------------------------------------
         //
         // WHY: FlowDefinitionView.NamespacePrefix is null for many
         // Salesforce-shipped flows (Order Management: Cancel_All, Create_OS,
@@ -796,10 +798,10 @@ public without sharing class MetadataEngine {
         //
         // FALLBACK: if the Tooling query fails (auth blip, transient 5xx,
         // missing permission), we degrade to the original namespace-only
-        // check — no regression vs previous behaviour.
+        // check -- no regression vs previous behaviour.
         Map<String, String> manageableStateByDurableId = new Map<String, String>();
         try {
-            // Paginate — Tooling API also caps at 2000 per page; large orgs need multiple pages
+            // Paginate -- Tooling API also caps at 2000 per page; large orgs need multiple pages
             // so that Survey, CartAsyncFlow and other platform-shipped flows are not missed,
             // which would cause isManaged=false and incorrectly show them as noise in Unused.
             String  msEndpoint = BASE_URL + 'tooling/query?q=' + EncodingUtil.urlEncode('SELECT DurableId, ManageableState FROM FlowDefinition', 'UTF-8');
@@ -841,9 +843,9 @@ public without sharing class MetadataEngine {
         }
 
         for (MetadataEngine.FlowInfo fi : allFlowObjects) {
-            // ── Managed detection: namespace OR non-unmanaged ManageableState ──
+            // -- Managed detection: namespace OR non-unmanaged ManageableState --
             // Either signal means "this flow is owned by Salesforce or a
-            // managed package — user cannot delete it via API."
+            // managed package -- user cannot delete it via API."
             Boolean hasNamespace   = String.isNotBlank(fi.namespacePrefix);
             String  msState        = String.isNotBlank(fi.durableId)
                                        ? manageableStateByDurableId.get(fi.durableId.toLowerCase())
@@ -851,12 +853,12 @@ public without sharing class MetadataEngine {
             Boolean isPackageOwned = String.isNotBlank(msState) && !'unmanaged'.equalsIgnoreCase(msState);
             Boolean isManaged      = hasNamespace || isPackageOwned;
 
-            // ── Auto-created Salesforce feature flows ─────────────────────────
+            // -- Auto-created Salesforce feature flows -------------------------
             // Some processTypes (Survey, CartAsyncFlow etc.) are auto-created by
             // Salesforce when a feature is enabled (e.g. Surveys). They are NOT
-            // created by the user, do NOT appear in Setup → Flows, and cannot be
+            // created by the user, do NOT appear in Setup -> Flows, and cannot be
             // deleted. Their ManageableState is 'unmanaged' because they live in
-            // the org's own namespace — so the normal isManaged check misses them.
+            // the org's own namespace -- so the normal isManaged check misses them.
             // Treat any ACTIVE flow of these types as SKIP (noise) unless the user
             // has actually referenced or run it.  Inactive ones are left visible
             // as genuine delete candidates.
@@ -867,7 +869,7 @@ public without sharing class MetadataEngine {
                 'CheckoutFlow'.equalsIgnoreCase(fi.processType)
             );
 
-            // isReferenced — flow DurableId found in broad MCD reference set
+            // isReferenced -- flow DurableId found in broad MCD reference set
             // Covers: Apex, VF pages, Quick Actions, subflows, Process Builder,
             //         Approval Processes, and anything else MCD tracks
             Boolean isReferenced = String.isNotBlank(fi.durableId) &&
@@ -885,35 +887,35 @@ public without sharing class MetadataEngine {
             fi.isCalledByFlow   = isReferenced;
             fi.isScheduled      = isScheduled;
 
-            // ── Decision matrix ──────────────────────────────────────────
-            // Custom flows (user-built)   → always show (active or inactive)
+            // -- Decision matrix ------------------------------------------
+            // Custom flows (user-built)   -> always show (active or inactive)
             // Managed flows (Salesforce / package-owned):
-            //   • show only if user has actually used it (interview or subflow)
-            //   • otherwise SKIP — user can't delete it AND has never invoked it,
+            //    show only if user has actually used it (interview or subflow)
+            //    otherwise SKIP -- user can't delete it AND has never invoked it,
             //     so it's pure dashboard noise
             //
-            //   Active  + custom                       → SHOW
-            //   Active  + managed + userHasUsed        → SHOW
-            //   Active  + managed + !userHasUsed       → SKIP (noise)
-            //   Inactive + custom                      → SHOW (delete candidate)
-            //   Inactive + managed + userHasUsed       → SHOW (was used)
-            //   Inactive + managed + !userHasUsed      → SKIP (noise)
+            //   Active  + custom                       -> SHOW
+            //   Active  + managed + userHasUsed        -> SHOW
+            //   Active  + managed + !userHasUsed       -> SKIP (noise)
+            //   Inactive + custom                      -> SHOW (delete candidate)
+            //   Inactive + managed + userHasUsed       -> SHOW (was used)
+            //   Inactive + managed + !userHasUsed      -> SKIP (noise)
             //
             // NEW RULE: references (not active/inactive) determine Used vs Unused.
             //   hasReferences = isSubflow OR isScheduled OR hasInterview
-            //   Any flow (active OR inactive) with references  → IN_USE  (Used card)
-            //   Any flow (active OR inactive) with no references → SAFE_TO_REVIEW (Unused card)
+            //   Any flow (active OR inactive) with references  -> IN_USE  (Used card)
+            //   Any flow (active OR inactive) with no references -> SAFE_TO_REVIEW (Unused card)
             // hasReferences = MCD reference OR scheduled/record-triggered OR has interview
             Boolean hasReferences = isReferenced || isScheduled || hasInterview;
 
             if ((isManaged || isAutoCreatedFeatureFlow) && !userHasUsed) {
                 fi.safetyStatus = 'SKIP';
             } else if (hasReferences) {
-                // Has at least one reference → Used card regardless of active/inactive
+                // Has at least one reference -> Used card regardless of active/inactive
                 fi.safetyStatus = 'IN_USE';
             } else {
                 // Zero references across all checked sources
-                // → truly unused → Unused card as SAFE_TO_REVIEW
+                // -> truly unused -> Unused card as SAFE_TO_REVIEW
                 fi.safetyStatus = 'SAFE_TO_REVIEW';
             }
         }
@@ -968,26 +970,26 @@ public without sharing class MetadataEngine {
     // DELETE FLOW BY API NAME
     // ===============================
 
-    // ── renderFlowInterviewOnlyMessage ───────────────────────────────────────
+    // -- renderFlowInterviewOnlyMessage ---------------------------------------
     //
     // Special-case renderer used when the ONLY thing blocking a flow delete
     // is one or more running/paused Flow Interviews.
     //
     // Why a separate message instead of the standard "N reference(s) must be
     // removed first" report:
-    //   • A Flow Interview is a LIVE runtime instance, not a metadata
+    //    A Flow Interview is a LIVE runtime instance, not a metadata
     //     reference.  Telling the user to "remove the reference" is wrong.
-    //   • The fix is operational, not metadata: finish the interview, OR
+    //    The fix is operational, not metadata: finish the interview, OR
     //     delete the FlowInterview row.  Standard report doesn't say either.
-    //   • The generic group-listed format buries the actual action under
-    //     boilerplate ("Tip: Setup > Flows > … > View Dependencies"  -  which
+    //    The generic group-listed format buries the actual action under
+    //     boilerplate ("Tip: Setup > Flows >  > View Dependencies"  -  which
     //     does NOT show interviews) that's actively misleading here.
     //
     // Used by both:
-    //   • the pre-delete blocking path  (deleteFlowByApiName, step 3)
-    //   • the post-error fallback path  (deleteFlowByApiName, after version
+    //    the pre-delete blocking path  (deleteFlowByApiName, step 3)
+    //    the post-error fallback path  (deleteFlowByApiName, after version
     //     delete attempt returned DEPENDENCY_EXISTS)
-    // ────────────────────────────────────────────────────────────────────────
+    // ------------------------------------------------------------------------
     @TestVisible
     /** Returns String result of renderFlowInterviewOnlyMessage. */
     private static String renderFlowInterviewOnlyMessage(
@@ -1014,15 +1016,15 @@ public without sharing class MetadataEngine {
             }
         }
 
-        // ── Build the message: ACTION-FIRST, minimal explanation ──
+        // -- Build the message: ACTION-FIRST, minimal explanation --
         //
         // The user just hit "delete" and saw it fail. The message should
         // answer in the order they're asking:
-        //   1. What happened?  → "Delete blocked."
-        //   2. Why?            → "A user has a paused interview in this flow."
-        //   3. What now?       → one clear action.
+        //   1. What happened?  -> "Delete blocked."
+        //   2. Why?            -> "A user has a paused interview in this flow."
+        //   3. What now?       -> one clear action.
         //
-        // Old version led with "⏸️ Flow X has N interview(s)" and a wall
+        // Old version led with " Flow X has N interview(s)" and a wall
         // of explanation about what an interview is.  That sounded like
         // info, not an error  -  confusing when paired with a "Failed" tag.
         String word = (n == 1) ? 'interview' : 'interviews';
@@ -1059,7 +1061,7 @@ public without sharing class MetadataEngine {
         return msg;
     }
 
-    // ── flexiPageContainsFlow ────────────────────────────────────────────────
+    // -- flexiPageContainsFlow ------------------------------------------------
     //
     // Determines whether a FlexiPage's Metadata embeds the given flow.
     //
@@ -1103,7 +1105,7 @@ public without sharing class MetadataEngine {
     //
     // We walk the entire JSON tree recursively because regions can be
     // nested (sections, tabs, accordions all wrap their child components).
-    // ────────────────────────────────────────────────────────────────────
+    // --------------------------------------------------------------------
     @TestVisible
     @SuppressWarnings('PMD.ExcessiveParameterList')
     /** Returns Boolean result of flexiPageContainsFlow. */
@@ -1192,7 +1194,7 @@ public without sharing class MetadataEngine {
         return false;
     }
 
-    // ── checkAllFlowReferences ────────────────────────────────────────────────
+    // -- checkAllFlowReferences ------------------------------------------------
     //
     // Dedicated, exhaustive reference scan for a Flow before any delete attempt.
     //
@@ -1200,11 +1202,11 @@ public without sharing class MetadataEngine {
     //   getReferencesFor() intentionally skips Id resolution for Flow and falls
     //   through to a name-only MCD query.  That works when MCD indexed the flow
     //   by ApiName, but fails when:
-    //     • The name has spaces that were normalised to underscores (MCD may still
+    //      The name has spaces that were normalised to underscores (MCD may still
     //       store the original label string, or nothing at all for that key).
-    //     • The flow is referenced only via FlexiPage body / subflow body / Process
+    //      The flow is referenced only via FlexiPage body / subflow body / Process
     //       Builder nodes  -  none of which appear in MCD.
-    //     • Active interviews or scheduled jobs exist (runtime state, not metadata).
+    //      Active interviews or scheduled jobs exist (runtime state, not metadata).
     //
     // This method queries ALL of those sources and deduplicates across them:
     //   1.  MCD by 18-char Id  (FlowDefinitionView.Id)
@@ -1231,7 +1233,7 @@ public without sharing class MetadataEngine {
     //   flowLabel   -  human-readable Label (FlowDefinitionView.Label)
     //
     // Returns a de-duplicated List<ReferenceItem> (empty = safe to delete).
-    // ─────────────────────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
     @TestVisible
     @SuppressWarnings('PMD.ExcessiveParameterList')
     /** Returns List<ReferenceItem> result of checkAllFlowReferences. */
@@ -1244,7 +1246,7 @@ public without sharing class MetadataEngine {
 
         // Helper: add an item only if not yet seen
         // (inline closure not available in Apex  -  use a flag check pattern)
-        // ── 1 & 2: MCD by Id (18-char) and by DurableId (15-char) ────────────
+        // -- 1 & 2: MCD by Id (18-char) and by DurableId (15-char) ------------
         for (String refId : new List<String>{ flowId18, durableId }) {
             if (String.isBlank(refId)) continue;
             try {
@@ -1280,7 +1282,7 @@ public without sharing class MetadataEngine {
             }
         }
 
-        // ── 3: MCD by normalised ApiName ──────────────────────────────────────
+        // -- 3: MCD by normalised ApiName --------------------------------------
         // Catches orgs where MCD indexed the flow by ApiName rather than Id.
         // RefMetadataComponentType can be 'Flow' or 'FlowDefinition'  -  query both.
         try {
@@ -1316,7 +1318,7 @@ public without sharing class MetadataEngine {
             System.debug(LoggingLevel.WARN, 'checkAllFlowReferences MCD by ApiName skipped: ' + ex.getMessage());
         }
 
-        // ── 4: MCD by Label ───────────────────────────────────────────────────
+        // -- 4: MCD by Label ---------------------------------------------------
         // Some orgs (particularly older API versions or Process Builder-era flows)
         // index the flow under its Label rather than its normalised ApiName.
         // Only run if Label differs from ApiName (i.e. the label has spaces or
@@ -1359,8 +1361,8 @@ public without sharing class MetadataEngine {
             }
         }
 
-        // ── 5: Subflow body scan ──────────────────────────────────────────────
-        // MCD does not always register subflow → parent-flow edges.
+        // -- 5: Subflow body scan ----------------------------------------------
+        // MCD does not always register subflow -> parent-flow edges.
         // Query active flow Metadata for SubflowElement nodes referencing this flow.
         // We use FlowDefinitionView (not FlowDefinition) because it is queryable via
         // the standard REST /query endpoint without Tooling API.
@@ -1457,19 +1459,19 @@ public without sharing class MetadataEngine {
             System.debug(LoggingLevel.WARN, 'checkAllFlowReferences subflow body scan skipped: ' + ex.getMessage());
         }
 
-        // ── 6: FlexiPage body scan ────────────────────────────────────────────
+        // -- 6: FlexiPage body scan --------------------------------------------
         // App Builder pages (FlexiPage) can embed a Flow in a Flow component.
         // MCD does not always capture this edge.
         //
         // FIX: previous code did a naive `.toLowerCase().contains(apiName)` over
         // the serialised JSON.  That:
-        //   • produced false positives on partial-name matches,
-        //   • produced false negatives when the label had spaces (apiName had
+        //    produced false positives on partial-name matches,
+        //    produced false negatives when the label had spaces (apiName had
         //     underscores but the FlexiPage stored the flow by its API name only),
-        //   • ignored FlexiPage.Type so it couldn't tell users WHICH kind of
+        //    ignored FlexiPage.Type so it couldn't tell users WHICH kind of
         //     page is blocking (Record Page vs App Page vs Home Page vs
         //     Community page), and
-        //   • didn't show users WHICH object's record page is involved.
+        //    didn't show users WHICH object's record page is involved.
         //
         // New approach:
         //   1. Pull `Type` and `EntityDefinitionId` (sObject for RecordPage) too.
@@ -1479,10 +1481,10 @@ public without sharing class MetadataEngine {
         //      for `flowApiName` / `flowName` whose value EXACTLY matches the
         //      flow ApiName (case-insensitive, after underscore-normalisation).
         //   3. Build a group label specific to the FlexiPage Type:
-        //          RecordPage → "Lightning Record Pages (FlexiPage)"
-        //          AppPage    → "Lightning App Pages (FlexiPage)"
-        //          HomePage   → "Lightning Home Pages (FlexiPage)"
-        //          CommApp/CommFlex/CommPage → handled in check #13 below
+        //          RecordPage -> "Lightning Record Pages (FlexiPage)"
+        //          AppPage    -> "Lightning App Pages (FlexiPage)"
+        //          HomePage   -> "Lightning Home Pages (FlexiPage)"
+        //          CommApp/CommFlex/CommPage -> handled in check #13 below
         //   4. For RecordPage, append the sObject name so the user sees
         //      "Account Record Page: MyAccountPage" instead of just a name.
         try {
@@ -1495,7 +1497,7 @@ public without sharing class MetadataEngine {
             fpReq.setTimeout(TIMEOUT_LONG);
             HttpResponse fpRes = http.send(fpReq);
 
-            // Resolve EntityDefinition Ids → DeveloperName (object label) in one extra call
+            // Resolve EntityDefinition Ids -> DeveloperName (object label) in one extra call
             Map<String, String> entityIdToName = new Map<String, String>();
             if (fpRes.getStatusCode() >= 200 && fpRes.getStatusCode() < 300) {
                 Map<String, Object> fpBody = (Map<String, Object>) JSON.deserializeUntyped(fpRes.getBody());
@@ -1546,7 +1548,7 @@ public without sharing class MetadataEngine {
                     String normLabelLower    = String.isNotBlank(normalisedLabel) ? normalisedLabel.toLowerCase() : null;
 
                     // Fetch once: pages the user has explicitly assigned to an app/profile.
-                    // A system-default page that has been assigned is a real reference — do not skip it.
+                    // A system-default page that has been assigned is a real reference -- do not skip it.
                     Set<String> assignedFpIds = fetchAssignedFlexiPageIds(http);
 
                     for (Object r : fpRecs) {
@@ -1623,7 +1625,7 @@ public without sharing class MetadataEngine {
                         }
 
                         // Build a display name.  For RecordPage prepend the
-                        // sObject so the user sees "Account Record Page: …".
+                        // sObject so the user sees "Account Record Page: ".
                         String label = String.isNotBlank(fpMaster) ? fpMaster : fpName;
                         String displayName;
                         if ('RecordPage'.equalsIgnoreCase(typeForGroup)) {
@@ -1653,7 +1655,7 @@ public without sharing class MetadataEngine {
             System.debug(LoggingLevel.WARN, 'checkAllFlowReferences FlexiPage scan skipped: ' + ex.getMessage());
         }
 
-        // ── 7: Active FlowInterviews (paused / waiting runs) ─────────────────
+        // -- 7: Active FlowInterviews (paused / waiting runs) -----------------
         // Runtime state  -  not captured in MCD at all.
         //
         // HISTORY:
@@ -1753,10 +1755,10 @@ public without sharing class MetadataEngine {
             Integer skippedSystemCount = 0;
 
             for (FlowInterview fi : interviews) {
-                // ── CLASSIFICATION: only user-started interviews count ──
-                // CreatedBy.UserType == 'Standard'  → real user → block delete
+                // -- CLASSIFICATION: only user-started interviews count --
+                // CreatedBy.UserType == 'Standard'  -> real user -> block delete
                 // anything else (AutomatedProcess, PlatformIntegration, System,
-                // Guest, CsnOnly, SelfService) → system/automated → IGNORE
+                // Guest, CsnOnly, SelfService) -> system/automated -> IGNORE
                 //
                 // Rationale: a system-started interview is automation noise.
                 // The user asked to delete a flow, not to reason about
@@ -1813,8 +1815,8 @@ public without sharing class MetadataEngine {
             System.debug(LoggingLevel.WARN, 'checkAllFlowReferences FlowInterview check skipped: ' + ex.getMessage());
         }
 
-        // ── 8: Scheduled Jobs (CronTrigger) ──────────────────────────────────
-        // A flow scheduled via the Apex Scheduler or Setup → Scheduled Jobs
+        // -- 8: Scheduled Jobs (CronTrigger) ----------------------------------
+        // A flow scheduled via the Apex Scheduler or Setup -> Scheduled Jobs
         // appears in CronTrigger  -  not in MCD.  Match on Label (Salesforce uses
         // the flow label as the job name, not the ApiName).
         try {
@@ -1841,7 +1843,7 @@ public without sharing class MetadataEngine {
             System.debug(LoggingLevel.WARN, 'checkAllFlowReferences CronTrigger check skipped: ' + ex.getMessage());
         }
 
-        // ── 9: GenAiFunction (Agentforce Agent Actions) ───────────────────────────
+        // -- 9: GenAiFunction (Agentforce Agent Actions) ---------------------------
         // GenAiFunction is NOT indexed in MetadataComponentDependency  -  it is invisible
         // to all MCD queries above.  Query it directly via Tooling API and search the
         // serialised Metadata body for any reference to this flow's ApiName or Label.
@@ -1899,7 +1901,7 @@ public without sharing class MetadataEngine {
             System.debug(LoggingLevel.WARN, 'checkAllFlowReferences GenAiFunction scan skipped: ' + ex.getMessage());
         }
 
-        // ── 10: Approval Processes ────────────────────────────────────────────
+        // -- 10: Approval Processes --------------------------------------------
         // ApprovalProcess can invoke a Flow as an action step.
         // MCD indexes this as MetadataComponentType = 'ApprovalProcess'
         // referencing the flow by RefMetadataComponentId or RefMetadataComponentName.
@@ -1977,11 +1979,11 @@ public without sharing class MetadataEngine {
             System.debug(LoggingLevel.WARN, 'checkAllFlowReferences ApprovalProcess scan skipped: ' + ex.getMessage());
         }
 
-        // ── 11: Quick Actions (FlowAction type) ──────────────────────────────
+        // -- 11: Quick Actions (FlowAction type) ------------------------------
         // QuickAction of type 'Flow' directly invokes a flow.
         //
         // HISTORY: previous version relied on MetadataComponentDependency
-        // (MCD)  -  but MCD's coverage for QuickAction → Flow edges is
+        // (MCD)  -  but MCD's coverage for QuickAction -> Flow edges is
         // unreliable.  Many orgs return zero MCD rows even when a Flow
         // Quick Action exists, only for Salesforce to then block the delete
         // with "Quick Action: <Name>".
@@ -2203,7 +2205,7 @@ public without sharing class MetadataEngine {
             System.debug(LoggingLevel.WARN, 'checkAllFlowReferences QuickAction scan skipped: ' + ex.getMessage());
         }
 
-        // ── 12: Einstein Bots (BotVersion) ───────────────────────────────────
+        // -- 12: Einstein Bots (BotVersion) -----------------------------------
         // BotVersion dialog steps can invoke a flow.
         // Query BotVersion Metadata body and scan for the flow ApiName / Label.
         try {
@@ -2246,7 +2248,7 @@ public without sharing class MetadataEngine {
             System.debug(LoggingLevel.WARN, 'checkAllFlowReferences BotVersion scan skipped: ' + ex.getMessage());
         }
 
-        // ── 13: Experience Cloud / Site pages ────────────────────────────────
+        // -- 13: Experience Cloud / Site pages --------------------------------
         // FlexiPages of type CommApp / CommFlex / CommPage embed flows.
         // The base FlexiPage scan (check #6) already covers generic pages.
         // This targeted scan hits Community/Experience-specific page types.
@@ -2292,7 +2294,7 @@ public without sharing class MetadataEngine {
             System.debug(LoggingLevel.WARN, 'checkAllFlowReferences ExperienceCloud scan skipped: ' + ex.getMessage());
         }
 
-        // ── 14: Workflow Rules (classic)  -  FlowAction ────────────────────────
+        // -- 14: Workflow Rules (classic)  -  FlowAction ------------------------
         // Classic Workflow Rules can have a Flow Action that invokes a flow.
         // MCD: MetadataComponentType = 'WorkflowRule' or 'WorkflowFlowAction'
         try {
@@ -2369,7 +2371,7 @@ public without sharing class MetadataEngine {
             System.debug(LoggingLevel.WARN, 'checkAllFlowReferences WorkflowRule scan skipped: ' + ex.getMessage());
         }
 
-        // ── 15: Process Builder (ProcessDefinition) ───────────────────────────
+        // -- 15: Process Builder (ProcessDefinition) ---------------------------
         // Process Builder processes can call a flow as a subprocess node.
         // MCD: MetadataComponentType = 'Flow' WHERE MetadataComponentId = ProcessDefinition Id.
         // Alternatively query ProcessDefinition and scan Metadata body.
@@ -2413,7 +2415,7 @@ public without sharing class MetadataEngine {
             System.debug(LoggingLevel.WARN, 'checkAllFlowReferences ProcessBuilder scan skipped: ' + ex.getMessage());
         }
 
-        // ── 16: Custom Permissions ────────────────────────────────────────────
+        // -- 16: Custom Permissions --------------------------------------------
         // CustomPermission metadata can gate flow access.
         // MCD: MetadataComponentType = 'CustomPermission' referencing this flow.
         try {
@@ -2460,13 +2462,13 @@ public without sharing class MetadataEngine {
 
     /** Returns DeleteResult result of deleteFlowByApiName. */
     public static DeleteResult deleteFlowByApiName(String apiName) {
-        // ── Normalize FIRST  -  reference check must use the same name as the lookup ──
+        // -- Normalize FIRST  -  reference check must use the same name as the lookup --
         apiName = apiName.trim().replaceAll(' ', '_');
 
         Http         http   = new Http();
         DeleteResult result = new DeleteResult();
 
-        // ── STEP 1: Look up the flow to get DurableId, Label, IsActive ──────────
+        // -- STEP 1: Look up the flow to get DurableId, Label, IsActive ----------
         // Must resolve DurableId first  -  MCD queries by Id are more reliable
         // than name-based queries (avoids Flow vs FlowDefinition type confusion).
         String lookupSoql = 'SELECT Id, DurableId, Label, ApiName, IsActive, ProcessType, TriggerType ' +
@@ -2493,7 +2495,32 @@ public without sharing class MetadataEngine {
         List<Object> lookupRecords = (List<Object>) lookupResponse.get('records');
 
         if (lookupRecords == null || lookupRecords.isEmpty()) {
-            // ── Fallback: try matching by Label in case user passed a label ────────
+            // -- Fallback 1: LIKE is case-insensitive in SOQL -- catches lowercase input --
+            // The primary query uses WHERE ApiName = '...' which IS case-sensitive via REST.
+            // If a user types "bsr_case" but the real ApiName is "BSR_Case", it returns 0 rows.
+            // LIKE with the exact value is case-insensitive and resolves this without wildcards.
+            String apiNameLikeSoql = 'SELECT Id, DurableId, Label, ApiName, IsActive, ProcessType, TriggerType ' +
+                                     'FROM FlowDefinitionView ' +
+                                     'WHERE ApiName LIKE \'' + String.escapeSingleQuotes(apiName) + '\' ' +
+                                     'LIMIT 1';
+            HttpRequest likeReq = new HttpRequest();
+            likeReq.setEndpoint(BASE_URL + 'query?q=' + EncodingUtil.urlEncode(apiNameLikeSoql, 'UTF-8'));
+            likeReq.setMethod('GET');
+            likeReq.setHeader('Content-Type', 'application/json');
+            HttpResponse likeRes = http.send(likeReq);
+            if (likeRes.getStatusCode() >= 200 && likeRes.getStatusCode() < 300) {
+                Map<String, Object> likeBody = (Map<String, Object>) JSON.deserializeUntyped(likeRes.getBody());
+                List<Object> likeRecs = (List<Object>) likeBody.get('records');
+                if (likeRecs != null && !likeRecs.isEmpty()) {
+                    lookupRecords = likeRecs;
+                    // Update apiName to the real casing returned by Salesforce so all
+                    // downstream steps (reference check, SOQL, Tooling API) use the correct name.
+                    apiName = (String) ((Map<String, Object>) likeRecs[0]).get('ApiName');
+                }
+            }
+
+            if (lookupRecords == null || lookupRecords.isEmpty()) {
+            // -- Fallback 2: try matching by Label in case user passed a label --------
             String labelFallbackSoql = 'SELECT Id, DurableId, Label, ApiName, IsActive, ProcessType, TriggerType ' +
                                        'FROM FlowDefinitionView ' +
                                        'WHERE Label = \'' + String.escapeSingleQuotes(apiName.replace('_', ' ')) + '\' ' +
@@ -2518,6 +2545,7 @@ public without sharing class MetadataEngine {
                 result.message = 'No flow found with API Name: ' + apiName;
                 return result;
             }
+            }
         }
 
         Map<String, Object> flowDef     = (Map<String, Object>) lookupRecords[0];
@@ -2527,7 +2555,7 @@ public without sharing class MetadataEngine {
         String              processType = (String)  flowDef.get('ProcessType');
         String              triggerType = (String)  flowDef.get('TriggerType');
 
-        // ── STEP 2: Managed package check (single SOQL  -  no getFlows() org scan) ──
+        // -- STEP 2: Managed package check (single SOQL  -  no getFlows() org scan) --
         // getFlows(null) was an expensive full org scan just to check one field.
         // FlowDefinitionView already has everything we need.
         // Check managed package via Tooling API  -  Flow is not a standard queryable SObject.
@@ -2554,13 +2582,13 @@ public without sharing class MetadataEngine {
             }
         } catch (Exception ex) { /* non-critical  -  proceed */ }
 
-        // ── STEP 3: FULL REFERENCE CHECK before touching anything ────────────────
+        // -- STEP 3: FULL REFERENCE CHECK before touching anything ----------------
         //
         // WHY THIS ORDER MATTERS:
         // Old code deactivated an active flow FIRST, then checked references.
         // If the flow was referenced, it was left deactivated in production  -  broken.
         //
-        // Correct order: check ALL references → if any found → show full list and
+        // Correct order: check ALL references -> if any found -> show full list and
         // block everything. Never touch the flow (active or not) until refs are clean.
         //
         // checkAllFlowReferences() queries every source:
@@ -2580,16 +2608,16 @@ public without sharing class MetadataEngine {
         //  14.  Workflow Rules (FlowAction)
         //  15.  Process Builder subprocess calls
         //  16.  Custom Permissions
-        // ─────────────────────────────────────────────────────────────
+        // -------------------------------------------------------------
         String flowId18 = (String) flowDef.get('Id'); // 18-char Id from FlowDefinitionView
         List<ReferenceItem> flowRefs = checkAllFlowReferences(flowId18, durableId, apiName, flowLabel);
 
-        // ── If ANY references found → block and show full list. DO NOT deactivate. ──
+        // -- If ANY references found -> block and show full list. DO NOT deactivate. --
         if (!flowRefs.isEmpty()) {
             DeleteResult blocked = new DeleteResult();
             blocked.success = false;
 
-            // ── SPECIAL CASE: only blocker is running Flow Interviews ──
+            // -- SPECIAL CASE: only blocker is running Flow Interviews --
             // If every reference is a FlowInterview, skip the generic
             // "N reference(s) must be removed first" framing entirely.
             // A running interview is RUNTIME state, not a metadata
@@ -2622,7 +2650,7 @@ public without sharing class MetadataEngine {
             return blocked;
         }
 
-        // ── All references clear  -  now safe to deactivate (if active) and delete ──
+        // -- All references clear  -  now safe to deactivate (if active) and delete --
         if (isActive) {
             HttpRequest deactivateReq = new HttpRequest();
             deactivateReq.setEndpoint(BASE_URL + 'tooling/sobjects/FlowDefinition/' + durableId);
@@ -2763,7 +2791,7 @@ public without sharing class MetadataEngine {
         if (!failedVersions.isEmpty()) {
             result.success = false;
             if (dependencyMsg != null) {
-                // ── Parse what TYPE is blocking using the same helper as the Apex delete path ──
+                // -- Parse what TYPE is blocking using the same helper as the Apex delete path --
                 // Salesforce format for flow version deletes:
                 //   [{"message":"Cannot complete this operation...try again. : Action ","errorCode":"DELETE_FAILED"}]
                 // The part after the last ': ' is the blocking type label (may be "Action",
@@ -2785,8 +2813,8 @@ public without sharing class MetadataEngine {
                 }
 
                 // Build a combined ReferenceItem list:
-                //   • flowRefs from the pre-delete scan (already ran  -  reuse, do NOT re-scan)
-                //   • otherTypes as synthetic ReferenceItems, classified by type so the
+                //    flowRefs from the pre-delete scan (already ran  -  reuse, do NOT re-scan)
+                //    otherTypes as synthetic ReferenceItems, classified by type so the
                 //     user sees a meaningful group label instead of the catch-all
                 //     "Other References (from Salesforce error)".
                 // agentTypes are passed separately to buildFormattedReport as genAiTypes
@@ -3039,7 +3067,7 @@ public without sharing class MetadataEngine {
         return result;
     }
 
-    // ── Mass delete flows ──────────────────────────────────────
+    // -- Mass delete flows --------------------------------------
     /** Returns MassDeleteResult result of massDeleteFlows. */
     public static MassDeleteResult massDeleteFlows(List<String> apiNames) {
         MassDeleteResult mass = new MassDeleteResult();
@@ -3051,16 +3079,16 @@ public without sharing class MetadataEngine {
 
         Http http = new Http();
 
-        // ── STEP 0: Resolve labels → real ApiNames + DurableIds in ONE callout ──
+        // -- STEP 0: Resolve labels -> real ApiNames + DurableIds in ONE callout --
         // Build candidates from user input
         List<String> candidateApiNames = new List<String>();
         List<String> candidateLabels   = new List<String>();
-        Map<String, String> displayNames = new Map<String, String>(); // normalized → original
+        Map<String, String> displayNames = new Map<String, String>(); // normalized -> original
 
         for (String name : apiNames) {
             if (String.isBlank(name)) continue;
             // replaceAll replaces ALL occurrences (unlike replace(String,String) which stops at first).
-            // Keep the original trim as the label candidate — flow Labels can have spaces and colons.
+            // Keep the original trim as the label candidate -- flow Labels can have spaces and colons.
             String normalized = name.trim().replaceAll(' ', '_');
             candidateApiNames.add(normalized);
             candidateLabels.add(name.trim());
@@ -3073,9 +3101,9 @@ public without sharing class MetadataEngine {
         Map<String, Map<String, Object>> flowsByLabel   = new Map<String, Map<String, Object>>();
 
         if (!candidateApiNames.isEmpty()) {
-            // ── Query 1: resolve by ApiName IN (normalized names) ────────────────
+            // -- Query 1: resolve by ApiName IN (normalized names) ----------------
             // FlowDefinitionView does not reliably support OR between ApiName and Label
-            // in a single query — use two separate queries like deleteFlowByApiName does.
+            // in a single query -- use two separate queries like deleteFlowByApiName does.
             try {
                 String apiList = '';
                 for (Integer i = 0; i < candidateApiNames.size(); i++) {
@@ -3109,15 +3137,15 @@ public without sharing class MetadataEngine {
                 System.debug(LoggingLevel.WARN, 'massDeleteFlows resolve by ApiName failed: ' + ex.getMessage());
             }
 
-            // ── Query 2: resolve by Label IN (original names) ─────────────────────
+            // -- Query 2: resolve by Label IN (original names) ---------------------
             // Runs separately so that label-based names (spaces, colons) are not
             // affected by the ApiName normalization done in Query 1.
-            // Also adds underscore→space variants (same as deleteFlowByApiName fallback).
+            // Also adds underscore->space variants (same as deleteFlowByApiName fallback).
             try {
                 Set<String> labelSet = new Set<String>();
                 for (String lbl : candidateLabels) {
                     labelSet.add(lbl);                       // original: "BSR: Flow Creation 01"
-                    labelSet.add(lbl.replaceAll('_', ' ')); // underscore→space variant
+                    labelSet.add(lbl.replaceAll('_', ' ')); // underscore->space variant
                 }
                 String labelList = '';
                 Boolean firstLbl = true;
@@ -3154,6 +3182,60 @@ public without sharing class MetadataEngine {
             }
         }
 
+        // -- Query 1b: LIKE fallback -- catches case mismatches (e.g. "bsr:test002" -> "BSR:Test002") --
+        // SOQL WHERE ApiName IN (...) via REST is case-sensitive; LIKE is not.
+        // For any input name that neither Query 1 nor Query 2 resolved, run OR-of-LIKE.
+        // This also handles names with colons (BSR:Test002) where the ApiName might differ.
+        if (!candidateApiNames.isEmpty()) {
+            List<String> stillUnresolved = new List<String>();
+            for (String n : candidateApiNames) {
+                if (!flowsByApiName.containsKey(n.toLowerCase()) &&
+                    !flowsByLabel.containsKey(n.toLowerCase())) {
+                    stillUnresolved.add(n);
+                }
+            }
+            // Also check original label candidates
+            for (String lbl : candidateLabels) {
+                if (!flowsByLabel.containsKey(lbl.toLowerCase()) &&
+                    !flowsByApiName.containsKey(lbl.toLowerCase())) {
+                    if (!stillUnresolved.contains(lbl)) stillUnresolved.add(lbl);
+                }
+            }
+            if (!stillUnresolved.isEmpty()) {
+                List<String> likeClauses = new List<String>();
+                for (String n : stillUnresolved) {
+                    likeClauses.add('ApiName LIKE \'' + String.escapeSingleQuotes(n) + '\'');
+                }
+                String likeSoql = 'SELECT Id, DurableId, ApiName, Label, IsActive, ProcessType ' +
+                                  'FROM FlowDefinitionView ' +
+                                  'WHERE ' + String.join(likeClauses, ' OR ') + ' ' +
+                                  'LIMIT 200';
+                try {
+                    HttpRequest likeReq = new HttpRequest();
+                    likeReq.setEndpoint(BASE_URL + 'query?q=' + EncodingUtil.urlEncode(likeSoql, 'UTF-8'));
+                    likeReq.setMethod('GET');
+                    likeReq.setHeader('Content-Type', 'application/json');
+                    likeReq.setTimeout(TIMEOUT_LONG);
+                    HttpResponse likeRes = http.send(likeReq);
+                    if (likeRes.getStatusCode() >= 200 && likeRes.getStatusCode() < 300) {
+                        Map<String, Object> likeBody = (Map<String, Object>) JSON.deserializeUntyped(likeRes.getBody());
+                        List<Object> likeRecs = (List<Object>) likeBody.get('records');
+                        if (likeRecs != null) {
+                            for (Object r : likeRecs) {
+                                Map<String, Object> rec = (Map<String, Object>) r;
+                                String realApi = (String) rec.get('ApiName');
+                                String lbl2    = (String) rec.get('Label');
+                                if (String.isNotBlank(realApi)) flowsByApiName.put(realApi.toLowerCase(), rec);
+                                if (String.isNotBlank(lbl2))    flowsByLabel.put(lbl2.toLowerCase(), rec);
+                            }
+                        }
+                    }
+                } catch (Exception ex) {
+                    System.debug(LoggingLevel.WARN, 'massDeleteFlows LIKE fallback failed: ' + ex.getMessage());
+                }
+            }
+        }
+
         // Build working list: for each input name, find the resolved flow record
         List<Map<String, Object>> resolvedFlows = new List<Map<String, Object>>();
         Set<String>               resolvedDurableIds = new Set<String>();
@@ -3168,7 +3250,7 @@ public without sharing class MetadataEngine {
             if (rec == null) rec = flowsByLabel.get(name.trim().toLowerCase());
             if (rec == null) rec = flowsByApiName.get(name.trim().toLowerCase());
             if (rec == null) {
-                // Not found — record as failure immediately
+                // Not found -- record as failure immediately
                 mass.failureCount++;
                 mass.failed.add(name.trim() + ' (No flow found with that API Name or Label)');
                 continue;
@@ -3186,14 +3268,14 @@ public without sharing class MetadataEngine {
             return mass;
         }
 
-        // ── STEP 1: BULK reference check — 2 callouts for ALL flows at once ──────
+        // -- STEP 1: BULK reference check -- 2 callouts for ALL flows at once ------
         // Query 1: MCD by RefMetadataComponentType IN ('Flow','FlowDefinition')
         // Query 2: MCD by RefMetadataComponentId IN (all DurableIds + Id18s)
         // This mirrors the same bulk scan used in getFlows() and costs only 2 callouts
         // regardless of how many flows we're deleting.
-        Set<String> referencedDurableIds = new Set<String>(); // durableId.lower → has reference
+        Set<String> referencedDurableIds = new Set<String>(); // durableId.lower -> has reference
 
-        // Q1 — by RefMetadataComponentType
+        // Q1 -- by RefMetadataComponentType
         try {
             String q1 = 'SELECT RefMetadataComponentId, RefMetadataComponentName ' +
                         'FROM MetadataComponentDependency ' +
@@ -3233,7 +3315,7 @@ public without sharing class MetadataEngine {
             System.debug(LoggingLevel.WARN, 'massDeleteFlows bulk MCD Q1 skipped: ' + ex.getMessage());
         }
 
-        // Q2 — by RefMetadataComponentId IN (our DurableIds)
+        // Q2 -- by RefMetadataComponentId IN (our DurableIds)
         if (!resolvedDurableIds.isEmpty()) {
             try {
                 List<String> idList = new List<String>(resolvedDurableIds);
@@ -3264,7 +3346,7 @@ public without sharing class MetadataEngine {
             }
         }
 
-        // ── STEP 2: Bulk FlexiPage scan — 1 callout covers ALL flows ────────────
+        // -- STEP 2: Bulk FlexiPage scan -- 1 callout covers ALL flows ------------
         // Load all FlexiPages once, then check each flow's ApiName against the metadata.
         Set<String> flexiPageReferencedDurIds = new Set<String>();
         try {
@@ -3323,7 +3405,7 @@ public without sharing class MetadataEngine {
         Set<String> allBlockedDurIds = new Set<String>(referencedDurableIds);
         allBlockedDurIds.addAll(flexiPageReferencedDurIds);
 
-        // ── STEP 3: Separate flows into safe-to-delete vs blocked ───────────────
+        // -- STEP 3: Separate flows into safe-to-delete vs blocked ---------------
         List<Map<String, Object>> safeFlows    = new List<Map<String, Object>>();
         List<Map<String, Object>> blockedFlows = new List<Map<String, Object>>();
 
@@ -3345,7 +3427,7 @@ public without sharing class MetadataEngine {
             mass.failed.add(name + ' (Cannot delete: active references found. Use "delete flow ' + api + '" for full details)');
         }
 
-        // ── STEP 4: Delete safe flows — ~3 callouts each ────────────────────────
+        // -- STEP 4: Delete safe flows -- ~3 callouts each ------------------------
         // Per-flow cost: 1 deactivate (if active) + 1 version query + N version deletes
         // For 5 flows this is ~15 callouts, well within governor limit.
         for (Map<String, Object> flow : safeFlows) {
@@ -3356,7 +3438,7 @@ public without sharing class MetadataEngine {
             String dispName = String.isNotBlank(lbl) ? lbl : api;
 
             try {
-                // Deactivate — always attempt regardless of cached IsActive.
+                // Deactivate -- always attempt regardless of cached IsActive.
                 // IsActive may be stale; 404 means already inactive which is fine.
                 if (String.isNotBlank(durId)) {
                     HttpRequest deactReq = new HttpRequest();
@@ -3366,7 +3448,7 @@ public without sharing class MetadataEngine {
                     deactReq.setTimeout(TIMEOUT_LONG);
                     deactReq.setBody('{"Metadata": {"activeVersionNumber": 0}}');
                     HttpResponse deactRes = http.send(deactReq);
-                    // 204/200 = deactivated; 404 = already inactive — both OK to proceed.
+                    // 204/200 = deactivated; 404 = already inactive -- both OK to proceed.
                     if (deactRes.getStatusCode() != 204 && deactRes.getStatusCode() != 200
                             && deactRes.getStatusCode() != 404) {
                         String deactBody = deactRes.getBody();
@@ -3376,7 +3458,7 @@ public without sharing class MetadataEngine {
                              deactBody.containsIgnoreCase('Referenced by') ||
                              deactBody.containsIgnoreCase('Remove the usage'))) {
                             mass.failureCount++;
-                            mass.failed.add(dispName + ' (Cannot deactivate — referenced elsewhere. Use "delete flow ' + api + '" for full details)');
+                            mass.failed.add(dispName + ' (Cannot deactivate -- referenced elsewhere. Use "delete flow ' + api + '" for full details)');
                         } else {
                             mass.failureCount++;
                             mass.failed.add(dispName + ' (Deactivation failed: HTTP ' + deactRes.getStatusCode() + ')');
@@ -3409,7 +3491,7 @@ public without sharing class MetadataEngine {
                 }
 
                 // Delete each version.
-                // Always obsolete first regardless of cached status — deactivation sets
+                // Always obsolete first regardless of cached status -- deactivation sets
                 // activeVersionNumber=0 but individual versions may still report Active.
                 List<String> failedVersions = new List<String>();
                 String       dependencyMsg  = null;
@@ -3419,7 +3501,7 @@ public without sharing class MetadataEngine {
                     String vStatus = (String)  vRec.get('Status');
                     Integer vNum   = (Integer) vRec.get('VersionNumber');
 
-                    // Always attempt obsolete — harmless if already Obsolete/Draft
+                    // Always attempt obsolete -- harmless if already Obsolete/Draft
                     HttpRequest obsReq = new HttpRequest();
                     obsReq.setEndpoint(BASE_URL + 'tooling/sobjects/Flow/' + vId);
                     obsReq.setMethod('PATCH');
@@ -3454,7 +3536,7 @@ public without sharing class MetadataEngine {
                 } else {
                     mass.failureCount++;
                     String failMsg = dependencyMsg != null
-                        ? dispName + ' (Cannot delete — referenced elsewhere. Use "delete flow ' + api + '" for full details)'
+                        ? dispName + ' (Cannot delete -- referenced elsewhere. Use "delete flow ' + api + '" for full details)'
                         : dispName + ' (Failed to delete versions: ' + String.join(failedVersions, ', ') + ')';
                     mass.failed.add(failMsg);
                 }
@@ -3540,7 +3622,7 @@ public without sharing class MetadataEngine {
         }
 
         // USER bucket: classes with null namespace OR with this org's own namespace.
-        // SymbolTable removed from bulk query — including it for every class pushes
+        // SymbolTable removed from bulk query -- including it for every class pushes
         // the Tooling API response over its hidden ~12 MB limit when classes are large
         // (e.g. MetadataEngine.cls itself). When that happens, the API silently returns
         // HTTP 200 + empty records, leaving the dashboard with Total: 0.
@@ -3688,7 +3770,7 @@ public without sharing class MetadataEngine {
                 }
             }
         }
-        // Resolve Ids → Names via SOQL (one query, all Ids at once)
+        // Resolve Ids -> Names via SOQL (one query, all Ids at once)
         if (!refClassIds.isEmpty()) {
             try {
                 for (ApexClass ac : [SELECT Id, Name FROM ApexClass WHERE Id IN :refClassIds]) {
@@ -3699,27 +3781,76 @@ public without sharing class MetadataEngine {
             }
         }
 
+        // -- Permission Set / Profile Apex Class Access --------------------------
+        // A class granted in a *real* (custom, non-default) Permission Set is
+        // actively in use from an org-security perspective and must be treated as
+        // USED so it doesn't appear in the "Safe to delete" list.
+        //
+        // Rules:
+        //   • IsOwnedByProfile = false  AND  IsCustom = true
+        //       → custom Permission Set  (e.g. EM_PS)  → class is USED ✅
+        //   • IsOwnedByProfile = true   OR   IsCustom = false
+        //       → system/default profile entry (e.g. the default dev profile
+        //         that every org auto-grants)  → ignored for used/unused
+        //         classification; class stays UNUSED ✅
+        //
+        // We still set hasPermSetAccess = true on every class touched by ANY
+        // SetupEntityAccess row (including default profiles) so the LWC can
+        // render a PS badge as an extra safety hint.
+        try {
+            // Collect Apex Class Ids that appear in a custom, non-profile PS.
+            Set<Id> customPsApexClassIds = new Set<Id>();
+            // Collect ALL Apex Class Ids that appear in any SEA row (for badge).
+            Set<Id> allPsApexClassIds    = new Set<Id>();
 
-        for (String className : allClassMap.keySet()) {
-            Boolean isTestClass = className.endsWith('Test') || className.endsWith('Tests');
-            if (isTestClass) {
-                String mainClassName = className.endsWith('Tests')
-                    ? className.substring(0, className.length() - 5)
-                    : className.substring(0, className.length() - 4);
-                if (allClassMap.containsKey(mainClassName)) {
-                    referencedNames.add(className);
+            for (SetupEntityAccess sea : [
+                SELECT SetupEntityId, Parent.IsOwnedByProfile, Parent.IsCustom
+                FROM SetupEntityAccess
+                WHERE SetupEntityType = 'ApexClass'
+                LIMIT 2000
+            ]) {
+                allPsApexClassIds.add(sea.SetupEntityId);
+
+                // IsCustom = false → Salesforce auto-manages this row (default system profile).
+                // IsOwnedByProfile = true → it is a Profile row, not a Permission Set.
+                // Either condition means it is NOT a meaningful "in use" signal.
+                if (sea.Parent.IsCustom == true && sea.Parent.IsOwnedByProfile == false) {
+                    customPsApexClassIds.add(sea.SetupEntityId);
                 }
             }
+
+            // Resolve Ids → Names for the badge (all SEA rows).
+            if (!allPsApexClassIds.isEmpty()) {
+                for (ApexClass ac : [
+                    SELECT Id, Name FROM ApexClass WHERE Id IN :allPsApexClassIds
+                ]) {
+                    if (allClassMap.containsKey(ac.Name)) {
+                        allClassMap.get(ac.Name).hasPermSetAccess = true;
+                    }
+                }
+            }
+
+            // Resolve Ids → Names for custom PS rows and mark as USED.
+            if (!customPsApexClassIds.isEmpty()) {
+                for (ApexClass ac : [
+                    SELECT Id, Name FROM ApexClass WHERE Id IN :customPsApexClassIds
+                ]) {
+                    if (allClassMap.containsKey(ac.Name)) {
+                        // Adding to referencedNames moves the class to the USED
+                        // bucket in the classification loop below.
+                        referencedNames.add(ac.Name);
+                    }
+                }
+            }
+        } catch (Exception ex) {
+            System.debug(LoggingLevel.WARN, 'SetupEntityAccess Apex scan failed: ' + ex.getMessage());
         }
 
-        // ── Body-scan fallback ──────────────────────────────────────────
-        // The bulk SOQL above intentionally omits the SymbolTable column
-        // (it pushes the Tooling response past the ~12 MB cap on large
         // orgs), and MetadataComponentDependency is populated asynchronously
         // and is frequently stale or missing rows for recently-edited classes.
         // When both miss, a class that is in fact referenced by other Apex
         // ends up in `unusedClasses` and the dashboard renders it under
-        // "Safe to delete" — but the delete path then refuses with
+        // "Safe to delete" -- but the delete path then refuses with
         // "Referenced by N components" because IT does scan bodies.
         //
         // To make listing and delete agree, body-scan every user-namespace
@@ -3730,7 +3861,7 @@ public without sharing class MetadataEngine {
         // because we skip its own body.
         //
         // Cost is bounded: 1 SOQL for bodies (LIMIT 1000 matches the rest
-        // of the codebase) and O(candidates × classes × 80) char work via
+        // of the codebase) and O(candidates  classes  80) char work via
         // the localized noise check.
         Set<String> candidateNames = new Set<String>();
         for (String clsName : allClassMap.keySet()) {
@@ -3741,7 +3872,7 @@ public without sharing class MetadataEngine {
         }
 
         if (!candidateNames.isEmpty()) {
-            // Pre-lowercase candidate names once — hasRealKeyword expects the
+            // Pre-lowercase candidate names once -- hasRealKeyword expects the
             // keyword already lowercased and this is hot path code.
             Map<String, String> candidateLower = new Map<String, String>();
             for (String c : candidateNames) {
@@ -3758,7 +3889,7 @@ public without sharing class MetadataEngine {
                     String body  = ac.Body;
                     String lower = body.toLowerCase();
                     for (String candidate : candidateNames) {
-                        // Skip self-references — a class mentioning its own
+                        // Skip self-references -- a class mentioning its own
                         // name doesn't make it "used".
                         if (candidate == ac.Name) continue;
                         if (referencedNames.contains(candidate)) continue;
@@ -3896,7 +4027,7 @@ public without sharing class MetadataEngine {
         return summary;
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // ===============================================================
     /** Wrapper class: ReferenceResult. */
     public class ReferenceResult {
         /** componentName field. */
@@ -3929,7 +4060,7 @@ public without sharing class MetadataEngine {
         public String relationship; // e.g. "calls via Flow"
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // ===============================================================
     // getReferencesFor  -  THE single authoritative reference lookup
     //
     // Strategy:
@@ -3942,7 +4073,7 @@ public without sharing class MetadataEngine {
     //      by intercepting the HTTP 400 DEPENDENCY_EXISTS error.
     //   3. Group results into friendly categories for display.
     //   4. Deduplicate across all queries.
-    // ═══════════════════════════════════════════════════════════════
+    // ===============================================================
     /** Returns ReferenceResult result of getReferencesFor. */
     public static ReferenceResult getReferencesFor(String componentName, String componentType) {
         ReferenceResult res = new ReferenceResult();
@@ -3956,7 +4087,7 @@ public without sharing class MetadataEngine {
 
         Http http = new Http();
 
-        // ── Single MetadataComponentDependency query ─────────────────────
+        // -- Single MetadataComponentDependency query ---------------------
         // FIX: Use RefMetadataComponentId  -  RefMetadataComponentName causes INVALID_FIELD in many orgs.
         // Resolve the component Id via SOQL first, then filter MCD by Id.
         // Falls back to name-based query only if Id resolution fails (unknown componentType).
@@ -4004,7 +4135,7 @@ public without sharing class MetadataEngine {
                     }
                 }
 
-            // ── Flow: resolve full identity from FlowDefinitionView then delegate ──
+            // -- Flow: resolve full identity from FlowDefinitionView then delegate --
             // getReferencesFor() used to skip Id resolution for Flow and fall through
             // to a single name-only MCD query, missing: subflow body scan, FlexiPage
             // body scan, GenAiFunction (Agent Actions), FlowInterviews, and CronTrigger
@@ -4050,14 +4181,14 @@ public without sharing class MetadataEngine {
                     System.debug(LoggingLevel.WARN, 'getReferencesFor Flow Id lookup: ' + ex.getMessage());
                 }
                 // If FlowDefinitionView lookup failed, fall through to the name-based MCD query below
-                // Leave resolvedComponentId = null → name-based fallback
+                // Leave resolvedComponentId = null -> name-based fallback
 
-            // ── ValidationRule: resolve Id + deep body scans, then return ────
+            // -- ValidationRule: resolve Id + deep body scans, then return ----
             } else if ('ValidationRule'.equalsIgnoreCase(componentType)) {
                 String vrObjectName = componentName.contains('.') ? componentName.substringBefore('.') : '';
                 String vrRuleName   = componentName.contains('.') ? componentName.substringAfter('.')  : componentName;
 
-                // ── Step 1: Resolve Id + Active + ManageableState via Tooling API ──
+                // -- Step 1: Resolve Id + Active + ManageableState via Tooling API --
                 // FIX: EntityDefinition.QualifiedApiName cannot be used in WHERE clause
                 // in Tooling API  -  causes HTTP 400 on standard objects.
                 // Fetch by ValidationName only (LIMIT 50), then match object in Apex.
@@ -4098,7 +4229,7 @@ public without sharing class MetadataEngine {
                     System.debug(LoggingLevel.WARN, 'getReferencesFor VR Id lookup: ' + ex.getMessage());
                 }
 
-                // ── Step 2: Managed package guard ────────────────────────────────
+                // -- Step 2: Managed package guard --------------------------------
                 if ('installed'.equalsIgnoreCase(vrMgState) || 'installedEditable'.equalsIgnoreCase(vrMgState)) {
                     ReferenceItem ri = new ReferenceItem();
                     ri.name         = '[blocked] Belongs to a managed package (ManageableState=' + vrMgState +
@@ -4109,7 +4240,7 @@ public without sharing class MetadataEngine {
                     res.references.add(ri);
                 }
 
-                // ── Step 3: Active status warning ─────────────────────────────────
+                // -- Step 3: Active status warning ---------------------------------
                 // Stored separately  -  NOT counted as a metadata reference.
                 // All remaining scans still run so user sees the full picture.
                 String activeWarning = null;
@@ -4120,7 +4251,7 @@ public without sharing class MetadataEngine {
                                    ' > Validation Rules > ' + vrRuleName + ' > Edit > uncheck Active > Save.';
                 }
 
-                // ── Step 4: MCD query using resolved Id ───────────────────────────
+                // -- Step 4: MCD query using resolved Id ---------------------------
                 if (String.isNotBlank(resolvedComponentId)) {
                     try {
                         String mcdSoql = 'SELECT MetadataComponentName, MetadataComponentType ' +
@@ -4157,7 +4288,7 @@ public without sharing class MetadataEngine {
                     }
                 }
 
-                // ── Step 5: Apex body scan ────────────────────────────────────────
+                // -- Step 5: Apex body scan ----------------------------------------
                 try {
                     String searchToken = vrRuleName.toLowerCase();
                     for (ApexClass ac : [SELECT Name, Body FROM ApexClass WHERE NamespacePrefix = null LIMIT 300]) {
@@ -4178,7 +4309,7 @@ public without sharing class MetadataEngine {
                     System.debug(LoggingLevel.WARN, 'getReferencesFor VR Apex scan: ' + ex.getMessage());
                 }
 
-                // ── Step 6: Active Flow metadata scan ────────────────────────────
+                // -- Step 6: Active Flow metadata scan ----------------------------
                 try {
                     String vrFlowSoql = 'SELECT Id, FlowDefinition.DeveloperName FROM Flow WHERE Status = \'Active\' LIMIT 200';
                     HttpRequest flowReq = new HttpRequest();
@@ -4223,7 +4354,7 @@ public without sharing class MetadataEngine {
                     System.debug(LoggingLevel.WARN, 'getReferencesFor VR Flow scan: ' + ex.getMessage());
                 }
 
-                // ── Step 7: Field formula scan ────────────────────────────────────
+                // -- Step 7: Field formula scan ------------------------------------
                 // Other VRs or formula fields on the same object referencing same fields.
                 if (String.isNotBlank(vrObjectName)) {
                     try {
@@ -4247,7 +4378,7 @@ public without sharing class MetadataEngine {
                     }
                 }
 
-                // ── Step 9: Apex Trigger body scan ───────────────────────────────
+                // -- Step 9: Apex Trigger body scan -------------------------------
                 try {
                     String searchToken = vrRuleName.toLowerCase();
                     for (ApexTrigger trig : [SELECT Name, Body FROM ApexTrigger WHERE NamespacePrefix = null LIMIT 200]) {
@@ -4269,7 +4400,7 @@ public without sharing class MetadataEngine {
                     System.debug(LoggingLevel.WARN, 'getReferencesFor VR Trigger scan: ' + ex.getMessage());
                 }
 
-                // ── Step 10: Visualforce Page body scan ───────────────────────────
+                // -- Step 10: Visualforce Page body scan ---------------------------
                 // VF pages can reference VR error messages by name in apex:messages or controllers.
                 try {
                     String searchToken = vrRuleName.toLowerCase();
@@ -4308,7 +4439,7 @@ public without sharing class MetadataEngine {
                     System.debug(LoggingLevel.WARN, 'getReferencesFor VR VF Page scan: ' + ex.getMessage());
                 }
 
-                // ── Step 12: Workflow Rules / Process Builder ─────────────────────
+                // -- Step 12: Workflow Rules / Process Builder ---------------------
                 // WorkflowRule metadata on same object may reference field conditions
                 // that overlap with this VR. Fetch active ones via Tooling API.
                 if (String.isNotBlank(vrObjectName)) {
@@ -4373,7 +4504,7 @@ public without sharing class MetadataEngine {
                 }
                 return res;
 
-            // ── NEW: PermissionSet  -  standard SOQL ──
+            // -- NEW: PermissionSet  -  standard SOQL --
             } else if ('PermissionSet'.equalsIgnoreCase(componentType)) {
                 // Resolve Id via inline SOQL  -  match on API Name OR Label
                 List<PermissionSet> psLookup = [
@@ -4384,7 +4515,7 @@ public without sharing class MetadataEngine {
                 if (!psLookup.isEmpty()) {
                     resolvedComponentId = psLookup[0].Id;
 
-                    // ── FIX 1: Managed package guard ──────────────────────
+                    // -- FIX 1: Managed package guard ----------------------
                     if (String.isNotBlank(psLookup[0].NamespacePrefix)) {
                         ReferenceItem mgdRi = new ReferenceItem();
                         mgdRi.name         = 'Managed package: ' + psLookup[0].NamespacePrefix;
@@ -4400,7 +4531,7 @@ public without sharing class MetadataEngine {
                         return res;
                     }
 
-                    // ── Deep scan A: Apex class body scan ─────────────────
+                    // -- Deep scan A: Apex class body scan -----------------
                     try {
                         String psLower = componentName.toLowerCase();
                         for (ApexClass ac : [SELECT Name, Body FROM ApexClass WHERE NamespacePrefix = null LIMIT 300]) {
@@ -4419,7 +4550,7 @@ public without sharing class MetadataEngine {
                         res.warningNotes.add('Apex body scan skipped: ' + ex.getMessage());
                     }
 
-                    // ── FIX 3: Flow scan  -  single FlowVersion query, zero per-record callouts ──
+                    // -- FIX 3: Flow scan  -  single FlowVersion query, zero per-record callouts --
                     // OLD: SELECT Id FROM Flow + tooling/sobjects/Flow/{Id}?fields=Metadata per record
                     //      = up to 200 callouts, crashes at Salesforce 100-callout limit.
                     // FIX: SELECT DeveloperName, Label, Metadata FROM FlowVersion WHERE Status='Active'
@@ -4461,7 +4592,7 @@ public without sharing class MetadataEngine {
                         res.warningNotes.add('Flow metadata scan skipped: ' + ex.getMessage());
                     }
 
-                    // ── Deep scan C: Custom Permission dependencies ────────
+                    // -- Deep scan C: Custom Permission dependencies --------
                     // SetupEntityAccess is standard SOQL  -  no callout needed.
                     // Finds CustomPermissions granted by this PermissionSet.
                     try {
@@ -4495,7 +4626,7 @@ public without sharing class MetadataEngine {
                         System.debug(LoggingLevel.WARN, 'getReferencesFor PS CustomPermission scan: ' + ex.getMessage());
                     }
 
-                    // ── Deep scan D: PermissionSetGroup membership ────────
+                    // -- Deep scan D: PermissionSetGroup membership --------
                     try {
                         List<PermissionSetGroupComponent> psgComps = [
                             SELECT PermissionSetGroup.DeveloperName
@@ -4515,7 +4646,7 @@ public without sharing class MetadataEngine {
                         System.debug(LoggingLevel.WARN, 'getReferencesFor PS PSG scan: ' + ex.getMessage());
                     }
 
-                    // ── FIX 8: Muting Permission Sets ─────────────────────
+                    // -- FIX 8: Muting Permission Sets ---------------------
                     // MutingPermissionSet is NOT a traversable relationship on
                     // PermissionSetGroupComponent  -  query MutingPermissionSetId
                     // then resolve names via a second PermissionSet query.
@@ -4554,7 +4685,7 @@ public without sharing class MetadataEngine {
                         // MutingPermissionSet not available in all org editions  -  silent skip
                     }
 
-                    // ── FIX 9: Connected App OAuth PS whitelist ────────────
+                    // -- FIX 9: Connected App OAuth PS whitelist ------------
                     try {
                         String caSoql = 'SELECT DeveloperName, Metadata FROM ConnectedApplication ' +
                                         'WHERE NamespacePrefix = null LIMIT 200';
@@ -4596,7 +4727,7 @@ public without sharing class MetadataEngine {
                     }
                 }
 
-            // ── NEW: Profile  -  standard SOQL ──
+            // -- NEW: Profile  -  standard SOQL --
             } else if ('Profile'.equalsIgnoreCase(componentType)) {
                 List<Profile> profLookup = [
                     SELECT Id FROM Profile WHERE Name = :componentName LIMIT 1
@@ -4661,7 +4792,7 @@ public without sharing class MetadataEngine {
             System.debug(LoggingLevel.WARN, 'MCD query failed: ' + ex.getMessage());
         }
 
-        // ── FIX 2: MCD name-fallback always runs alongside Id query for PermissionSet ──
+        // -- FIX 2: MCD name-fallback always runs alongside Id query for PermissionSet --
         // The block above fires MCD by Id when resolved, or by name when Id fails.
         // For PS, both must always run: some orgs index MCD by RefMetadataComponentName
         // even when the Id is resolvable, causing the Id-only query to miss refs.
@@ -4713,7 +4844,7 @@ public without sharing class MetadataEngine {
         return res;
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // ===============================================================
     // checkAllApexReferences
     //
     // Comprehensive pre-delete reference scan for an Apex class.
@@ -4734,7 +4865,7 @@ public without sharing class MetadataEngine {
     //  10.  Dynamic Apex warning          -  always appended (Type.forName undetectable)
     //
     // Returns: ApexReferenceCheckResult with all findings + confidence label
-    // ═══════════════════════════════════════════════════════════════
+    // ===============================================================
     /** Wrapper class: ApexReferenceCheckResult. */
     public class ApexReferenceCheckResult {
         @AuraEnabled public Boolean             hasBlockingReferences;
@@ -4753,7 +4884,7 @@ public without sharing class MetadataEngine {
         @AuraEnabled public String              classId;                // Salesforce Id (used for suite lookup etc)
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // ===============================================================
     // checkAllLwcReferences
     //
     // Pre-delete reference scan for an LWC component. Covers:
@@ -4762,7 +4893,7 @@ public without sharing class MetadataEngine {
     //   1c. FlexiPage scan     -  direct metadata scan (MCD often misses this)
     //   2.  LWC JS source      -  other LWCs: import ... from 'c/componentName'
     //   3.  LWC HTML source    -  other LWCs: <c-component-name> child tags
-    // ═══════════════════════════════════════════════════════════════
+    // ===============================================================
     /** Returns ReferenceResult result of checkAllLwcReferences. */
     public static ReferenceResult checkAllLwcReferences(String componentName) {
         Http            http     = new Http();
@@ -4774,7 +4905,7 @@ public without sharing class MetadataEngine {
         res.hasReferences        = false;
         Set<String>     seenKeys = new Set<String>();
 
-        // ── CHECK 1: MCD by Id ─────────────────────────────────────────
+        // -- CHECK 1: MCD by Id -----------------------------------------
         String resolvedId = null;
         try {
             String idSoql = 'SELECT Id FROM LightningComponentBundle WHERE DeveloperName = \'' +
@@ -4832,7 +4963,7 @@ public without sharing class MetadataEngine {
             }
         }
 
-        // ── CHECK 1b: MCD by RefMetadataComponentName ─────────────────
+        // -- CHECK 1b: MCD by RefMetadataComponentName -----------------
         // Some orgs index by name instead of Id  -  try both
         try {
             String mcdNameSoql = 'SELECT MetadataComponentName, MetadataComponentType ' +
@@ -4869,7 +5000,7 @@ public without sharing class MetadataEngine {
             System.debug(LoggingLevel.WARN, 'LWC MCD name query failed: ' + ex.getMessage());
         }
 
-        // ── CHECK 1c: Direct FlexiPage scan ───────────────────────────
+        // -- CHECK 1c: Direct FlexiPage scan ---------------------------
         // MCD frequently misses LWC-in-FlexiPage references.
         // Scan FlexiPage XML metadata directly for the component name.
         //
@@ -4877,7 +5008,7 @@ public without sharing class MetadataEngine {
         //   SELECT Id, ..., Metadata FROM FlexiPage
         // which returns HTTP 400 in newer API versions because the Metadata
         // compound field is NOT queryable via bulk Tooling SOQL. The query
-        // failed silently → zero FlexiPage references surfaced → pre-check
+        // failed silently -> zero FlexiPage references surfaced -> pre-check
         // lied "Safe to delete" while the actual delete API caught the
         // reference and blocked. (Caused the accountRelatedData / Home Page
         // Default mismatch.)
@@ -4891,7 +5022,7 @@ public without sharing class MetadataEngine {
         // Single source of truth: this matches the dashboard's FlexiPage scan,
         // so chat pre-check and dashboard now agree.
         try {
-            // Convert camelCase → kebab for HTML tag matching
+            // Convert camelCase -> kebab for HTML tag matching
             String kebabName = componentName.replaceAll('([A-Z])', '-$1').toLowerCase().replaceAll('^-', '');
 
             // STEP 1: List FlexiPages WITHOUT Metadata (bulk SOQL works for plain fields)
@@ -4914,7 +5045,7 @@ public without sharing class MetadataEngine {
                     String kebabLower = kebabName.toLowerCase();
 
                     // Fetch once: pages the user has explicitly assigned to an app/profile.
-                    // A system-default page that has been assigned is a real reference — do not skip it.
+                    // A system-default page that has been assigned is a real reference -- do not skip it.
                     Set<String> assignedFpIds = fetchAssignedFlexiPageIds(http);
 
                     for (Object r : fpListRecs) {
@@ -4927,7 +5058,7 @@ public without sharing class MetadataEngine {
                         String              fpId            = (String) row.get('Id');
                         if (String.isBlank(fpId) || fpLabel == null) continue;
 
-                        // ── Skip managed and unassigned system-generated pages ──────
+                        // -- Skip managed and unassigned system-generated pages ------
                         // A system page the user assigned to an app/profile is a real reference.
                         if (isSystemGeneratedFlexiPage(manageableState, nsPrefix, fpDevName, fpLabel, fpId, assignedFpIds)) continue;
 
@@ -4987,7 +5118,7 @@ public without sharing class MetadataEngine {
             System.debug(LoggingLevel.WARN, 'LWC FlexiPage scan failed: ' + ex.getMessage());
         }
 
-        // ── CHECK 2: LWC JS source scan ────────────────────────────────
+        // -- CHECK 2: LWC JS source scan --------------------------------
         // Scan all LWC JS files for: import ... from 'c/componentName'
         if (Limits.getCpuTime() < Limits.getLimitCpuTime() - CPU_RESERVE_MS) {
             try {
@@ -5054,11 +5185,11 @@ public without sharing class MetadataEngine {
             }
         }
 
-        // ── CHECK 3: LWC HTML scan ─────────────────────────────────────
+        // -- CHECK 3: LWC HTML scan -------------------------------------
         // Scan HTML files for <c-component-name> tag usage
         if (Limits.getCpuTime() < Limits.getLimitCpuTime() - CPU_RESERVE_MS) {
             try {
-                // Convert camelCase to kebab-case: accountRelatedData → account-related-data
+                // Convert camelCase to kebab-case: accountRelatedData -> account-related-data
                 String kebab = componentName.replaceAll('([A-Z])', '-$1').toLowerCase().replaceAll('^-', '');
                 String htmlTag = '<c-' + kebab;
                 String htmlSoql = 'SELECT Id, FilePath, Source, LightningComponentBundleId ' +
@@ -5123,7 +5254,7 @@ public without sharing class MetadataEngine {
             }
         }
 
-        // ── CHECK 4: Managed package guard ────────────────────────────
+        // -- CHECK 4: Managed package guard ----------------------------
         // Must check BEFORE any delete attempt. If the LWC belongs to a managed
         // package it cannot be deleted  -  return immediately with clear message.
         if (resolvedId != null) {
@@ -5162,7 +5293,7 @@ public without sharing class MetadataEngine {
             }
         }
 
-        // ── CHECK 5: Aura markup scan ──────────────────────────────────
+        // -- CHECK 5: Aura markup scan ----------------------------------
         // Aura components can embed LWC using <c:componentName> in markup.
         // AuraDefinition records contain the markup source.
         if (Limits.getCpuTime() < Limits.getLimitCpuTime() - CPU_RESERVE_MS) {
@@ -5228,7 +5359,7 @@ public without sharing class MetadataEngine {
             }
         }
 
-        // ── CHECK 6: Flow Screen component scan ────────────────────────
+        // -- CHECK 6: Flow Screen component scan ------------------------
         // Active flows with Screen elements can embed LWC components.
         // Scan FlowDefinition Metadata JSON for the component name.
         if (Limits.getCpuTime() < Limits.getLimitCpuTime() - CPU_RESERVE_MS) {
@@ -5274,7 +5405,7 @@ public without sharing class MetadataEngine {
             }
         }
 
-        // ── CHECK 7: Custom Tab scan ───────────────────────────────────
+        // -- CHECK 7: Custom Tab scan -----------------------------------
         // LWC can be exposed as a navigation tab via CustomTab.
         // If a tab points to this LWC, deleting will break the nav item.
         try {
@@ -5313,7 +5444,7 @@ public without sharing class MetadataEngine {
             System.debug(LoggingLevel.WARN, 'LWC CustomTab scan failed: ' + ex.getMessage());
         }
 
-        // ── CHECK 8: Quick Action scan ─────────────────────────────────
+        // -- CHECK 8: Quick Action scan ---------------------------------
         // LWC-type quick actions appear in record page action bars.
         // QuickActionDefinition WHERE LightningComponentBundleId = resolvedId
         if (resolvedId != null) {
@@ -5358,7 +5489,7 @@ public without sharing class MetadataEngine {
             }
         }
 
-        // ── CHECK 9: Experience Cloud / Navigation Menu ────────────────
+        // -- CHECK 9: Experience Cloud / Navigation Menu ----------------
         // ExperienceBundle and NavigationMenuItem can reference LWC tabs.
         // Query MCD for ExperienceBundle referencing this component.
         try {
@@ -5399,7 +5530,7 @@ public without sharing class MetadataEngine {
             System.debug(LoggingLevel.WARN, 'LWC Experience Cloud scan failed: ' + ex.getMessage());
         }
 
-        // ── CHECK 10: Permission Set / Profile  -  SetupEntityAccess ─────
+        // -- CHECK 10: Permission Set / Profile  -  SetupEntityAccess -----
         // If a Permission Set grants access to a Custom Tab backed by this LWC,
         // the tab must be removed from the PS first before deleting the component.
         // We detect this by checking SetupEntityAccess for CustomTab records
@@ -5456,8 +5587,8 @@ public without sharing class MetadataEngine {
             System.debug(LoggingLevel.WARN, 'LWC SetupEntityAccess scan failed: ' + ex.getMessage());
         }
 
-        // ── CHECK 11: LightningComponentReference (most reliable source) ─
-        // Direct mapping table: LWC → page/component. More reliable than MCD.
+        // -- CHECK 11: LightningComponentReference (most reliable source) -
+        // Direct mapping table: LWC -> page/component. More reliable than MCD.
         if (resolvedId != null) {
             try {
                 String lcrSoql = 'SELECT Id, PageOrComponent.Name, PageOrComponent.MasterLabel ' +
@@ -5499,11 +5630,11 @@ public without sharing class MetadataEngine {
             }
         }
 
-        // ── CHECK 12: warningNotes initialization guard ──────────────
+        // -- CHECK 12: warningNotes initialization guard --------------
         // Dynamic advisory is shown by buildFormattedReport at the end  -  no need to duplicate here.
         if (res.warningNotes == null) res.warningNotes = new List<String>();
 
-        // ── Finalize ──────────────────────────────────────────────────
+        // -- Finalize --------------------------------------------------
         res.referenceCount = res.references.size();
         res.hasReferences  = res.referenceCount > 0;
         if (res.hasReferences) {
@@ -5513,7 +5644,7 @@ public without sharing class MetadataEngine {
         return res;
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // ===============================================================
     // checkAllAuraReferences
     //
     // Pre-delete reference scan for an Aura component (AuraDefinitionBundle).
@@ -5524,7 +5655,7 @@ public without sharing class MetadataEngine {
     //   2.  Aura markup scan   -  other Aura bundles using <c:componentName>
     //   3.  Flow Screen scan   -  active flows referencing this Aura component
     //   4.  CustomTab scan     -  CustomTab with AuraComponentBundleId = resolvedId
-    // ═══════════════════════════════════════════════════════════════
+    // ===============================================================
     /** Returns ReferenceResult result of checkAllAuraReferences. */
     public static ReferenceResult checkAllAuraReferences(String componentName) {
         Http            http     = new Http();
@@ -5537,7 +5668,7 @@ public without sharing class MetadataEngine {
         res.warningNotes         = new List<String>();
         Set<String>     seenKeys = new Set<String>();
 
-        // ── Resolve AuraDefinitionBundle Id ───────────────────────────
+        // -- Resolve AuraDefinitionBundle Id ---------------------------
         String resolvedId = null;
         try {
             String idSoql = 'SELECT Id FROM AuraDefinitionBundle WHERE DeveloperName = \'' +
@@ -5559,7 +5690,7 @@ public without sharing class MetadataEngine {
             System.debug(LoggingLevel.WARN, 'Aura Id resolution failed: ' + ex.getMessage());
         }
 
-        // ── CHECK 1a: MCD by Id ────────────────────────────────────────
+        // -- CHECK 1a: MCD by Id ----------------------------------------
         if (resolvedId != null) {
             try {
                 String mcdSoql = 'SELECT MetadataComponentName, MetadataComponentType ' +
@@ -5596,7 +5727,7 @@ public without sharing class MetadataEngine {
             }
         }
 
-        // ── CHECK 1b: MCD by Name ──────────────────────────────────────
+        // -- CHECK 1b: MCD by Name --------------------------------------
         try {
             String mcdNameSoql = 'SELECT MetadataComponentName, MetadataComponentType ' +
                                  'FROM MetadataComponentDependency ' +
@@ -5632,11 +5763,11 @@ public without sharing class MetadataEngine {
             System.debug(LoggingLevel.WARN, 'Aura MCD by Name failed: ' + ex.getMessage());
         }
 
-        // ── CHECK 1c: Direct FlexiPage scan ───────────────────────────
+        // -- CHECK 1c: Direct FlexiPage scan ---------------------------
         // MCD frequently misses Aura-in-FlexiPage references.
         // Scan FlexiPage Metadata for 'c:componentName' (Aura namespace).
         //
-        // FIX: Same bug fixed in checkAllLwcReferences — bulk SOQL with
+        // FIX: Same bug fixed in checkAllLwcReferences -- bulk SOQL with
         // Metadata returns HTTP 400. Use per-page fetch instead.
         try {
             // STEP 1: List FlexiPages WITHOUT Metadata
@@ -5721,7 +5852,7 @@ public without sharing class MetadataEngine {
             System.debug(LoggingLevel.WARN, 'Aura FlexiPage scan failed: ' + ex.getMessage());
         }
 
-        // ── CHECK 2: Aura markup scan (<c:componentName>) ──────────────
+        // -- CHECK 2: Aura markup scan (<c:componentName>) --------------
         // Other Aura bundles embed this one via <c:ComponentName> in their
         // .cmp / .app / .evt markup. Scan AuraDefinition Source.
         if (Limits.getCpuTime() < Limits.getLimitCpuTime() - CPU_RESERVE_MS) {
@@ -5789,7 +5920,7 @@ public without sharing class MetadataEngine {
             }
         }
 
-        // ── CHECK 3: Flow Screen component scan ────────────────────────
+        // -- CHECK 3: Flow Screen component scan ------------------------
         // Active flows with Screen elements can embed Aura components.
         // Scan FlowDefinition Metadata JSON for 'c:componentName'.
         if (Limits.getCpuTime() < Limits.getLimitCpuTime() - CPU_RESERVE_MS) {
@@ -5834,7 +5965,7 @@ public without sharing class MetadataEngine {
             }
         }
 
-        // ── CHECK 4: CustomTab scan ────────────────────────────────────
+        // -- CHECK 4: CustomTab scan ------------------------------------
         // An Aura app (.app file) can be exposed as a navigation tab via CustomTab.
         // CustomTab has no direct AuraDefinitionBundleId FK in Tooling API,
         // so we scan by DeveloperName match and look for Metadata JSON containing
@@ -5896,7 +6027,7 @@ public without sharing class MetadataEngine {
             System.debug(LoggingLevel.WARN, 'Aura CustomTab scan failed: ' + ex.getMessage());
         }
 
-        // ── Finalize ──────────────────────────────────────────────────
+        // -- Finalize --------------------------------------------------
         if (res.warningNotes == null) res.warningNotes = new List<String>();
         res.referenceCount = res.references.size();
         res.hasReferences  = res.referenceCount > 0;
@@ -5911,13 +6042,13 @@ public without sharing class MetadataEngine {
      *
      * Earlier versions used body.toLowerCase().contains('@istest'), which gave false
      * positives whenever a class mentioned '@isTest' inside a comment or string
-     * literal (MetadataEngine itself was a victim — it talks about @isTest detection
+     * literal (MetadataEngine itself was a victim -- it talks about @isTest detection
      * in many places). A regex-based version was tried next, but Apex's regex engine
      * throws "Regex too complicated" on large class bodies (hundreds of KB).
      *
      * This implementation uses indexOf to find each candidate position (cheap, native),
      * then verifies the match isn't inside a // comment, a block comment, or a string
-     * literal. Verification is local — only the surrounding ~80 chars are inspected —
+     * literal. Verification is local -- only the surrounding ~80 chars are inspected --
      * so total cost stays O(matches * 80) instead of O(body length).
      *
      * @param  body Raw ApexClass.Body.
@@ -5937,8 +6068,8 @@ public without sharing class MetadataEngine {
      * comment or string literal). Walks every occurrence via indexOf and runs a localized
      * context check on each one. Bails out on the first real hit.
      *
-     * @param  body    Original (case-preserved) body — used only for string context.
-     * @param  low     Lower-cased body — used for the indexOf search.
+     * @param  body    Original (case-preserved) body -- used only for string context.
+     * @param  low     Lower-cased body -- used for the indexOf search.
      * @param  keyword Lower-cased keyword to search for.
      * @return true when a real (non-noise) occurrence is found.
      */
@@ -5949,7 +6080,7 @@ public without sharing class MetadataEngine {
         while (idx >= 0) {
             guard++;
             if (guard > 500) {
-                // Defensive cap — extremely unlikely to hit this in real code.
+                // Defensive cap -- extremely unlikely to hit this in real code.
                 return true;
             }
             if (!isInsideNoise(body, bodyLen, idx)) {
@@ -5962,20 +6093,20 @@ public without sharing class MetadataEngine {
 
     /**
      * Identifier-aware variant of {@link #hasRealKeyword}. Returns true only when
-     * {@code name} appears in {@code low} as a standalone Apex identifier — i.e.
-     * with non-identifier characters (or string start/end) on BOTH sides — and
+     * {@code name} appears in {@code low} as a standalone Apex identifier -- i.e.
+     * with non-identifier characters (or string start/end) on BOTH sides -- and
      * is not inside a comment or string literal.
      *
      * This is the right tool when {@code name} is a class/method/field name,
      * because plain substring matching produces false positives whenever the
      * name is a prefix or suffix of another identifier. Example: searching
      * for class name "Foo" inside "public class FooHelper { }" must NOT
-     * match — the trailing "Helper" is part of the identifier.
+     * match -- the trailing "Helper" is part of the identifier.
      *
      * Apex identifier characters are [A-Za-z0-9_$]; we reject a hit when the
      * character immediately before or after the match falls into that class.
      *
-     * @param  body Original (case-preserved) body — used for noise context.
+     * @param  body Original (case-preserved) body -- used for noise context.
      * @param  low  Lower-cased body.
      * @param  name Lower-cased identifier to search for.
      * @return true when a real, standalone, non-noise occurrence is found.
@@ -5989,7 +6120,7 @@ public without sharing class MetadataEngine {
         while (idx >= 0) {
             guard++;
             if (guard > 500) {
-                // Defensive cap — matches hasRealKeyword's behaviour.
+                // Defensive cap -- matches hasRealKeyword's behaviour.
                 return true;
             }
             // Word-boundary check on both sides.
@@ -6008,7 +6139,7 @@ public without sharing class MetadataEngine {
      * Returns true when the character position {@code pos} in {@code body} lies inside
      * a // line comment, a block comment, or a single-quoted string literal. Uses
      * localized lookbehind (last ~80 chars on the same line) for line comments and
-     * counts /* vs *​/ tokens in the body before pos for block comments.
+     * counts block-comment open vs close tokens in the body before pos for block comments.
      *
      * @param  body    Original class body.
      * @param  bodyLen Length of body (cached).
@@ -6019,14 +6150,14 @@ public without sharing class MetadataEngine {
         if (pos <= 0) {
             return false;
         }
-        // ── 1. Line comment? Walk back up to 200 chars or to the previous \n.
+        // -- 1. Line comment? Walk back up to 200 chars or to the previous \n.
         //      If we see '//' before the \n, the match is commented out.
         Integer lookback = Math.max(0, pos - 200);
         String  prefix   = body.substring(lookback, pos);
         Integer nl       = prefix.lastIndexOf('\n');
         String  lineSoFar = nl >= 0 ? prefix.substring(nl + 1) : prefix;
         if (lineSoFar.indexOf('//') >= 0) {
-            // Make sure the // isn't itself inside a string on this line — quick check:
+            // Make sure the // isn't itself inside a string on this line -- quick check:
             // count single-quotes before the //. If odd, we're inside a string and
             // the // is a literal; if even, it's a real comment.
             Integer slashIdx = lineSoFar.indexOf('//');
@@ -6042,8 +6173,8 @@ public without sharing class MetadataEngine {
             }
         }
 
-        // ── 2. Block comment? Find the most recent /* before pos, then check
-        //      whether there's a closing *​/ between that /* and pos. If not, pos
+        // -- 2. Block comment? Find the most recent /* before pos, then check
+        //      whether there's a closing */ between that /* and pos. If not, pos
         //      is inside the block comment.
         //      We bound the search by the previous newline-blank-line block so we
         //      don't scan all 800KB.
@@ -6059,7 +6190,7 @@ public without sharing class MetadataEngine {
             }
         }
 
-        // ── 3. Single-quoted string literal? Count unescaped quotes on the same
+        // -- 3. Single-quoted string literal? Count unescaped quotes on the same
         //      logical line before pos. If odd, pos is inside a string.
         //      We re-use lineSoFar from step 1 for cheapness.
         Integer quotesOnLine = 0;
@@ -6103,7 +6234,7 @@ public without sharing class MetadataEngine {
         // Threshold: 3000ms reserve gives enough headroom for finalize + response.
         // CPU_RESERVE_MS is now a class-level constant (3000ms)
 
-        // ── Single upfront query: org namespace + ApexClass Id + Body + namespace ──
+        // -- Single upfront query: org namespace + ApexClass Id + Body + namespace --
         // Replaces 3 separate ApexClass queries (psMatch, selfLookup, isTestCheck)
         // and the Organization namespace query  -  all merged into 2 SOQLs at the top.
         String orgNamespace = '';
@@ -6143,7 +6274,7 @@ public without sharing class MetadataEngine {
         result.isTestClass    = targetIsTest;
         result.isManagedPackage = targetIsManaged;
 
-        // Managed package class → return immediately, no further checks needed
+        // Managed package class -> return immediately, no further checks needed
         if (targetIsManaged) {
             result.formattedReport = '"' + className + '" belongs to a managed package and cannot be deleted.';
             return result;
@@ -6153,13 +6284,13 @@ public without sharing class MetadataEngine {
         Http        http      = new Http();
         String      safeClass = String.escapeSingleQuotes(className);
 
-        // ─────────────────────────────────────────────────────────────
+        // -------------------------------------------------------------
         // CALLOUT 1  -  MetadataComponentDependency (single query, all types)
         // Previously CHECKs 1, 5, 6, 7, 8, 11, 12, 13, 14 each made a
         // separate MCD callout with a MetadataComponentType filter.
         // Now: one query fetches ALL dependency types, routing is done
-        // client-side. 9 callouts → 1.
-        // ─────────────────────────────────────────────────────────────
+        // client-side. 9 callouts -> 1.
+        // -------------------------------------------------------------
         try {
             // FIX: Use RefMetadataComponentId  -  RefMetadataComponentName causes
             // INVALID_FIELD in many orgs. targetClassId already resolved at method top.
@@ -6193,7 +6324,7 @@ public without sharing class MetadataEngine {
                 }
                 if (records != null) {
                     // Split records into Apex-caller rows (which need
-                    // body-level verification — see Callout 2's notes) and
+                    // body-level verification -- see Callout 2's notes) and
                     // everything else (Flows, LWC, Aura, FlexiPages, ...
                     // which use stable, non-prefix-collision-prone metadata
                     // and are trusted as-is from MCD).
@@ -6222,7 +6353,7 @@ public without sharing class MetadataEngine {
                     }
 
                     // Verification pass for Apex callers. Salesforce's MCD has
-                    // been observed to record phantom Apex→Apex links based
+                    // been observed to record phantom Apex->Apex links based
                     // on textual occurrences of the target class name in
                     // comments, string literals, or as a sub-token of a
                     // sibling class name (e.g. "Foo" reported as a caller of
@@ -6267,10 +6398,10 @@ public without sharing class MetadataEngine {
                             String bodyText = apexBodies.get(cName);
                             Boolean verified;
                             if (cName == className) {
-                                // Self-reference — never a real blocker.
+                                // Self-reference -- never a real blocker.
                                 verified = false;
                             } else if (String.isBlank(bodyText)) {
-                                // Couldn't inspect — err on the side of
+                                // Couldn't inspect -- err on the side of
                                 // blocking (preserves MCD's claim).
                                 verified = true;
                             } else {
@@ -6307,9 +6438,9 @@ public without sharing class MetadataEngine {
             result.warningNotes.add('MCD scan skipped: ' + ex.getMessage());
         }
 
-        // ── Permission Set + Profile access (fast SOQL  -  Tier 1) ───────
+        // -- Permission Set + Profile access (fast SOQL  -  Tier 1) -------
         // SetupEntityAccess is NOT in MCD. Uses targetClassId resolved at method top.
-        // ─────────────────────────────────────────────────────────────
+        // -------------------------------------------------------------
         try {
             if (targetClassId != null) {
                 Id psApexId = targetClassId;
@@ -6348,7 +6479,7 @@ public without sharing class MetadataEngine {
             result.warningNotes.add('[!] Permission Set / Profile check skipped: ' + ex.getMessage());
         }
 
-        // ── EARLY EXIT  -  MCD found structural code references ────────
+        // -- EARLY EXIT  -  MCD found structural code references --------
         // If MCD already found Flows, LWC, Aura, VF, Triggers, FlexiPages,
         // WorkflowRules, Bots, GenAI, ConnectedApps etc. referencing this class,
         // we KNOW it is in use. Skip the remaining 15+ callouts entirely.
@@ -6359,7 +6490,7 @@ public without sharing class MetadataEngine {
         //
         // Track structural refs separately using mcdStructuralRefs count:
         // any ref whose type is NOT PermissionSet or Profile counts as structural.
-        // ─────────────────────────────────────────────────────────────
+        // -------------------------------------------------------------
         Integer mcdStructuralCount = 0;
         for (ReferenceItem ri : result.references) {
             if (ri.type != 'PermissionSet' && ri.type != 'Profile') {
@@ -6381,13 +6512,13 @@ public without sharing class MetadataEngine {
         }
         // MCD structural scan clean  -  run deep checks (Apex callers, Triggers, LWC, etc.)
 
-        // ─────────────────────────────────────────────────────────────
+        // -------------------------------------------------------------
         // CALLOUT 2  -  Apex-to-Apex callers via MCD (targeted)
         //
-        // HISTORY: This used to be the sole source of ApexClass→ApexClass
+        // HISTORY: This used to be the sole source of ApexClass->ApexClass
         // dependencies. Callout 1 (the catch-all MCD scan above) now ALSO
         // returns ApexClass rows and runs the same identifier-aware body
-        // verification on them. That makes this targeted callout redundant —
+        // verification on them. That makes this targeted callout redundant --
         // every Apex caller is already in seenKeys by the time we reach
         // here, and re-running the query would only burn an extra HTTP
         // callout and SOQL.
@@ -6397,7 +6528,7 @@ public without sharing class MetadataEngine {
         // Callout 1's catch-all approach ever stops returning ApexClass
         // rows (e.g. a future Salesforce API change), re-enable this by
         // removing the early-return below.
-        // ─────────────────────────────────────────────────────────────
+        // -------------------------------------------------------------
         // Set to false: Callout 1 above now handles Apex callers with the
         // same identifier-aware verification. Flip to true (and remove this
         // guard) if Callout 1's catch-all stops returning ApexClass rows.
@@ -6489,7 +6620,7 @@ public without sharing class MetadataEngine {
 
                     if (!unverified.isEmpty()) {
                         // Surface dropped callers so the user can investigate.
-                        // We don't want to silently disagree with MCD — if MCD
+                        // We don't want to silently disagree with MCD -- if MCD
                         // is right and we're wrong, the user needs to know.
                         result.warningNotes.add(
                             '[i] MCD listed ' + unverified.size() +
@@ -6497,7 +6628,7 @@ public without sharing class MetadataEngine {
                             '(name appears only in comments/strings or as a sub-token): ' +
                             String.join(unverified, ', ') +
                             '. These are not counted as blockers but may indicate ' +
-                            'stale MCD rows or dynamic references — verify manually ' +
+                            'stale MCD rows or dynamic references -- verify manually ' +
                             'via Setup > Apex Classes > "' + className + '" > "Where is this used?".'
                         );
                     }
@@ -6513,12 +6644,12 @@ public without sharing class MetadataEngine {
         result.isTestClass      = targetIsTest;
         result.isManagedPackage = targetIsManaged;
 
-        // ─────────────────────────────────────────────────────────────
+        // -------------------------------------------------------------
         // CHECK 2b  -  ApexTrigger Body text search
         // SymbolTable is NOT supported on ApexTrigger in Tooling API.
         // Body text search is the only reliable way to detect
-        // Trigger → Class dependencies.
-        // ─────────────────────────────────────────────────────────────
+        // Trigger -> Class dependencies.
+        // -------------------------------------------------------------
         if (Limits.getCpuTime() > Limits.getLimitCpuTime() - CPU_RESERVE_MS) {
             result.warningNotes.add('[!] Trigger body scan skipped  -  CPU limit approaching.');
         } else
@@ -6565,11 +6696,11 @@ public without sharing class MetadataEngine {
             result.warningNotes.add('[!] ApexTrigger scan skipped: ' + ex.getMessage());
         }
 
-        // ─────────────────────────────────────────────────────────────
+        // -------------------------------------------------------------
         // CHECK 3  -  Live Scheduled Jobs (CronTrigger)
         // Catches classes scheduled via System.schedule() at runtime.
         // MCD does NOT track these  -  they are runtime, not metadata.
-        // ─────────────────────────────────────────────────────────────
+        // -------------------------------------------------------------
         if (Limits.getCpuTime() > Limits.getLimitCpuTime() - CPU_RESERVE_MS) {
             result.warningNotes.add('[!] Scheduled job check skipped  -  CPU limit approaching.');
         } else
@@ -6623,11 +6754,11 @@ public without sharing class MetadataEngine {
             result.warningNotes.add('[!] Scheduled job check skipped: ' + ex.getMessage());
         }
 
-        // ─────────────────────────────────────────────────────────────
+        // -------------------------------------------------------------
         // CHECK 4  -  Active Batch / Queueable / Future jobs (AsyncApexJob)
         // Catches classes currently running or queued as batch,
         // queueable, or future jobs. Deleting a running class = data loss.
-        // ─────────────────────────────────────────────────────────────
+        // -------------------------------------------------------------
         if (Limits.getCpuTime() > Limits.getLimitCpuTime() - CPU_RESERVE_MS) {
             result.warningNotes.add('[!] Active Async Job check skipped  -  CPU limit approaching. Re-run the check.');
         } else
@@ -6659,13 +6790,13 @@ public without sharing class MetadataEngine {
 
 
 
-        // ─────────────────────────────────────────────────────────────
+        // -------------------------------------------------------------
         // CHECK 5  -  Approval Processes
-        // MCD tracks ApprovalProcess → ApexClass dependencies reliably.
+        // MCD tracks ApprovalProcess -> ApexClass dependencies reliably.
         // Query MCD WHERE RefMetadataComponentName = className
         // AND MetadataComponentType = 'ApprovalProcess'.
         // This covers entry criteria, approval/rejection/recall Apex actions.
-        // ─────────────────────────────────────────────────────────────
+        // -------------------------------------------------------------
         if (Limits.getCpuTime() > Limits.getLimitCpuTime() - CPU_RESERVE_MS) {
             result.warningNotes.add('[!] Approval Process check skipped  -  CPU limit approaching.');
         } else
@@ -6706,13 +6837,13 @@ public without sharing class MetadataEngine {
             result.warningNotes.add('[!] Approval Process check skipped: ' + ex.getMessage());
         }
 
-        // ─────────────────────────────────────────────────────────────
+        // -------------------------------------------------------------
         // CHECK 6  -  Assignment Rules
         // AssignmentRule can invoke Apex via formula-based criteria or via
         // WorkflowAction. MCD does not track this link reliably.
         // Query AssignmentRule WHERE SobjectType != null and scan related
         // RuleEntry criteria for Apex references via Tooling API.
-        // ─────────────────────────────────────────────────────────────
+        // -------------------------------------------------------------
         if (Limits.getCpuTime() > Limits.getLimitCpuTime() - CPU_RESERVE_MS) {
             result.warningNotes.add('[!] Assignment Rule check skipped  -  CPU limit approaching.');
         } else
@@ -6735,7 +6866,7 @@ public without sharing class MetadataEngine {
                     for (Object r : arRecords) {
                         Map<String, Object> row    = (Map<String, Object>) r;
                         String              arName = (String) row.get('Name');
-                        // Check MCD for this AssignmentRule → className link
+                        // Check MCD for this AssignmentRule -> className link
                         String arId = (String) row.get('Id');
                         // Cross-check via MCD: does this rule depend on our class?
                         String mcdCheck = 'SELECT MetadataComponentName FROM MetadataComponentDependency ' +
@@ -6770,12 +6901,12 @@ public without sharing class MetadataEngine {
             result.warningNotes.add('[!] Assignment Rule check skipped: ' + ex.getMessage());
         }
 
-        // ─────────────────────────────────────────────────────────────
+        // -------------------------------------------------------------
         // CHECK 7  -  Escalation Rules
         // EscalationRule can fire Apex via EscalationAction. MCD does not
         // reliably surface this. Query active EscalationRules and check
         // MCD reverse dependency.
-        // ─────────────────────────────────────────────────────────────
+        // -------------------------------------------------------------
         if (Limits.getCpuTime() > Limits.getLimitCpuTime() - CPU_RESERVE_MS) {
             result.warningNotes.add('[!] Escalation Rule check skipped  -  CPU limit approaching.');
         } else
@@ -6827,11 +6958,11 @@ public without sharing class MetadataEngine {
             result.warningNotes.add('[!] Escalation Rule check skipped: ' + ex.getMessage());
         }
 
-        // ─────────────────────────────────────────────────────────────
+        // -------------------------------------------------------------
         // CHECK 8  -  Auto-Response Rules
         // AutoResponseRule fires on inbound emails/cases/leads. The email
         // alert action can reference an Apex class indirectly. Check MCD.
-        // ─────────────────────────────────────────────────────────────
+        // -------------------------------------------------------------
         if (Limits.getCpuTime() > Limits.getLimitCpuTime() - CPU_RESERVE_MS) {
             result.warningNotes.add('[!] Auto-Response Rule check skipped  -  CPU limit approaching.');
         } else
@@ -6883,18 +7014,18 @@ public without sharing class MetadataEngine {
             result.warningNotes.add('[!] Auto-Response Rule check skipped: ' + ex.getMessage());
         }
 
-        // ─────────────────────────────────────────────────────────────
+        // -------------------------------------------------------------
         // CHECK 9  -  Email Services (EmailServicesFunction)
         // EmailServicesFunction stores the handler as ApexClassId (Id field),
         // NOT a traversable relationship  -  ApexClass.Name is not supported.
         // Fix: first look up the ApexClass Id by Name, then query
         // EmailServicesFunction WHERE ApexClassId = :classId.
-        // ─────────────────────────────────────────────────────────────
+        // -------------------------------------------------------------
         if (Limits.getCpuTime() > Limits.getLimitCpuTime() - CPU_RESERVE_MS) {
             result.warningNotes.add('[!] Email Services check skipped  -  CPU limit approaching. Re-run the check.');
         } else
         try {
-            // Step 1: resolve class name → Id via standard SOQL
+            // Step 1: resolve class name -> Id via standard SOQL
             List<ApexClass> matchedClasses = [
                 SELECT Id FROM ApexClass
                 WHERE Name = :className
@@ -6926,11 +7057,11 @@ public without sharing class MetadataEngine {
             result.warningNotes.add('[!] Email Services check skipped: ' + ex.getMessage());
         }
 
-        // ─────────────────────────────────────────────────────────────
+        // -------------------------------------------------------------
         // CHECK 9b  -  Named Credential callout handler
         // NamedCredential.CalloutClass = Apex class name (exact match)
         // NOT in MCD when queried from the Apex class side.
-        // ─────────────────────────────────────────────────────────────
+        // -------------------------------------------------------------
         if (Limits.getCpuTime() > Limits.getLimitCpuTime() - CPU_RESERVE_MS) {
             result.warningNotes.add('[!] Named Credential check skipped  -  CPU limit approaching. Re-run the check.');
         } else
@@ -6971,11 +7102,11 @@ public without sharing class MetadataEngine {
             System.debug(LoggingLevel.WARN, 'Named Credential check skipped: ' + ex.getMessage());
         }
 
-        // ─────────────────────────────────────────────────────────────
+        // -------------------------------------------------------------
         // CHECK 9c  -  Auth Provider registration handler
         // AuthProvider.RegistrationHandlerClass = Apex class name
         // NOT in MCD when queried from the Apex class side.
-        // ─────────────────────────────────────────────────────────────
+        // -------------------------------------------------------------
         if (Limits.getCpuTime() > Limits.getLimitCpuTime() - CPU_RESERVE_MS) {
             result.warningNotes.add('[!] Auth Provider check skipped  -  CPU limit approaching. Re-run the check.');
         } else
@@ -7015,11 +7146,11 @@ public without sharing class MetadataEngine {
             System.debug(LoggingLevel.WARN, 'Auth Provider check skipped: ' + ex.getMessage());
         }
 
-        // ─────────────────────────────────────────────────────────────
+        // -------------------------------------------------------------
         // CHECK 9d  -  Platform Event Subscriber Config (Tooling API)
         // ApexClassName field = exact class name match.
         // NOT in MCD when queried from the Apex class side.
-        // ─────────────────────────────────────────────────────────────
+        // -------------------------------------------------------------
         if (Limits.getCpuTime() > Limits.getLimitCpuTime() - CPU_RESERVE_MS) {
             result.warningNotes.add('[!] Platform Event subscriber check skipped  -  CPU limit approaching. Re-run the check.');
         } else
@@ -7060,7 +7191,7 @@ public without sharing class MetadataEngine {
             System.debug(LoggingLevel.WARN, 'Platform Event subscriber check skipped: ' + ex.getMessage());
         }
 
-        // ─────────────────────────────────────────────────────────────
+        // -------------------------------------------------------------
         // CHECK 9e  -  External Services (ExternalServiceRegistration)
         // ExternalServiceRegistration references Apex classes via
         // operations mapped to invocable methods. Query by class name
@@ -7068,7 +7199,7 @@ public without sharing class MetadataEngine {
         // so we use MCD with MetadataComponentType = 'ExternalService'
         // as a targeted fallback already covered by CALLOUT 1.
         // Advisory note added here for awareness.
-        // ─────────────────────────────────────────────────────────────
+        // -------------------------------------------------------------
         result.warningNotes.add(
             '[!] External Services: If this class is used as an External Service operation handler, ' +
             'verify manually in Setup > External Services.'
@@ -7130,15 +7261,15 @@ public without sharing class MetadataEngine {
         // CHECK 15  -  LWC JS Source Scan (@salesforce/apex imports)
         //
         // TWO PROBLEMS FIXED:
-        //   1. Source LIKE in Tooling API → HTTP 400 (not supported on Source field)
-        //   2. LightningComponentBundle.DeveloperName relationship traversal → HTTP 400
+        //   1. Source LIKE in Tooling API -> HTTP 400 (not supported on Source field)
+        //   2. LightningComponentBundle.DeveloperName relationship traversal -> HTTP 400
         //
         // FIX: Two-step approach  - 
         //   Step 1: Fetch all JS files (no Source filter in SOQL) +
         //           LightningComponentBundleId (flat Id  -  always works)
         //           Filter Source in Apex code instead.
-        //   Step 2: Resolve bundle IDs → DeveloperNames via separate query.
-        // ─────────────────────────────────────────────────────────────
+        //   Step 2: Resolve bundle IDs -> DeveloperNames via separate query.
+        // -------------------------------------------------------------
         if (Limits.getCpuTime() > Limits.getLimitCpuTime() - CPU_RESERVE_MS) {
             result.warningNotes.add('[!] LWC JS source scan skipped  -  CPU limit approaching. Re-run the check.');
         } else
@@ -7178,7 +7309,7 @@ public without sharing class MetadataEngine {
                         }
                     }
 
-                    // Step 2  -  resolve bundle IDs → DeveloperNames
+                    // Step 2  -  resolve bundle IDs -> DeveloperNames
                     if (!matchedBundleIds.isEmpty()) {
                         String idList     = '(\'' + String.join(new List<String>(matchedBundleIds), '\',\'') + '\')';
                         String bundleSoql = 'SELECT Id, DeveloperName FROM LightningComponentBundle ' +
@@ -7220,14 +7351,14 @@ public without sharing class MetadataEngine {
             result.warningNotes.add('[!] LWC JS scan skipped: ' + ex.getMessage());
         }
 
-        // ─────────────────────────────────────────────────────────────
+        // -------------------------------------------------------------
         // CALLOUT 4  -  Apex class body scan
         // MCD misses test classes that reference a class without a formal
         // metadata dependency. Also catches extends, implements, new X(),
         // static calls  -  anything MCD's index may not have registered.
         // Runs LAST  -  most CPU-expensive but catches what MCD misses.
         // CPU-guarded  -  skips with advisory if budget exhausted.
-        // ─────────────────────────────────────────────────────────────
+        // -------------------------------------------------------------
         if (Limits.getCpuTime() > Limits.getLimitCpuTime() - CPU_RESERVE_MS) {
             result.warningNotes.add('[!] Apex body scan skipped  -  CPU limit approaching. Use Setup > Apex Classes > "Where is this used?"');
         } else
@@ -7258,7 +7389,7 @@ public without sharing class MetadataEngine {
                         String bodyLower = bodyStr.toLowerCase();
                         // Cheap pre-check: substring must be present at all.
                         if (bodyLower.indexOf(lowerClass) < 0) continue;
-                        // Identifier-aware match — rejects sub-token hits
+                        // Identifier-aware match -- rejects sub-token hits
                         // (e.g. "Foo" inside "FooHelper"), comments, and
                         // string literals. Without this guard, every class
                         // whose name *starts with* className would be falsely
@@ -7292,11 +7423,11 @@ public without sharing class MetadataEngine {
             result.warningNotes.add('[!] Apex body scan skipped: ' + ex.getMessage());
         }
 
-        // ─────────────────────────────────────────────────────────────
+        // -------------------------------------------------------------
         // CHECK 16  -  Dynamic Apex / Reflection Warning (always added)
         // Type.forName(), Database.query(), JSON.deserialize(),
         // string-based class instantiation  -  NEVER detectable statically.
-        // ─────────────────────────────────────────────────────────────
+        // -------------------------------------------------------------
         result.warningNotes.add(
             '[!] Dynamic references cannot be detected: Type.forName(\'' + className + '\'), ' +
             'JSON.deserialize(), string-based instantiation, or API calls using the class name ' +
@@ -7304,9 +7435,9 @@ public without sharing class MetadataEngine {
             'is used in any factory patterns, handler registries, or middleware integrations.'
         );
 
-        // ─────────────────────────────────────────────────────────────
+        // -------------------------------------------------------------
         // FINALIZE  -  Count, classify, confidence level
-        // ─────────────────────────────────────────────────────────────
+        // -------------------------------------------------------------
         result.referenceCount        = result.references.size();
         result.hasBlockingReferences = result.referenceCount > 0;
         // isUnused = no references found AND not managed AND not a test class
@@ -7376,7 +7507,7 @@ public without sharing class MetadataEngine {
         return result;
     }
 
-    // ── Map a raw metadata type to a human-friendly group ────────
+    // -- Map a raw metadata type to a human-friendly group --------
     // Covers every MetadataComponentType that can reference an Apex class
     // as returned by MetadataComponentDependency tooling API.
     /** Returns ReferenceItem result of buildReferenceItem. */
@@ -7387,7 +7518,7 @@ public without sharing class MetadataEngine {
 
         String t = cType.toLowerCase();
 
-        // ── CODE ─────────────────────────────────────────────────────
+        // -- CODE -----------------------------------------------------
         if (t == 'apexclass') {
             item.groupLabel   = 'Apex Classes';
             item.relationship = 'Setup > Apex Classes > "' + cName + '" > open and remove the reference';
@@ -7400,7 +7531,7 @@ public without sharing class MetadataEngine {
             item.groupLabel   = 'Test Suites';
             item.relationship = 'Developer Console > Test > Suites > "' + cName + '" > remove this class from the suite';
 
-        // ── AUTOMATION ───────────────────────────────────────────────
+        // -- AUTOMATION -----------------------------------------------
         } else if (t == 'flow' || t == 'flowdefinition') {
             item.groupLabel   = 'Flows';
             item.relationship = 'Setup > Flows > "' + cName + '" > open > remove the Apex Action element > Save';
@@ -7423,7 +7554,7 @@ public without sharing class MetadataEngine {
             item.groupLabel   = 'Workflow / Process Builder';
             item.relationship = 'Setup > Process Automation > Workflow Rules > "' + cName + '" > deactivate and remove';
 
-        // ── UI COMPONENTS ────────────────────────────────────────────
+        // -- UI COMPONENTS --------------------------------------------
         } else if (t == 'lightningcomponentbundle') {
             item.groupLabel   = 'LWC Components';
             item.relationship = 'Open "' + cName + '" LWC in VS Code > remove the import or usage reference';
@@ -7448,7 +7579,7 @@ public without sharing class MetadataEngine {
             item.groupLabel   = 'Tabs';
             item.relationship = 'Setup > Tabs > "' + cName + '" > edit > change or remove the page reference';
 
-        // ── ACTIONS / INVOCABLE ──────────────────────────────────────
+        // -- ACTIONS / INVOCABLE --------------------------------------
         } else if (t == 'quickaction') {
             item.groupLabel   = 'Quick Actions';
             item.relationship = 'Setup > Object Manager > find the object > Buttons, Links and Actions > "' + cName + '" > edit or delete';
@@ -7457,7 +7588,7 @@ public without sharing class MetadataEngine {
             item.groupLabel   = 'Action Links';
             item.relationship = 'Setup > Action Link Templates > "' + cName + '" > edit and remove the reference';
 
-        // ── CONFIGURATION / SCHEMA ───────────────────────────────────
+        // -- CONFIGURATION / SCHEMA -----------------------------------
         } else if (t == 'customobject') {
             item.groupLabel   = 'Custom Objects';
             item.relationship = 'Setup > Object Manager > "' + cName + '" > View Dependencies';
@@ -7518,7 +7649,7 @@ public without sharing class MetadataEngine {
             item.groupLabel   = 'Value Sets / Picklists';
             item.relationship = 'Setup > Picklist Value Sets > "' + cName + '" > edit values';
 
-        // ── SECURITY / ACCESS ────────────────────────────────────────
+        // -- SECURITY / ACCESS ----------------------------------------
         } else if (t == 'permissionset') {
             item.groupLabel   = 'Permission Sets';
             item.relationship = 'Setup > Permission Sets > "' + cName + '" > Apex Class Access > remove "' + item.name + '"';
@@ -7531,7 +7662,7 @@ public without sharing class MetadataEngine {
             item.groupLabel   = 'Muting Permission Sets';
             item.relationship = 'Setup > Permission Sets > "' + cName + '" > edit muting rules';
 
-        // ── INTEGRATION ──────────────────────────────────────────────
+        // -- INTEGRATION ----------------------------------------------
         } else if (t == 'externalservice') {
             item.groupLabel   = 'External Services';
             item.relationship = 'Setup > External Services > "' + cName + '" > edit and remove the Apex reference';
@@ -7552,7 +7683,7 @@ public without sharing class MetadataEngine {
             item.groupLabel   = 'CSP Trusted Sites';
             item.relationship = 'referenced in CSP policy';
 
-        // ── EVENTS / MESSAGING ───────────────────────────────────────
+        // -- EVENTS / MESSAGING ---------------------------------------
         } else if (t == 'platformeventchannel' || t.contains('platformevent')) {
             item.groupLabel   = 'Platform Events';
             item.relationship = 'event subscriber / publisher class';
@@ -7565,7 +7696,7 @@ public without sharing class MetadataEngine {
             item.groupLabel   = 'Custom Notifications';
             item.relationship = 'notification sender class';
 
-        // ── EMAIL ────────────────────────────────────────────────────
+        // -- EMAIL ----------------------------------------------------
         } else if (t == 'emailservicesfunction' || t.contains('emailservice')) {
             item.groupLabel   = 'Email Services';
             item.relationship = 'inbound email handler class';
@@ -7574,12 +7705,12 @@ public without sharing class MetadataEngine {
             item.groupLabel   = 'Email Services';
             item.relationship = 'Apex email notification handler';
 
-        // ── BATCH / SCHEDULED ────────────────────────────────────────
+        // -- BATCH / SCHEDULED ----------------------------------------
         } else if (t == 'scheduledapex' || t.contains('scheduledjob')) {
             item.groupLabel   = 'Scheduled Jobs';
             item.relationship = 'scheduled Apex class';
 
-        // ── COMMUNITIES / EXPERIENCE ─────────────────────────────────
+        // -- COMMUNITIES / EXPERIENCE ---------------------------------
         } else if (t.contains('network') || t.contains('community') || t.contains('experience')) {
             item.groupLabel   = 'Communities / Experience';
             item.relationship = 'community controller or handler';
@@ -7588,7 +7719,7 @@ public without sharing class MetadataEngine {
             item.groupLabel   = 'Sites';
             item.relationship = 'Site.com page class or handler';
 
-        // ── REPORTING / ANALYTICS ────────────────────────────────────
+        // -- REPORTING / ANALYTICS ------------------------------------
         } else if (t == 'report' || t == 'reporttype') {
             item.groupLabel   = 'Reports';
             item.relationship = 'custom report type class';
@@ -7597,7 +7728,7 @@ public without sharing class MetadataEngine {
             item.groupLabel   = 'Dashboards';
             item.relationship = 'dashboard component class';
 
-        // ── AI / AGENTFORCE ──────────────────────────────────────────
+        // -- AI / AGENTFORCE ------------------------------------------
         // GenAiFunction      = Agent Action (directly wraps this Apex class)
         // GenAiPlugin        = Agent Topic (groups actions)
         // GenAiPlanner       = AI Agent / Planner (older API v60-63)
@@ -7624,7 +7755,7 @@ public without sharing class MetadataEngine {
             item.groupLabel   = 'AI / Agentforce';
             item.relationship = 'AI component referencing this class';
 
-        // ── BOTS / EINSTEIN (classic chatbots) ───────────────────────
+        // -- BOTS / EINSTEIN (classic chatbots) -----------------------
         } else if (t == 'botversion' || t == 'bot') {
             item.groupLabel   = 'Einstein Bots';
             item.relationship = 'bot Apex action';
@@ -7633,12 +7764,12 @@ public without sharing class MetadataEngine {
             item.groupLabel   = 'Einstein Features';
             item.relationship = 'Einstein feature handler';
 
-        // ── MANAGED PACKAGES ─────────────────────────────────────────
+        // -- MANAGED PACKAGES -----------------------------------------
         } else if (t == 'installedpackage') {
             item.groupLabel   = 'Installed Packages';
             item.relationship = 'class included in managed package';
 
-        // ── CATCH-ALL ────────────────────────────────────────────────
+        // -- CATCH-ALL ------------------------------------------------
         } else {
             item.groupLabel   = 'Other (' + cType + ')';
             item.relationship = 'references';
@@ -7647,10 +7778,10 @@ public without sharing class MetadataEngine {
         return item;
     }
 
-    // ── Build the clean formatted report string ───────────────────
+    // -- Build the clean formatted report string -------------------
     // genAiTypes = list of type strings from the HTTP 400 error (may be null)
     @SuppressWarnings('PMD.ExcessiveParameterList')
-    // ── Public wrapper for use by OrgCleanupAgentAction.checkReferences ──
+    // -- Public wrapper for use by OrgCleanupAgentAction.checkReferences --
     /** Returns String result of buildFormattedReportPublic. */
     public static String buildFormattedReportPublic(String componentName, List<ReferenceItem> items, String componentType) {
         return buildFormattedReport(componentName, items, null, componentType);
@@ -7798,7 +7929,7 @@ public without sharing class MetadataEngine {
         return report;
     }
 
-    // ── Parse DEPENDENCY_EXISTS error body → list of dep type strings ──
+    // -- Parse DEPENDENCY_EXISTS error body -> list of dep type strings --
     /** Returns List<String> result of parseDepTypesFromError. */
     private static List<String> parseDepTypesFromError(String responseBody) {
         List<String> depTypes = new List<String>();
@@ -7834,11 +7965,11 @@ public without sharing class MetadataEngine {
     }
 
 
-    // ═══════════════════════════════════════════════════════════════
+    // ===============================================================
     // DEBUG  -  call once from Anonymous Apex to diagnose trigger scan
     // Usage: System.debug(MetadataEngine.debugTriggerScan('YourClassName'));
     // DELETE after diagnosis.
-    // ═══════════════════════════════════════════════════════════════
+    // ===============================================================
     @AuraEnabled(cacheable=false)
     /** Returns String result of debugTriggerScan. */
     public static String debugTriggerScan(String className) {
@@ -7896,7 +8027,7 @@ public without sharing class MetadataEngine {
 
     /** Returns DeleteResult result of deleteApexClassByName. */
     public static DeleteResult deleteApexClassByName(String className) {
-        // ── Single Organization query: namespace strip + org type detection ──
+        // -- Single Organization query: namespace strip + org type detection --
         String  strippedClassName = className;
         Boolean isSandbox         = false;
         Boolean isDeveloperEdition = false;
@@ -7912,7 +8043,7 @@ public without sharing class MetadataEngine {
             }
         } catch (Exception ex) { System.debug(LoggingLevel.WARN, 'org query failed: ' + ex.getMessage()); }
 
-        // ── Comprehensive reference check FIRST  -  before production guard ──
+        // -- Comprehensive reference check FIRST  -  before production guard --
         // Runs ALL 16 reference checks:
         //   1.  MetadataComponentDependency    -  Flows, LWC, Aura, VF, FlexiPages, Triggers,
         //                                       WorkflowRules, PermissionSets, Profiles,
@@ -7933,35 +8064,35 @@ public without sharing class MetadataEngine {
         //  15.  LWC Static Resource advisory   -  non-blocking warning if LWC found
         //  16.  Dynamic Apex warning           -  Type.forName / string-based usage (always shown)
         //
-        // If ANY blocking reference found → show full report, DO NOT attempt delete.
-        // If NONE found → label as "Potentially Unused" + confidence note, then proceed.
-        // ── Run all 16 checks in one pass ────────────────────────────
+        // If ANY blocking reference found -> show full report, DO NOT attempt delete.
+        // If NONE found -> label as "Potentially Unused" + confidence note, then proceed.
+        // -- Run all 16 checks in one pass ----------------------------
         // checkAllApexReferences now returns:
-        //   hasBlockingReferences   -  any reference found → block delete
-        //   isTestClass             -  has @IsTest → apply coverage rules
-        //   isManagedPackage        -  has foreign namespace → never delete
-        //   isUnused                -  no refs, not test, not managed → safe to delete
+        //   hasBlockingReferences   -  any reference found -> block delete
+        //   isTestClass             -  has @IsTest -> apply coverage rules
+        //   isManagedPackage        -  has foreign namespace -> never delete
+        //   isUnused                -  no refs, not test, not managed -> safe to delete
         //   classId                 -  Salesforce Id (no extra lookup needed)
         ApexReferenceCheckResult allRefs = checkAllApexReferences(strippedClassName);
 
         Http         http   = new Http();
         DeleteResult result = new DeleteResult();
 
-        // ── Step 1: Managed package  -  never deletable ─────────────────
+        // -- Step 1: Managed package  -  never deletable -----------------
         if (allRefs.isManagedPackage) {
             result.success = false;
             result.message = '"' + strippedClassName + '" belongs to a managed package and cannot be deleted from this org.';
             return result;
         }
 
-        // ── Step 2: Has references  -  show full report, stop ───────────
+        // -- Step 2: Has references  -  show full report, stop -----------
         if (allRefs.hasBlockingReferences) {
             result.success = false;
             result.message = allRefs.formattedReport;
             return result;
         }
 
-        // ── Step 3: Class not found in org ────────────────────────────
+        // -- Step 3: Class not found in org ----------------------------
         if (allRefs.classId == null) {
             result.success = false;
             result.message = 'No Apex class found with name: ' + strippedClassName;
@@ -7970,18 +8101,18 @@ public without sharing class MetadataEngine {
 
         String classId = allRefs.classId;
 
-        // ── Step 4: Test class rules ───────────────────────────────────
+        // -- Step 4: Test class rules -----------------------------------
         // (test suite blocking handled inside checkAllApexReferences CHECK 10b)
         // Here we apply the production coverage warning if needed.
         // Note: CHECK 10b already adds Test Suite references to allRefs.references
         // if any exist  -  so if we reach here, test suites are clear.
 
-        // ── Safety classification: allRefs has everything ────────────
+        // -- Safety classification: allRefs has everything ------------
         // allRefs.isTestClass, allRefs.isManagedPackage, allRefs.classId
         // and allRefs.hasBlockingReferences are all already populated by
         // checkAllApexReferences() above. No further scan needed.
 
-        // ── Step 5: Production org + test class = coverage risk ─────
+        // -- Step 5: Production org + test class = coverage risk -----
         if (allRefs.isTestClass && !isSandbox && !isDeveloperEdition) {
             result.success = false;
             result.message = '"' + strippedClassName + '" is a test class in a Production org.\n\n' +
@@ -7992,7 +8123,7 @@ public without sharing class MetadataEngine {
             return result;
         }
 
-        // ── Step 6: Proceed to delete ─────────────────────────────────
+        // -- Step 6: Proceed to delete ---------------------------------
         // Reaches here only if:
         //   - Not managed
         //   - No blocking references (all 16 checks passed)
@@ -8007,7 +8138,7 @@ public without sharing class MetadataEngine {
         HttpResponse deleteRes = http.send(deleteReq);
 
         if (deleteRes.getStatusCode() == 204 || deleteRes.getStatusCode() == 200) {
-            // ── Success ──
+            // -- Success --
             result.success = true;
             result.message = 'Apex class "' + className + '" successfully deleted.';
 
@@ -8016,7 +8147,7 @@ public without sharing class MetadataEngine {
                    (deleteRes.getBody().containsIgnoreCase('DEPENDENCY_EXISTS') ||
                     deleteRes.getBody().containsIgnoreCase('referenced elsewhere'))) {
 
-            // ── Salesforce blocked the delete: DEPENDENCY_EXISTS ──────────────────
+            // -- Salesforce blocked the delete: DEPENDENCY_EXISTS ------------------
             // Step 1: Parse the dependency TYPE(s) from the error message.
             //         Salesforce always tells us WHAT is blocking (e.g. "Generative AI Function Definition").
             // Step 2: Run getReferencesFor to get the actual NAMES of queryable references
@@ -8040,7 +8171,7 @@ public without sharing class MetadataEngine {
                 }
             }
 
-            // ── Reuse allRefs from pre-delete scan  -  no second full scan ──
+            // -- Reuse allRefs from pre-delete scan  -  no second full scan --
             // Running checkAllApexReferences twice causes CPU time limit exceeded.
             // The pre-delete scan already ran all checks  -  reuse those results.
             result.success = false;
@@ -8105,7 +8236,7 @@ public without sharing class MetadataEngine {
             }
 
         } else {
-            // ── Other HTTP error ──
+            // -- Other HTTP error --
             result.success = false;
             result.message = 'Failed to delete "' + className + '". HTTP ' +
                               deleteRes.getStatusCode() + ': ' + deleteRes.getBody();
@@ -8114,8 +8245,8 @@ public without sharing class MetadataEngine {
         return result;
     }
 
-    // ── Mass delete Apex classes ───────────────────────────────
-    // ── Profile/PermSet strip result  -  per class ──────────────
+    // -- Mass delete Apex classes -------------------------------
+    // -- Profile/PermSet strip result  -  per class --------------
     /** Wrapper class: ApexClassStripResult. */
     public class ApexClassStripResult {
         @AuraEnabled public String       className;
@@ -8131,9 +8262,9 @@ public without sharing class MetadataEngine {
      *
      * Enhanced flow:
      *   1. For each class, query SetupEntityAccess to find all Profile/PermSet references.
-     *   2. If any references found → auto-strip them by deleting SetupEntityAccess records.
+     *   2. If any references found -> auto-strip them by deleting SetupEntityAccess records.
      *   3. Track what was stripped per class (for reporting).
-     *   4. After stripping → attempt the actual class deletion.
+     *   4. After stripping -> attempt the actual class deletion.
      *   5. Return enriched MassDeleteResult that includes strip details in failure messages.
      *
      * If strip itself fails for a given class (permission error, locked profile etc.)
@@ -8150,7 +8281,7 @@ public without sharing class MetadataEngine {
         for (String className : classNames) {
             if (String.isBlank(className)) continue;
 
-            // ── Callout limit guard ───────────────────────────────────────
+            // -- Callout limit guard ---------------------------------------
             // Salesforce allows max 100 HTTP callouts per transaction.
             // Each deleteApexClassByName uses ~10 callouts via checkAllApexReferences.
             // Reserve 15 as a safety buffer to avoid System.LimitException mid-loop.
@@ -8162,7 +8293,7 @@ public without sharing class MetadataEngine {
 
             String normalizedName = className.trim().replaceAll(' ', '_');
 
-            // ── Step 1: Resolve the class Id (need it for SetupEntityAccess query) ──
+            // -- Step 1: Resolve the class Id (need it for SetupEntityAccess query) --
             String classId = null;
             try {
                 List<ApexClass> found = [
@@ -8178,7 +8309,7 @@ public without sharing class MetadataEngine {
                 // classId stays null  -  deleteApexClassByName will handle "not found"
             }
 
-            // ── Step 2: Strip Profile + PermSet access via SetupEntityAccess ──
+            // -- Step 2: Strip Profile + PermSet access via SetupEntityAccess --
             ApexClassStripResult stripResult = new ApexClassStripResult();
             stripResult.className        = normalizedName;
             stripResult.classId          = classId;
@@ -8189,7 +8320,7 @@ public without sharing class MetadataEngine {
 
             if (classId != null) {
                 try {
-                    // ── Step 2a: Fetch SetupEntityAccess rows  -  only Id + Parent fields ──
+                    // -- Step 2a: Fetch SetupEntityAccess rows  -  only Id + Parent fields --
                     // NOTE: ParentId cannot be SELECT-ed but CAN be used in WHERE bind.
                     // We read Parent.Name + Parent.IsOwnedByProfile to identify the parent,
                     // then separately query Profile/PermissionSet by Name to get their Ids
@@ -8202,7 +8333,7 @@ public without sharing class MetadataEngine {
                     ];
 
                     if (!allAccess.isEmpty()) {
-                        // ── Step 2b: Split parent names by type ──
+                        // -- Step 2b: Split parent names by type --
                         Set<String> profileNames = new Set<String>();
                         Set<String> permSetNames = new Set<String>();
                         for (SetupEntityAccess sea : allAccess) {
@@ -8214,7 +8345,7 @@ public without sharing class MetadataEngine {
                             }
                         }
 
-                        // ── Step 2c: Resolve profile Ids  -  only UserType = Standard ──
+                        // -- Step 2c: Resolve profile Ids  -  only UserType = Standard --
                         // Excludes: Guest, Chatter Free, Partner Portal (system profiles)
                         Set<Id> userProfileIds = new Set<Id>();
                         if (!profileNames.isEmpty()) {
@@ -8228,7 +8359,7 @@ public without sharing class MetadataEngine {
                             }
                         }
 
-                        // ── Step 2d: Resolve permset Ids  -  only user-created custom ones ──
+                        // -- Step 2d: Resolve permset Ids  -  only user-created custom ones --
                         // Excludes: profile-backed permsets, Salesforce standard permsets
                         Set<Id> userPermSetIds = new Set<Id>();
                         if (!permSetNames.isEmpty()) {
@@ -8243,13 +8374,13 @@ public without sharing class MetadataEngine {
                             }
                         }
 
-                        // ── Step 2e: Fetch only the rows to delete using Id IN bind ──
+                        // -- Step 2e: Fetch only the rows to delete using Id IN bind --
                         // ParentId CAN be used in WHERE clause (just not in SELECT)
                         Set<Id> allParentIds = new Set<Id>();
                         allParentIds.addAll(userProfileIds);
                         allParentIds.addAll(userPermSetIds);
 
-                        // ── Step 2e: Delete matching SetupEntityAccess rows ──
+                        // -- Step 2e: Delete matching SetupEntityAccess rows --
                         // ParentId IS allowed in WHERE bind (just not in SELECT)
                         if (!allParentIds.isEmpty()) {
                             List<SetupEntityAccess> rowsToDelete = [
@@ -8277,10 +8408,10 @@ public without sharing class MetadataEngine {
                 }
             }
 
-            // ── Step 3: Attempt the actual class deletion ──────────────────────
+            // -- Step 3: Attempt the actual class deletion ----------------------
             DeleteResult r = deleteApexClassByName(normalizedName);
 
-            // ── Step 4: Build enriched result message ──────────────────────────
+            // -- Step 4: Build enriched result message --------------------------
             if (r.success) {
                 mass.successCount++;
 
@@ -8547,7 +8678,7 @@ public without sharing class MetadataEngine {
         return summary;
     }
 
-    // ── checkAllTriggerReferences ─────────────────────────────────────────────
+    // -- checkAllTriggerReferences ---------------------------------------------
     //
     // Dedicated, exhaustive reference scan for an ApexTrigger before any
     // delete attempt  -  mirroring the design of checkAllFlowReferences.
@@ -8555,14 +8686,14 @@ public without sharing class MetadataEngine {
     // WHY a separate method instead of relying on getReferencesFor():
     //   getReferencesFor() runs a single MetadataComponentDependency (MCD)
     //   lookup.  That misses:
-    //     • References built via dynamic SOQL / string concatenation
+    //      References built via dynamic SOQL / string concatenation
     //       (the trigger name only appears inside a quoted string in the
     //        caller's Apex body  -  MCD does not index string literals).
-    //     • References via TriggerHandler-style frameworks where the trigger
+    //      References via TriggerHandler-style frameworks where the trigger
     //       hands off to a class via reflection or naming convention.
-    //     • Test classes that test the trigger but whose dependency edge
+    //      Test classes that test the trigger but whose dependency edge
     //       is not always indexed.
-    //     • Managed-package state (must block delete with a clear message,
+    //      Managed-package state (must block delete with a clear message,
     //       not let Salesforce return an opaque error).
     //
     // This method queries ALL of those sources and deduplicates across them:
@@ -8583,7 +8714,7 @@ public without sharing class MetadataEngine {
     //   objectName   -  TableEnumOrId of the object this trigger fires on
     //
     // Returns a de-duplicated List<ReferenceItem> (empty = safe to delete).
-    // ─────────────────────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
     @TestVisible
     /** Returns List<ReferenceItem> result of checkAllTriggerReferences. */
     private static List<ReferenceItem> checkAllTriggerReferences(
@@ -8593,7 +8724,7 @@ public without sharing class MetadataEngine {
         List<ReferenceItem> refs        = new List<ReferenceItem>();
         Set<String>         seenKeys    = new Set<String>();
 
-        // ── 1 & 2: MCD by Id and by Name ──────────────────────────────────────
+        // -- 1 & 2: MCD by Id and by Name --------------------------------------
         // Cover the standard "compile-time visible" references first.
         try {
             for (String soqlBody : new List<String>{
@@ -8632,7 +8763,7 @@ public without sharing class MetadataEngine {
             System.debug(LoggingLevel.WARN, 'checkAllTriggerReferences MCD scan skipped: ' + ex.getMessage());
         }
 
-        // ── 3 + 5: ApexClass body scan (production + test classes) ────────────
+        // -- 3 + 5: ApexClass body scan (production + test classes) ------------
         //
         // HISTORY of this scan:
         // v1: WHERE Body LIKE '%TriggerName%'   -  broken.  Tooling SOQL does not
@@ -8716,7 +8847,7 @@ public without sharing class MetadataEngine {
             System.debug(LoggingLevel.WARN, 'checkAllTriggerReferences ApexClass scan skipped: ' + ex.getMessage());
         }
 
-        // ── 4: ApexTrigger body scan (other triggers mentioning this one) ─────
+        // -- 4: ApexTrigger body scan (other triggers mentioning this one) -----
         // Same bulk-SELECT pattern as #3.  Body IS queryable on ApexTrigger
         // via Tooling SOQL.
         try {
@@ -8770,7 +8901,7 @@ public without sharing class MetadataEngine {
             System.debug(LoggingLevel.WARN, 'checkAllTriggerReferences ApexTrigger scan skipped: ' + ex.getMessage());
         }
 
-        // ── 5b: Active-Flow metadata scan ────────────────────────────────────
+        // -- 5b: Active-Flow metadata scan ------------------------------------
         // Flows can reference triggers by name inside ApexAction / InvocableAction
         // nodes (e.g. calling an @InvocableMethod handler that is tied to this
         // trigger, or referencing the trigger name in a custom Apex action).
@@ -8851,7 +8982,7 @@ public without sharing class MetadataEngine {
             System.debug(LoggingLevel.WARN, 'checkAllTriggerReferences Flow scan skipped: ' + ex.getMessage());
         }
 
-        // ── 6: Managed-package guard ──────────────────────────────────────────
+        // -- 6: Managed-package guard ------------------------------------------
         // Surface managed-package state as a "reference" so the user gets a
         // clear blocking reason instead of a Salesforce raw error.
         try {
@@ -8887,8 +9018,8 @@ public without sharing class MetadataEngine {
             System.debug(LoggingLevel.WARN, 'checkAllTriggerReferences ManagedPackage check skipped: ' + ex.getMessage());
         }
 
-        // ── 8: Approval Processes ─────────────────────────────────────────────
-        // MCD tracks ApprovalProcess → ApexTrigger dependencies via
+        // -- 8: Approval Processes ---------------------------------------------
+        // MCD tracks ApprovalProcess -> ApexTrigger dependencies via
         // RefMetadataComponentName. Covers entry criteria and apex actions
         // that fire on records also handled by this trigger.
         try {
@@ -8925,7 +9056,7 @@ public without sharing class MetadataEngine {
             System.debug(LoggingLevel.WARN, 'checkAllTriggerReferences Approval Process check skipped: ' + ex.getMessage());
         }
 
-        // ── 9: Platform Event Subscriber Config ───────────────────────────────
+        // -- 9: Platform Event Subscriber Config -------------------------------
         // If this trigger is registered as a Platform Event subscriber
         // (ApexClassName field on PlatformEventSubscriberConfig = triggerName),
         // deleting it will break the event subscription.
@@ -8962,7 +9093,7 @@ public without sharing class MetadataEngine {
             System.debug(LoggingLevel.WARN, 'checkAllTriggerReferences Platform Event subscriber check skipped: ' + ex.getMessage());
         }
 
-        // ── 10: Test Suite Membership ──────────────────────────────────────────
+        // -- 10: Test Suite Membership ------------------------------------------
         // If test classes that reference this trigger are members of a Test Suite,
         // surface those suites  -  deleting the trigger will break coverage runs.
         // We find test class IDs from the ApexClass body scan (refs already populated)
@@ -9038,7 +9169,7 @@ public without sharing class MetadataEngine {
             System.debug(LoggingLevel.WARN, 'checkAllTriggerReferences Test Suite check skipped: ' + ex.getMessage());
         }
 
-        // ── 7: CustomObject pending delete ────────────────────────────────────
+        // -- 7: CustomObject pending delete ------------------------------------
         // Informational: if the trigger fires on an object that is in the
         // delete queue, surface that  -  deleting the trigger first is fine
         // but the user may not realise the object is going away anyway.
@@ -9091,22 +9222,22 @@ public without sharing class MetadataEngine {
             || c == 95;                // _
     }
 
-    // ─────────────────────────────────────────────────────────────────────
+    // ---------------------------------------------------------------------
     // checkAllFlowReferencesPublic
     //
     // Public pre-delete scan for Flows. Mirrors EXACTLY the logic run
-    // inside deleteFlowByApiName() Steps 1–3 before any DELETE attempt:
+    // inside deleteFlowByApiName() Steps 1-3 before any DELETE attempt:
     //
     //   1. Resolve FlowDefinitionView (Id, DurableId, Label) by ApiName
-    //   2. Run checkAllFlowReferences() — 16-source MCD/body/flexipage scan
+    //   2. Run checkAllFlowReferences() -- 16-source MCD/body/flexipage scan
     //
     // Used by OrgCleanupAgentAction.checkReferences() so the chat pre-check
-    // returns the SAME result as the real delete — no more "Safe to delete"
+    // returns the SAME result as the real delete -- no more "Safe to delete"
     // followed by "N references must be removed first" surprise.
     //
     // Returns a ReferenceResult with `hasReferences` + `formattedReport`
     // populated, or a result with `hasReferences = false` if safe to delete.
-    // ─────────────────────────────────────────────────────────────────────
+    // ---------------------------------------------------------------------
     public static ReferenceResult checkAllFlowReferencesPublic(String apiName) {
         ReferenceResult res = new ReferenceResult();
         res.componentName  = apiName;
@@ -9117,12 +9248,12 @@ public without sharing class MetadataEngine {
 
         if (String.isBlank(apiName)) return res;
 
-        // Normalise: spaces → underscores (same as deleteFlowByApiName)
+        // Normalise: spaces -> underscores (same as deleteFlowByApiName)
         apiName = apiName.trim().replaceAll(' ', '_');
 
         Http http = new Http();
 
-        // ── STEP 1: Resolve flow by ApiName ───────────────────────────
+        // -- STEP 1: Resolve flow by ApiName ---------------------------
         String lookupSoql = 'SELECT Id, DurableId, Label, ApiName, IsActive, ProcessType ' +
                             'FROM FlowDefinitionView ' +
                             'WHERE ApiName = \'' + String.escapeSingleQuotes(apiName) + '\' ' +
@@ -9139,7 +9270,24 @@ public without sharing class MetadataEngine {
         List<Object> lookupRecs = (List<Object>)((Map<String, Object>)
             JSON.deserializeUntyped(lookupRes.getBody())).get('records');
 
-        // Fallback: try matching by Label (user may have passed a display label)
+        // Fallback 1: LIKE is case-insensitive -- catches lowercase input (e.g. "bsr_case" -> "BSR_Case")
+        if (lookupRecs == null || lookupRecs.isEmpty()) {
+            String likeSoql = 'SELECT Id, DurableId, Label, ApiName, IsActive, ProcessType ' +
+                              'FROM FlowDefinitionView ' +
+                              'WHERE ApiName LIKE \'' + String.escapeSingleQuotes(apiName) + '\' ' +
+                              'LIMIT 1';
+            HttpRequest likeReq = new HttpRequest();
+            likeReq.setEndpoint(BASE_URL + 'query?q=' + EncodingUtil.urlEncode(likeSoql, 'UTF-8'));
+            likeReq.setMethod('GET');
+            likeReq.setHeader('Content-Type', 'application/json');
+            HttpResponse likeRes = http.send(likeReq);
+            if (likeRes.getStatusCode() >= 200 && likeRes.getStatusCode() < 300) {
+                lookupRecs = (List<Object>)((Map<String, Object>)
+                    JSON.deserializeUntyped(likeRes.getBody())).get('records');
+            }
+        }
+
+        // Fallback 2: try matching by Label (user may have passed a display label, e.g. "BSR:Test002")
         if (lookupRecs == null || lookupRecs.isEmpty()) {
             String labelSoql = 'SELECT Id, DurableId, Label, ApiName, IsActive, ProcessType ' +
                                'FROM FlowDefinitionView ' +
@@ -9157,7 +9305,7 @@ public without sharing class MetadataEngine {
             }
         }
 
-        if (lookupRecs == null || lookupRecs.isEmpty()) return res; // not found → fail-open
+        if (lookupRecs == null || lookupRecs.isEmpty()) return res; // not found -> fail-open
 
         Map<String, Object> flowDef   = (Map<String, Object>) lookupRecs[0];
         String              flowId18  = (String) flowDef.get('Id');
@@ -9166,7 +9314,7 @@ public without sharing class MetadataEngine {
         String              resolvedApiName = (String) flowDef.get('ApiName');
         if (String.isNotBlank(resolvedApiName)) apiName = resolvedApiName;
 
-        // ── STEP 2: Full 16-source reference scan ─────────────────────
+        // -- STEP 2: Full 16-source reference scan ---------------------
         List<ReferenceItem> refs = checkAllFlowReferences(flowId18, durableId, apiName, flowLabel);
 
         if (refs == null || refs.isEmpty()) return res; // safe to delete
@@ -9185,7 +9333,7 @@ public without sharing class MetadataEngine {
     //
     //   1. Resolve Id/Body/Object via Tooling SOQL
     //   2. Run checkAllTriggerReferences()  -  16-source MCD/body/flow scan
-    //   3. Run the handler-class detection (trigger body → ApexClass tokens)
+    //   3. Run the handler-class detection (trigger body -> ApexClass tokens)
     //
     // Used by OrgCleanupAgentAction.checkReferences() so the chat pre-check
     // returns the SAME result as the real delete  -  no more "Safe to delete"
@@ -9193,7 +9341,7 @@ public without sharing class MetadataEngine {
     //
     // Returns a ReferenceResult with `hasReferences` + `formattedReport`
     // populated, or a result with `hasReferences = false` if safe to delete.
-    // ─────────────────────────────────────────────────────────────────────
+    // ---------------------------------------------------------------------
     public static ReferenceResult checkAllTriggerReferencesPublic(String triggerName) {
         ReferenceResult res = new ReferenceResult();
         res.componentName   = triggerName;
@@ -9206,7 +9354,7 @@ public without sharing class MetadataEngine {
 
         Http http = new Http();
 
-        // ── STEP 1: Look up the trigger (Id, Body, Object) ─────────────
+        // -- STEP 1: Look up the trigger (Id, Body, Object) -------------
         // Same lookup as deleteTriggerByName STEP 1.
         String lookupSoql = 'SELECT Id, Name, TableEnumOrId, Body ' +
                             'FROM ApexTrigger ' +
@@ -9233,10 +9381,10 @@ public without sharing class MetadataEngine {
         String              objectName = (String) trigDef.get('TableEnumOrId');
         String              trigBody   = (String) trigDef.get('Body');
 
-        // ── STEP 2: Deep 16-source reference scan ──────────────────────
+        // -- STEP 2: Deep 16-source reference scan ----------------------
         List<ReferenceItem> trigRefs = checkAllTriggerReferences(triggerId, triggerName, objectName);
 
-        // ── STEP 2b: Handler-class detection (same as deleteTriggerByName) ─
+        // -- STEP 2b: Handler-class detection (same as deleteTriggerByName) -
         // Tokenize the trigger body, cross-reference against ApexClass names,
         // and add each handler/helper class as an "Apex Classes (called by this
         // trigger)" reference. Without this, the pre-check would miss handler
@@ -9291,7 +9439,7 @@ public without sharing class MetadataEngine {
             }
         }
 
-        // ── Build result ────────────────────────────────────────────────
+        // -- Build result ------------------------------------------------
         if (trigRefs != null && !trigRefs.isEmpty()) {
             res.references     = trigRefs;
             res.referenceCount = trigRefs.size();
@@ -9309,7 +9457,7 @@ public without sharing class MetadataEngine {
         Http         http   = new Http();
         DeleteResult result = new DeleteResult();
 
-        // ── STEP 1: Look up the trigger ─────────────────────────────────────
+        // -- STEP 1: Look up the trigger -------------------------------------
         String lookupSoql = 'SELECT Id, Name, TableEnumOrId, Status, ManageableState, Body ' +
                             'FROM ApexTrigger ' +
                             'WHERE Name = \'' + String.escapeSingleQuotes(triggerName) + '\' ' +
@@ -9344,13 +9492,13 @@ public without sharing class MetadataEngine {
         String              objectName = (String) trigDef.get('TableEnumOrId');
         String              trigBody   = (String) trigDef.get('Body');
 
-        // ── STEP 2: Exhaustive reference check BEFORE any delete attempt ───
+        // -- STEP 2: Exhaustive reference check BEFORE any delete attempt ---
         // Mirrors the flow flow: check all sources, block with a grouped
         // report if any reference is found.  Never touch the trigger until
         // refs are clean.
         List<ReferenceItem> trigRefs = checkAllTriggerReferences(triggerId, triggerName, objectName);
 
-        // ── STEP 2b: Handler-class warning ────────────────────────────────────
+        // -- STEP 2b: Handler-class warning ------------------------------------
         // If the trigger body calls a handler/helper Apex class, that class will
         // become orphaned when the trigger is deleted. Surface it as a blocking
         // reference so the user can decide whether to delete the handler too.
@@ -9418,7 +9566,7 @@ public without sharing class MetadataEngine {
             return blocked;
         }
 
-        // ── STEP 3 (removed): legacy production safety guard ────────────────
+        // -- STEP 3 (removed): legacy production safety guard ----------------
         // TriggerInfo.safetyStatus flag set by getTriggers().  That flag
         // returned 'IN_USE' for any trigger that called a handler class  - 
         // which is a USEFUL signal for the org-cleanup dashboard ("does
@@ -9431,11 +9579,11 @@ public without sharing class MetadataEngine {
         // a generic "currently in use" message that had no actionable info.
         //
         // checkAllTriggerReferences already covers every real blocker:
-        //   • MANAGED state            → check #6
-        //   • Any inbound reference    → checks #1-#5
+        //    MANAGED state            -> check #6
+        //    Any inbound reference    -> checks #1-#5
         // So this guard is fully redundant.
 
-        // ── STEP 4: Perform the delete ─────────────────────────────────────
+        // -- STEP 4: Perform the delete -------------------------------------
         HttpRequest deleteReq = new HttpRequest();
         deleteReq.setEndpoint(BASE_URL + 'tooling/sobjects/ApexTrigger/' + triggerId);
         deleteReq.setMethod('DELETE');
@@ -9448,7 +9596,7 @@ public without sharing class MetadataEngine {
             result.message = 'Trigger "' + triggerName + '" on ' + objectName +
                              ' (Id: ' + triggerId + ') successfully deleted.';
         } else {
-            // ── If Salesforce STILL blocks (post-check race or undetected ref) ──
+            // -- If Salesforce STILL blocks (post-check race or undetected ref) --
             // Parse the error body the same way the flow path does so users get
             // grouped output instead of a raw JSON dump.
             String errBody = deleteRes.getBody();
@@ -9478,7 +9626,7 @@ public without sharing class MetadataEngine {
         return result;
     }
 
-    // ── Mass delete Triggers ───────────────────────────────────
+    // -- Mass delete Triggers -----------------------------------
     /** Returns MassDeleteResult result of massDeleteTriggers. */
     public static MassDeleteResult massDeleteTriggers(List<String> triggerNames) {
         MassDeleteResult mass = new MassDeleteResult();
@@ -9570,11 +9718,11 @@ public without sharing class MetadataEngine {
         Set<String>               tabLwcSet = new Set<String>();
         Set<String>               flowLwcSet= new Set<String>();
 
-        // ── Scan confidence tracking ──
+        // -- Scan confidence tracking --
         // A component can only be declared UNREFERENCED if at least one
         // FlexiPage-class check ran successfully. If ALL of Check 1, 3, 4
         // return HTTP 400 (unsupported in this org/API version), we have
-        // zero evidence — not proof of absence. In that case components
+        // zero evidence -- not proof of absence. In that case components
         // with no hits must be labelled UNKNOWN, not SAFE_TO_REVIEW.
         Boolean check1Passed = false; // LightningComponentReference
         Boolean check3Passed = false; // CustomTab FK
@@ -9582,7 +9730,7 @@ public without sharing class MetadataEngine {
         // Check 2 (Flow screen) is reliable but only catches screen-flow usage,
         // so it alone is not sufficient to declare a component unreferenced.
 
-        // ── Check 1: LightningComponentReference ──
+        // -- Check 1: LightningComponentReference --
         try {
             String refSoql = 'SELECT LightningComponentBundle.DeveloperName, ' +
                              'PageOrComponent.DeveloperName, PageOrComponent.Type ' +
@@ -9615,7 +9763,7 @@ public without sharing class MetadataEngine {
             }
         } catch (Exception ex) { System.debug(LoggingLevel.WARN, 'Check 1 failed  -  continue: ' + ex.getMessage()); }
 
-        // ── Check 2: Flow Screen Components ──
+        // -- Check 2: Flow Screen Components --
         try {
             String flowSoql = 'SELECT Metadata FROM FlowDefinition WHERE ActiveVersionId != null LIMIT 200';
             HttpRequest flowReq = new HttpRequest();
@@ -9644,7 +9792,7 @@ public without sharing class MetadataEngine {
             }
         } catch (Exception ex) { System.debug(LoggingLevel.WARN, 'Check 2 failed  -  continue: ' + ex.getMessage()); }
 
-        // ── Check 3: Custom Tabs ──
+        // -- Check 3: Custom Tabs --
         try {
             // FIX: 'WHERE LightningComponentId != null' is unsupported in many API versions (returns 400).
             // Use 'WHERE Type = \'lwc\'' which is the stable, version-safe equivalent.
@@ -9678,7 +9826,7 @@ public without sharing class MetadataEngine {
             }
         } catch (Exception ex) { System.debug(LoggingLevel.WARN, 'Check 3 failed  -  continue: ' + ex.getMessage()); }
 
-        // ── Check 4: FlexiPage body scan ──
+        // -- Check 4: FlexiPage body scan --
         try {
             // FIX: SELECT ... Metadata FROM FlexiPage returns HTTP 400 in many API versions
             // because Metadata is a compound field not queryable in bulk SOQL.
@@ -9712,7 +9860,7 @@ public without sharing class MetadataEngine {
 
                         if (isSystemGeneratedFlexiPage(manageableState, nsPrefix, fpDevName, fpLabel, fpId, assignedFpIds)) continue;
 
-                        // Fetch Metadata body individually — this works even when bulk SOQL doesn't
+                        // Fetch Metadata body individually -- this works even when bulk SOQL doesn't
                         try {
                             HttpRequest metaReq = new HttpRequest();
                             metaReq.setEndpoint(BASE_URL + 'tooling/sobjects/FlexiPage/' + fpId + '?fields=Metadata');
@@ -9741,11 +9889,11 @@ public without sharing class MetadataEngine {
             }
         } catch (Exception ex) { System.debug(LoggingLevel.WARN, 'Check 4 failed  -  continue: ' + ex.getMessage()); }
 
-        // ── Final: Combine all checks + assign safety status ──
+        // -- Final: Combine all checks + assign safety status --
         // A component is UNREFERENCED only if at least one FlexiPage-class check
         // (Check 1, 3, or 4) succeeded AND returned no references.
         // If all three failed (HTTP 400 / exception), we cannot distinguish
-        // "no references" from "scan incomplete" → status must be UNKNOWN.
+        // "no references" from "scan incomplete" -> status must be UNKNOWN.
         Boolean anyCriticalCheckPassed = check1Passed || check3Passed || check4Passed;
 
         List<LwcComponentInfo> unreferencedComponents = new List<LwcComponentInfo>();
@@ -9783,14 +9931,14 @@ public without sharing class MetadataEngine {
                 info.safetyStatus    = 'IN_USE';
             } else if (!anyCriticalCheckPassed) {
                 // All FlexiPage-class checks returned HTTP 400 or threw exceptions.
-                // We have zero evidence either way — do NOT label as unreferenced.
+                // We have zero evidence either way -- do NOT label as unreferenced.
                 info.isReferenced    = null;   // null = unknown, not false
                 info.referencedBy    = '';
                 info.referenceSource = 'Scan incomplete (FlexiPage API unavailable in this org)';
                 info.safetyStatus    = 'UNKNOWN';
-                // Do NOT add to unreferencedComponents — unknown ≠ safe to delete
+                // Do NOT add to unreferencedComponents -- unknown  safe to delete
             } else {
-                // At least one critical check passed and found nothing — genuinely unreferenced
+                // At least one critical check passed and found nothing -- genuinely unreferenced
                 info.isReferenced    = false;
                 info.referencedBy    = '';
                 info.referenceSource = 'None';
@@ -9805,7 +9953,7 @@ public without sharing class MetadataEngine {
         return summary;
     }   // <- FIX: closes getLwcComponents
 
-    // ── Mass delete LWC components ─────────────────────────────
+    // -- Mass delete LWC components -----------------------------
     /** Returns MassDeleteResult result of massDeleteLwcComponents. */
     public static MassDeleteResult massDeleteLwcComponents(List<String> componentNames) {
         MassDeleteResult mass = new MassDeleteResult();
@@ -9896,7 +10044,7 @@ public without sharing class MetadataEngine {
         Set<String> topLevelAppNames = new Set<String>();
         Set<String> auraTabSet       = new Set<String>();
 
-        // ── Check 1: AuraDefinition source scan ──
+        // -- Check 1: AuraDefinition source scan --
         try {
             String auraSoql = 'SELECT Source, AuraDefinitionBundle.DeveloperName, DefType ' +
                               'FROM AuraDefinition ' +
@@ -9956,7 +10104,7 @@ public without sharing class MetadataEngine {
             }
         } catch (Exception ex) { System.debug(LoggingLevel.WARN, 'Check 1 failed  -  continue: ' + ex.getMessage()); }
 
-        // ── Check 3: Custom Tabs ──
+        // -- Check 3: Custom Tabs --
         try {
             String tabSoql = 'SELECT DeveloperName, Url FROM CustomTab WHERE Type = \'lightning\' LIMIT 200';
             HttpRequest tabReq = new HttpRequest();
@@ -9979,7 +10127,7 @@ public without sharing class MetadataEngine {
             }
         } catch (Exception ex) { System.debug(LoggingLevel.WARN, 'Check 3 failed  -  continue: ' + ex.getMessage()); }
 
-        // ── Check 4: FlexiPage metadata scan ──
+        // -- Check 4: FlexiPage metadata scan --
         try {
             String flexiSoql = 'SELECT DeveloperName, Metadata FROM FlexiPage LIMIT 300';
             HttpRequest flexiReq = new HttpRequest();
@@ -10008,7 +10156,7 @@ public without sharing class MetadataEngine {
             }
         } catch (Exception ex) { System.debug(LoggingLevel.WARN, 'Check 4 failed  -  continue: ' + ex.getMessage()); }
 
-        // ── Final: Combine all checks + assign safety status ──
+        // -- Final: Combine all checks + assign safety status --
         List<AuraComponentInfo> unreferencedComponents = new List<AuraComponentInfo>();
         Integer unreferencedCount = 0;
 
@@ -10057,7 +10205,7 @@ public without sharing class MetadataEngine {
         return summary;
     }   // <- FIX: closes getAuraComponents
 
-    // ── Mass delete Aura components ────────────────────────────
+    // -- Mass delete Aura components ----------------------------
     /** Returns MassDeleteResult result of massDeleteAuraComponents. */
     public static MassDeleteResult massDeleteAuraComponents(List<String> componentNames) {
         MassDeleteResult mass = new MassDeleteResult();
@@ -10184,11 +10332,11 @@ public without sharing class MetadataEngine {
             info.isSystemProfile = isSys;
 
             // Rule:
-            // ✅ Custom  + assigned    → SHOW (in use)
-            // ✅ Custom  + unassigned  → SHOW (delete candidate)
-            // ✅ Standard + assigned   → SHOW (real human users only)
-            // ❌ Standard + unassigned → SKIP (noise)
-            // ❌ System/Analytics profiles → always skip
+            //  Custom  + assigned    -> SHOW (in use)
+            //  Custom  + unassigned  -> SHOW (delete candidate)
+            //  Standard + assigned   -> SHOW (real human users only)
+            //  Standard + unassigned -> SKIP (noise)
+            //  System/Analytics profiles -> always skip
             if (isSys) continue;
             if (info.isCustom != true && info.assignedUserCount == 0) continue;
 
@@ -10227,7 +10375,7 @@ public without sharing class MetadataEngine {
         }
 
         ProfileSummary summary    = new ProfileSummary();
-        // Total = custom (all) + standard (assigned only) — excludes system and empty standard
+        // Total = custom (all) + standard (assigned only) -- excludes system and empty standard
         summary.total             = unusedProfiles.size() + usedProfiles.size();
         summary.unused            = unusedProfiles.size();
         summary.used              = usedProfiles.size();
@@ -10244,7 +10392,7 @@ public without sharing class MetadataEngine {
         return summary;
     }
 
-    // ── Mass deactivate Profiles ───────────────────────────────
+    // -- Mass deactivate Profiles -------------------------------
     /** Returns MassDeleteResult result of massDeactivateProfiles. */
     public static MassDeleteResult massDeactivateProfiles(List<String> profileNames) {
         MassDeleteResult mass = new MassDeleteResult();
@@ -10356,11 +10504,11 @@ public without sharing class MetadataEngine {
             info.isManagedPackage = isManaged;
 
             // Rule:
-            // ✅ Custom  + assigned    → show as Assigned
-            // ✅ Custom  + unassigned  → show as Unassigned (delete candidate)
-            // ✅ Standard + assigned   → show as Assigned (in use)
-            // ❌ Standard + unassigned → skip (can't delete + no users = noise)
-            // ❌ Managed package       → always skip (namespace present)
+            //  Custom  + assigned    -> show as Assigned
+            //  Custom  + unassigned  -> show as Unassigned (delete candidate)
+            //  Standard + assigned   -> show as Assigned (in use)
+            //  Standard + unassigned -> skip (can't delete + no users = noise)
+            //  Managed package       -> always skip (namespace present)
             if (isManaged) continue;
             if (info.isCustom != true && info.assignmentCount == 0) continue;
 
@@ -10397,7 +10545,7 @@ public without sharing class MetadataEngine {
         }
 
         PermissionSetSummary summary    = new PermissionSetSummary();
-        // Total = custom (all) + standard (assigned only) — excludes managed packages and empty standard
+        // Total = custom (all) + standard (assigned only) -- excludes managed packages and empty standard
         summary.total                   = unusedPermSets.size() + usedPermSets.size();
         summary.unused                  = unusedPermSets.size();
         summary.used                    = usedPermSets.size();
@@ -10414,7 +10562,7 @@ public without sharing class MetadataEngine {
         return summary;
     }
 
-    // ── Mass delete Permission Sets ────────────────────────────
+    // -- Mass delete Permission Sets ----------------------------
     /** Returns MassDeleteResult result of massDeletePermissionSets. */
     public static MassDeleteResult massDeletePermissionSets(List<String> permSetNames) {
         MassDeleteResult mass = new MassDeleteResult();
@@ -10477,7 +10625,7 @@ public without sharing class MetadataEngine {
                             validApiNames.add(dr.getName().toLowerCase());
                         }
                     } catch (Exception ex) {
-                        // Batch failed (some names invalid) — fall back per-item
+                        // Batch failed (some names invalid) -- fall back per-item
                         for (String name : candidateNames) {
                             try {
                                 Schema.describeSObjects(new List<String>{ name });
@@ -10547,7 +10695,7 @@ public without sharing class MetadataEngine {
         summary.emptyCount   = emptyCount;
         summary.emptyObjects = emptyObjects;
 
-        // Build Id→name map from allObjects so we can match by RefMetadataComponentId
+        // Build Id->name map from allObjects so we can match by RefMetadataComponentId
         Map<String, String> objIdToName = new Map<String, String>();
         for (CustomObjectInfo coi : allObjects) {
             if (String.isNotBlank(coi.id)) objIdToName.put(coi.id.toLowerCase(), coi.name);
@@ -10597,7 +10745,7 @@ public without sharing class MetadataEngine {
         return summary;
     }
 
-    // ── Mass delete Custom Objects ─────────────────────────────
+    // -- Mass delete Custom Objects -----------------------------
     /** Returns MassDeleteResult result of massDeleteCustomObjects. */
     public static MassDeleteResult massDeleteCustomObjects(List<String> objectNames) {
         MassDeleteResult mass = new MassDeleteResult();
@@ -10607,7 +10755,7 @@ public without sharing class MetadataEngine {
         for (String name : objectNames) {
             if (String.isBlank(name)) continue;
 
-            // ── Callout limit guard ───────────────────────────────────────
+            // -- Callout limit guard ---------------------------------------
             // Salesforce allows max 100 HTTP callouts per transaction.
             // Each deleteCustomObjectByName uses ~12-15 callouts (dependency scans
             // via MetadataComponentDependency + Tooling lookups + SOAP delete via JWT).
@@ -10700,7 +10848,7 @@ public without sharing class MetadataEngine {
                             validNames.add(dr.getName().toLowerCase());
                         }
                     } catch (Exception ex) {
-                        // Batch failed (some names invalid) — fall back per-item
+                        // Batch failed (some names invalid) -- fall back per-item
                         for (String name : candidateApiNames) {
                             try {
                                 Schema.describeSObjects(new List<String>{ name });
@@ -10820,12 +10968,12 @@ public without sharing class MetadataEngine {
         List<CustomFieldInfo> emptyFields = new List<CustomFieldInfo>();
         Integer emptyCount = 0;
 
-        // ── FIX: avoid per-field SOQL queries (governor limit 101).
+        // -- FIX: avoid per-field SOQL queries (governor limit 101).
         // Strategy: for each object, build ONE dynamic SOQL that selects
         // COUNT(Id) for every field via conditional SUM-like aggregation.
         // Salesforce doesn't support COUNT(field) per column in one pass,
         // so we use a single SELECT with all non-null fields projected and
-        // pull back 1 row to check existence — but that still scales poorly.
+        // pull back 1 row to check existence -- but that still scales poorly.
         // Better approach: query each OBJECT once (not each field), pulling
         // one representative row with all relevant fields, then check nulls
         // in Apex. This costs 1 SOQL per object instead of 1 per field.
@@ -10855,7 +11003,7 @@ public without sharing class MetadataEngine {
                 Integer totalFields = fieldApis.size();
                 Integer chunkStart = 0;
 
-                // Initialise all fields as empty (no data) — will override below
+                // Initialise all fields as empty (no data) -- will override below
                 for (CustomFieldInfo f : objFields) {
                     f.nonNullCount = 0;
                     f.hasData      = false;
@@ -10889,7 +11037,7 @@ public without sharing class MetadataEngine {
                             f.nonNullCount = 1;
                             f.hasData      = true;
                         }
-                        // If no rows at all, or all null — stays as (0, false)
+                        // If no rows at all, or all null -- stays as (0, false)
                     }
 
                     chunkStart = chunkEnd;
@@ -10927,7 +11075,7 @@ public without sharing class MetadataEngine {
         return summary;
     }
 
-    // ── Mass delete Custom Fields ──────────────────────────────
+    // -- Mass delete Custom Fields ------------------------------
     /** Returns MassDeleteResult result of massDeleteCustomFields. */
     public static MassDeleteResult massDeleteCustomFields(List<String> dotNames) {
         MassDeleteResult mass = new MassDeleteResult();
@@ -10943,7 +11091,7 @@ public without sharing class MetadataEngine {
                 continue;
             }
 
-            // ── Callout limit guard ───────────────────────────────────────
+            // -- Callout limit guard ---------------------------------------
             // Each deleteCustomFieldByName uses ~10-12 callouts via dependency
             // scans + SOAP delete. Reserve 15 as buffer.
             if (Limits.getCallouts() >= Limits.getLimitCallouts() - 15) {
@@ -10960,7 +11108,7 @@ public without sharing class MetadataEngine {
         return mass;
     }
 
-    // ── Mass delete Validation Rules ───────────────────────────
+    // -- Mass delete Validation Rules ---------------------------
     /** Returns MassDeleteResult result of massDeleteValidationRules. */
     public static MassDeleteResult massDeleteValidationRules(List<String> dotNames) {
         MassDeleteResult mass = new MassDeleteResult();
@@ -10976,7 +11124,7 @@ public without sharing class MetadataEngine {
                 continue;
             }
 
-            // ── Callout limit guard ───────────────────────────────────────
+            // -- Callout limit guard ---------------------------------------
             // Each deleteValidationRuleByName uses ~6-8 callouts (lookup + SOAP delete).
             // Reserve 10 as buffer.
             if (Limits.getCallouts() >= Limits.getLimitCallouts() - 10) {
@@ -11082,7 +11230,7 @@ public without sharing class MetadataEngine {
         return summary;
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // ===============================================================
     // DEEP REFERENCE CHECK  -  Custom Object & Custom Field
     //
     // Mirrors the multi-source pattern used by checkAllApexReferences():
@@ -11093,7 +11241,7 @@ public without sharing class MetadataEngine {
     //
     // Result shape mirrors ApexReferenceCheckResult so the existing
     // buildFormattedReport / formattedReport flow Just Works.
-    // ═══════════════════════════════════════════════════════════════
+    // ===============================================================
 
     /** Wrapper class: FieldReferenceCheckResult. */
     public class FieldReferenceCheckResult {
@@ -11106,7 +11254,7 @@ public without sharing class MetadataEngine {
         @AuraEnabled public String              componentId;        // CustomField / CustomObject Id
     }
 
-    // ── Types we do NOT count as blocking for field/object delete ──
+    // -- Types we do NOT count as blocking for field/object delete --
     // Layouts auto-adjust when a field/object is deleted; FLS permset/profile
     // rows are cleaned up by Salesforce automatically. Showing them blocks
     // the user from cleaning up their own custom fields with no real reason.
@@ -11121,7 +11269,7 @@ public without sharing class MetadataEngine {
         return cType != null && NON_BLOCKING_REF_TYPES.contains(cType.toLowerCase());
     }
 
-    // ── User-created vs managed/system detection ──────────────────
+    // -- User-created vs managed/system detection ------------------
     //
     // Salesforce metadata API names take the shape: <prefix>__<rest>
     // where <prefix> is the managed-package namespace. The user's own
@@ -11129,10 +11277,10 @@ public without sharing class MetadataEngine {
     // the user themselves authored  -  treat it as user-created.
     //
     // Examples filtered out (managed package, NOT user-created):
-    //   npe01__Opportunity_Rollup       → NPSP package
-    //   sfdc_a360_sfcrm_data_extract    → A360 system permset
-    //   pse__Project_Task               → FinancialForce
-    //   X00e1P000000RmH5QAK             → auto-generated profile-backing permset
+    //   npe01__Opportunity_Rollup       -> NPSP package
+    //   sfdc_a360_sfcrm_data_extract    -> A360 system permset
+    //   pse__Project_Task               -> FinancialForce
+    //   X00e1P000000RmH5QAK             -> auto-generated profile-backing permset
     //
     // Examples kept (user authored):
     //   My_Trigger, UpsellOpportunity__c, AccountTriggerHandler
@@ -11181,15 +11329,15 @@ public without sharing class MetadataEngine {
             return true;
         }
         // Namespace check. Splitting on '__' yields tokens like:
-        //   "My_Field__c"               → ["My_Field", "c"]                 (2 parts, last is std suffix → user)
-        //   "npe01__MyClass"            → ["npe01", "MyClass"]              (2 parts, last is NOT std → managed)
-        //   "npe01__My_Field__c"        → ["npe01", "My_Field", "c"]        (3 parts → managed)
-        //   "MyTrigger"                 → ["MyTrigger"]                     (1 part → user)
-        //   "c__MyClass"                → ["c", "MyClass"]                  (local alias → user)
-        //   "<orgNs>__MyClass"          → ["<orgNs>", "MyClass"]            (org's own ns → user)
+        //   "My_Field__c"               -> ["My_Field", "c"]                 (2 parts, last is std suffix -> user)
+        //   "npe01__MyClass"            -> ["npe01", "MyClass"]              (2 parts, last is NOT std -> managed)
+        //   "npe01__My_Field__c"        -> ["npe01", "My_Field", "c"]        (3 parts -> managed)
+        //   "MyTrigger"                 -> ["MyTrigger"]                     (1 part -> user)
+        //   "c__MyClass"                -> ["c", "MyClass"]                  (local alias -> user)
+        //   "<orgNs>__MyClass"          -> ["<orgNs>", "MyClass"]            (org's own ns -> user)
         if (!cName.contains('__')) return false;
         List<String> parts = cName.split('__');
-        // ≥ 3 parts → there's a real namespace before the standard suffix.
+        //  3 parts -> there's a real namespace before the standard suffix.
         if (parts.size() >= 3) {
             String prefix = parts[0].toLowerCase();
             if (prefix == 'c') return false;
@@ -11201,7 +11349,7 @@ public without sharing class MetadataEngine {
         if (parts.size() == 2) {
             String prefix = parts[0].toLowerCase();
             String suffix = parts[1].toLowerCase();
-            // If the trailing token is a STANDARD suffix → user-created custom obj/field.
+            // If the trailing token is a STANDARD suffix -> user-created custom obj/field.
             if (STANDARD_SUFFIXES.contains(suffix)) return false;
             // Otherwise the leading token is a namespace prefix.
             if (prefix == 'c') return false;
@@ -11218,10 +11366,10 @@ public without sharing class MetadataEngine {
      *
      * Logic:
      *   - If the page has a FlexiPageAssignment (user assigned it to an app/profile)
-     *     → the user deliberately chose to use it → return false (do NOT skip).
+     *     -> the user deliberately chose to use it -> return false (do NOT skip).
      *   - Managed package pages (ManageableState installed/installedEditable, or
-     *     non-blank NamespacePrefix) → always skip regardless of assignment.
-     *   - Salesforce auto-generated default pages with no assignments → skip.
+     *     non-blank NamespacePrefix) -> always skip regardless of assignment.
+     *   - Salesforce auto-generated default pages with no assignments -> skip.
      *
      * @param pageId       The FlexiPage record Id (15 or 18 char)
      * @param assignedIds  Set of FlexiPage Ids that have at least one FlexiPageAssignment
@@ -11234,7 +11382,7 @@ public without sharing class MetadataEngine {
             String      pageId,
             Set<String> assignedIds) {
 
-        // Managed package pages — always skip, even if assigned
+        // Managed package pages -- always skip, even if assigned
         if ('installed'.equalsIgnoreCase(manageableState) ||
             'installedEditable'.equalsIgnoreCase(manageableState) ||
             String.isNotBlank(nsPrefix)) {
@@ -11242,7 +11390,7 @@ public without sharing class MetadataEngine {
         }
 
         // If the user has explicitly assigned this page (even a system-default one)
-        // to an app or profile, treat it as a real user reference — do NOT skip.
+        // to an app or profile, treat it as a real user reference -- do NOT skip.
         // Compare both 15-char and 18-char forms to handle ID length mismatches
         // between the Tooling API (which returns the FlexiPage Id) and the
         // assignment query (which may return a different length).
@@ -11250,10 +11398,10 @@ public without sharing class MetadataEngine {
         // SENTINEL: if fetchAssignedFlexiPageIds() could not query either
         // FlexiPageAssignment or ProfileFlexiPage (both returned HTTP 400),
         // it adds ASSIGNED_IDS_SENTINEL to the set. That means we cannot
-        // distinguish assigned from unassigned, so we scan everything —
+        // distinguish assigned from unassigned, so we scan everything --
         // never skip a page on assignment grounds when the query failed.
         if (assignedIds != null && assignedIds.contains(ASSIGNED_IDS_SENTINEL)) {
-            // Assignment queries unavailable → treat every page as assigned
+            // Assignment queries unavailable -> treat every page as assigned
             // Fall through to the name-pattern check below:
             // managed pages are still skipped (handled above),
             // but system-generated pages with unknown assignment are NOT skipped.
@@ -11283,7 +11431,7 @@ public without sharing class MetadataEngine {
             return true;
         }
 
-        // Label-based patterns (more fragile — only add patterns you've observed
+        // Label-based patterns (more fragile -- only add patterns you've observed
         // consistently across orgs, not org-specific guesses)
         if (labelLower.contains('default record page') ||
             labelLower.contains('default home page')   ||
@@ -11311,7 +11459,7 @@ public without sharing class MetadataEngine {
         Boolean attempt1Passed  = false;
         Boolean attempt2Passed  = false;
 
-        // ── Attempt 1: FlexiPageAssignment via Tooling API ──
+        // -- Attempt 1: FlexiPageAssignment via Tooling API --
         try {
             String assignSoql = 'SELECT FlexiPageId FROM FlexiPageAssignment LIMIT 2000';
             HttpRequest aReq = new HttpRequest();
@@ -11337,13 +11485,13 @@ public without sharing class MetadataEngine {
                 }
                 System.debug(LoggingLevel.INFO, '[FPA-1] collected ' + assignedIds.size() + ' ids');
             } else {
-                System.debug(LoggingLevel.WARN, '[FPA-1] HTTP ' + aRes.getStatusCode() + ' — object unavailable in this org');
+                System.debug(LoggingLevel.WARN, '[FPA-1] HTTP ' + aRes.getStatusCode() + ' -- object unavailable in this org');
             }
         } catch (Exception ex) {
             System.debug(LoggingLevel.WARN, '[FPA-1] skipped: ' + ex.getMessage());
         }
 
-        // ── Attempt 2: ProfileFlexiPage via Tooling API ──
+        // -- Attempt 2: ProfileFlexiPage via Tooling API --
         try {
             String pfpSoql = 'SELECT FlexiPageId FROM ProfileFlexiPage LIMIT 2000';
             HttpRequest pReq = new HttpRequest();
@@ -11369,14 +11517,14 @@ public without sharing class MetadataEngine {
                 }
                 System.debug(LoggingLevel.INFO, '[FPA-2] total assigned ids now: ' + assignedIds.size());
             } else {
-                System.debug(LoggingLevel.WARN, '[FPA-2] HTTP ' + pRes.getStatusCode() + ' — object unavailable in this org');
+                System.debug(LoggingLevel.WARN, '[FPA-2] HTTP ' + pRes.getStatusCode() + ' -- object unavailable in this org');
             }
         } catch (Exception ex) {
             System.debug(LoggingLevel.WARN, '[FPA-2] skipped: ' + ex.getMessage());
         }
 
-        // ── Sentinel fallback ──────────────────────────────────────────────────
-        // If BOTH queries failed (HTTP 400 / exception — common in Developer
+        // -- Sentinel fallback --------------------------------------------------
+        // If BOTH queries failed (HTTP 400 / exception -- common in Developer
         // Edition orgs and orgs on older API conventions), we cannot distinguish
         // "assigned" from "unassigned" pages. The safe default is to scan ALL
         // pages, including system-generated ones, rather than silently skip them
@@ -11385,7 +11533,7 @@ public without sharing class MetadataEngine {
         //
         // We add ASSIGNED_IDS_SENTINEL to the set. isSystemGeneratedFlexiPage()
         // checks for this sentinel and treats it as "all pages are assigned":
-        //   assignedIds.contains(ASSIGNED_IDS_SENTINEL) → return false (don't skip)
+        //   assignedIds.contains(ASSIGNED_IDS_SENTINEL) -> return false (don't skip)
         //
         // Cost: we scan a few extra Salesforce-default pages that have no
         // components on them. The body scan finds nothing, so no false positives.
@@ -11394,14 +11542,14 @@ public without sharing class MetadataEngine {
             assignedIds.add(ASSIGNED_IDS_SENTINEL);
             System.debug(LoggingLevel.WARN,
                 '[FPA] Both FlexiPageAssignment and ProfileFlexiPage unavailable. ' +
-                'Adding SCAN_ALL_PAGES sentinel — all FlexiPages will be scanned ' +
+                'Adding SCAN_ALL_PAGES sentinel -- all FlexiPages will be scanned ' +
                 'regardless of system-generated status. This is the safe default.');
         }
 
         return assignedIds;
     }
 
-    // ── Shared helper: add a deduped reference if not already present ──
+    // -- Shared helper: add a deduped reference if not already present --
     /** Executes addRefIfNew. */
     private static void addRefIfNew(
             List<ReferenceItem> refs,
@@ -11420,7 +11568,7 @@ public without sharing class MetadataEngine {
         refs.add(item);
     }
 
-    // ── Variant that also tracks counts of skipped non-blocking types ──
+    // -- Variant that also tracks counts of skipped non-blocking types --
     // Returns true if the ref was actually added; false if filtered (layout/etc).
     /** Returns Boolean result of addRefIfNewCounted. */
     private static Boolean addRefIfNewCounted(
@@ -11450,7 +11598,7 @@ public without sharing class MetadataEngine {
         return true;
     }
 
-    // ─────────────────────────────────────────────────────────────────
+    // -----------------------------------------------------------------
     // checkAllCustomObjectReferences  -  full multi-source scan
     //
     // Checks (modelled on checkAllApexReferences):
@@ -11467,7 +11615,7 @@ public without sharing class MetadataEngine {
     //  11.  Reports & Dashboards                      -  getReportAndDashboardReferences
     //  12.  Permission Set / Profile object access    -  ObjectPermissions
     //  13.  Dynamic Apex advisory                     -  non-blocking note
-    // ─────────────────────────────────────────────────────────────────
+    // -----------------------------------------------------------------
     @SuppressWarnings('PMD.NcssMethodCount,PMD.CognitiveComplexity')
     /** Returns FieldReferenceCheckResult result of checkAllCustomObjectReferences. */
     public static FieldReferenceCheckResult checkAllCustomObjectReferences(String objectName) {
@@ -11528,7 +11676,7 @@ public without sharing class MetadataEngine {
         String      safeObj  = String.escapeSingleQuotes(fullObjectName);
         String      lowerObj = fullObjectName.toLowerCase();
 
-        // ─── CHECK 1: MCD by Id ───────────────────────────────────────
+        // --- CHECK 1: MCD by Id ---------------------------------------
         try {
             if (objectId != null) {
                 String mcdSoql = 'SELECT MetadataComponentName, MetadataComponentType ' +
@@ -11560,7 +11708,7 @@ public without sharing class MetadataEngine {
             result.warningNotes.add('[!] MCD-by-Id scan skipped: ' + ex.getMessage());
         }
 
-        // ─── CHECK 2: MCD by Name fallback ────────────────────────────
+        // --- CHECK 2: MCD by Name fallback ----------------------------
         try {
             String mcdSoql2 = 'SELECT MetadataComponentName, MetadataComponentType ' +
                               'FROM MetadataComponentDependency ' +
@@ -11593,7 +11741,7 @@ public without sharing class MetadataEngine {
         // Skip expensive body scans if MCD already found blocking references
         Boolean skipBodyScans = !result.references.isEmpty();
 
-        // ─── CHECK 3: Apex class body scan ────────────────────────────
+        // --- CHECK 3: Apex class body scan ----------------------------
         if (skipBodyScans) {
             result.warningNotes.add('[i] Apex body scan skipped  -  blocking references already found by MCD.');
         } else if (Limits.getCpuTime() > Limits.getLimitCpuTime() - CPU_RESERVE_MS) {
@@ -11627,7 +11775,7 @@ public without sharing class MetadataEngine {
             result.warningNotes.add('[!] Apex body scan skipped: ' + ex.getMessage());
         }
 
-        // ─── CHECK 4: Apex trigger body scan ──────────────────────────
+        // --- CHECK 4: Apex trigger body scan --------------------------
         if (Limits.getCpuTime() > Limits.getLimitCpuTime() - CPU_RESERVE_MS) {
             result.warningNotes.add('[!] Trigger body scan skipped  -  CPU limit approaching.');
         } else
@@ -11667,7 +11815,7 @@ public without sharing class MetadataEngine {
             result.warningNotes.add('[!] Trigger body scan skipped: ' + ex.getMessage());
         }
 
-        // ─── CHECK 5: LWC JS source scan (@salesforce/schema/Object) ──
+        // --- CHECK 5: LWC JS source scan (@salesforce/schema/Object) --
         if (Limits.getCpuTime() > Limits.getLimitCpuTime() - CPU_RESERVE_MS) {
             result.warningNotes.add('[!] LWC source scan skipped  -  CPU limit approaching.');
         } else
@@ -11722,7 +11870,7 @@ public without sharing class MetadataEngine {
             result.warningNotes.add('[!] LWC source scan skipped: ' + ex.getMessage());
         }
 
-        // ─── CHECK 6: Aura component source scan ──────────────────────
+        // --- CHECK 6: Aura component source scan ----------------------
         if (skipBodyScans) {
             result.warningNotes.add('[i] Aura source scan skipped  -  blocking references already found by MCD.');
         } else if (Limits.getCpuTime() > Limits.getLimitCpuTime() - CPU_RESERVE_MS) {
@@ -11775,7 +11923,7 @@ public without sharing class MetadataEngine {
             result.warningNotes.add('[!] Aura source scan skipped: ' + ex.getMessage());
         }
 
-        // ─── CHECK 7: Validation rules on this object ─────────────────
+        // --- CHECK 7: Validation rules on this object -----------------
         try {
             String soql = 'SELECT Id, ValidationName FROM ValidationRule ' +
                           'WHERE EntityDefinition.QualifiedApiName = \'' + safeObj + '\' LIMIT 200';
@@ -11790,7 +11938,7 @@ public without sharing class MetadataEngine {
             result.warningNotes.add('[!] Validation rule scan skipped: ' + ex.getMessage());
         }
 
-        // ─── CHECK 8: Page Layouts on this object (advisory only) ─────
+        // --- CHECK 8: Page Layouts on this object (advisory only) -----
         // Layouts don't block object deletion  -  Salesforce removes them
         // automatically. Emit a count-only advisory.
         try {
@@ -11818,7 +11966,7 @@ public without sharing class MetadataEngine {
             result.warningNotes.add('[!] Layout count skipped: ' + ex.getMessage());
         }
 
-        // ─── CHECK 9: Automation (workflows / processes / approvals) ──
+        // --- CHECK 9: Automation (workflows / processes / approvals) --
         try {
             for (String hit : getAutomationReferences(fullObjectName, 'CustomObject')) {
                 // Format from getAutomationReferences: "Name [Type]"
@@ -11833,7 +11981,7 @@ public without sharing class MetadataEngine {
             result.warningNotes.add('[!] Automation scan skipped: ' + ex.getMessage());
         }
 
-        // ─── CHECK 10: Sharing rules ──────────────────────────────────
+        // --- CHECK 10: Sharing rules ----------------------------------
         try {
             for (String hit : getSharingRuleReferences(fullObjectName)) {
                 Integer br = hit.lastIndexOf('[');
@@ -11847,7 +11995,7 @@ public without sharing class MetadataEngine {
             result.warningNotes.add('[!] Sharing rule scan skipped: ' + ex.getMessage());
         }
 
-        // ─── CHECK 11: Reports & Dashboards ───────────────────────────
+        // --- CHECK 11: Reports & Dashboards ---------------------------
         try {
             for (String hit : getReportAndDashboardReferences(fullObjectName, 'CustomObject')) {
                 Integer br = hit.lastIndexOf('[');
@@ -11861,7 +12009,7 @@ public without sharing class MetadataEngine {
             result.warningNotes.add('[!] Reports/Dashboards scan skipped: ' + ex.getMessage());
         }
 
-        // ─── CHECK 12: Permission Sets / Profiles granting access (advisory) ──
+        // --- CHECK 12: Permission Sets / Profiles granting access (advisory) --
         // Same reasoning as the field FLS check  -  Salesforce removes the
         // ObjectPermissions rows automatically on object delete. The rows
         // also include auto-generated permsets (mangled X00e... names) and
@@ -11882,7 +12030,7 @@ public without sharing class MetadataEngine {
             result.warningNotes.add('[!] Permission Set / Profile count skipped: ' + ex.getMessage());
         }
 
-        // ─── CHECK 12a: Lookup / master-detail relationships from other objects ──
+        // --- CHECK 12a: Lookup / master-detail relationships from other objects --
         // HARD BLOCKER  -  Salesforce itself rejects deletion of an object that
         // has child lookups pointing to it. Use FieldDefinition (standard
         // entity, NOT Tooling) which exposes ReferenceTo as a queryable
@@ -11934,7 +12082,7 @@ public without sharing class MetadataEngine {
             result.warningNotes.add('[!] Lookup-relationship scan skipped: ' + ex.getMessage());
         }
 
-        // ─── CHECK 12b: Custom Report Types built on this object ──────
+        // --- CHECK 12b: Custom Report Types built on this object ------
         try {
             // ReportType (Tooling API entity)  -  BaseObject equals object API name
             String crtSoql = 'SELECT DeveloperName, BaseObject FROM ReportType ' +
@@ -11960,7 +12108,7 @@ public without sharing class MetadataEngine {
             result.warningNotes.add('[!] Custom Report Type scan skipped: ' + ex.getMessage());
         }
 
-        // ─── CHECK 12c: List Views on this object (advisory) ──────────
+        // --- CHECK 12c: List Views on this object (advisory) ----------
         // List views are auto-removed when the object is deleted, but worth
         // noting if many exist  -  sometimes users want them preserved
         // elsewhere or restored after re-creating the object.
@@ -11980,7 +12128,7 @@ public without sharing class MetadataEngine {
             result.warningNotes.add('[!] List View count skipped: ' + ex.getMessage());
         }
 
-        // ─── CHECK 12d: Email templates referencing this object ───────
+        // --- CHECK 12d: Email templates referencing this object -------
         // Classic EmailTemplate.RelatedEntityType + Lightning template merge
         // fields. Classic ones are real blockers; merge-field scans are
         // text-based and approximate.
@@ -12000,7 +12148,7 @@ public without sharing class MetadataEngine {
             result.warningNotes.add('[!] Email template scan skipped: ' + ex.getMessage());
         }
 
-        // ─── CHECK 12e: Field history tracking (advisory) ─────────────
+        // --- CHECK 12e: Field history tracking (advisory) -------------
         // History tracking is auto-removed on object delete, but worth
         // mentioning since users sometimes export it first.
         try {
@@ -12030,7 +12178,7 @@ public without sharing class MetadataEngine {
             // Silent  -  IsFieldHistoryTrackingEnabled isn't queryable in every org version
         }
 
-        // ─── CHECK 12f: Custom Metadata Type records storing object name ─
+        // --- CHECK 12f: Custom Metadata Type records storing object name -
         // CMT records often store object API names as data values (factory/
         // handler registries, dispatcher tables). MCD doesn't index data,
         // only metadata-to-metadata graph. Best-effort scan: check all CMT
@@ -12059,7 +12207,7 @@ public without sharing class MetadataEngine {
             // Silent  -  CMT enumeration is best-effort.
         }
 
-        // ─── CHECK 12h: Experience Cloud (CMS) / Site pages ──────────
+        // --- CHECK 12h: Experience Cloud (CMS) / Site pages ----------
         // SiteDetail + Network + ExperienceBundle expose pages that may
         // reference an object. MCD usually catches FlexiPages here, but
         // CMS-only content (Lightning Communities, Experience Builder pages)
@@ -12087,7 +12235,7 @@ public without sharing class MetadataEngine {
             // ExperienceBundle not available in all orgs/editions  -  silent.
         }
 
-        // ─── CHECK 12i: Service Cloud Queues / routing on this object ──
+        // --- CHECK 12i: Service Cloud Queues / routing on this object --
         try {
             List<QueueSobject> queues = [
                 SELECT QueueId, Queue.Name, SobjectType
@@ -12105,7 +12253,7 @@ public without sharing class MetadataEngine {
             result.warningNotes.add('[!] Queue routing scan skipped: ' + ex.getMessage());
         }
 
-        // ─── CHECK 12j: Einstein Predictions / ML models ─────────────
+        // --- CHECK 12j: Einstein Predictions / ML models -------------
         // MLPredictionDefinition (Tooling) targets an entity for prediction.
         // Edition-gated, so fail-soft on missing entity.
         try {
@@ -12132,7 +12280,7 @@ public without sharing class MetadataEngine {
             // Einstein Discovery may not be enabled  -  silent.
         }
 
-        // ─── CHECK 12k: Custom Notifications targeting this object ────
+        // --- CHECK 12k: Custom Notifications targeting this object ----
         // CustomNotificationType has a CustomNotifTypeName; target entity
         // is exposed via NotificationChannel mapping. We do a count-based
         // advisory because direct entity-binding isn't reliably queryable.
@@ -12149,7 +12297,7 @@ public without sharing class MetadataEngine {
             // CustomNotificationType not available in all orgs  -  silent.
         }
 
-        // ─── CHECK 12l: Path Settings (Lightning Sales Path) ──────────
+        // --- CHECK 12l: Path Settings (Lightning Sales Path) ----------
         // PathAssistant exposes the path entity. Each path is bound to a
         // SObject via SobjectType.
         try {
@@ -12176,7 +12324,7 @@ public without sharing class MetadataEngine {
             // PathAssistant may not be available in all editions  -  silent.
         }
 
-        // ─── CHECK 12n: Flows triggered on or referencing this object ────
+        // --- CHECK 12n: Flows triggered on or referencing this object ----
         // Record-Triggered Flows that fire on this object are HARD blockers  - 
         // deleting the object will break the flow trigger.
         try {
@@ -12209,7 +12357,7 @@ public without sharing class MetadataEngine {
             result.warningNotes.add('\u26a0\ufe0f Flow trigger scan skipped: ' + ex.getMessage());
         }
 
-        // ─── CHECK 12o: Compact Layouts on this object ────────────────
+        // --- CHECK 12o: Compact Layouts on this object ----------------
         try {
             String clSoql = 'SELECT DeveloperName, Label FROM CompactLayout ' +
                             'WHERE EntityDefinition.QualifiedApiName = \'' + String.escapeSingleQuotes(fullObjectName) + '\' LIMIT 50';
@@ -12234,7 +12382,7 @@ public without sharing class MetadataEngine {
             result.warningNotes.add('\u26a0\ufe0f Compact Layout scan skipped: ' + ex.getMessage());
         }
 
-        // ─── CHECK 12p: Record Types on this object ────────────────────
+        // --- CHECK 12p: Record Types on this object --------------------
         try {
             String rtSoql = 'SELECT DeveloperName, Name, IsActive FROM RecordType ' +
                             'WHERE SobjectType = \'' + String.escapeSingleQuotes(fullObjectName) + '\' LIMIT 100';
@@ -12265,7 +12413,7 @@ public without sharing class MetadataEngine {
             result.warningNotes.add('\u26a0\ufe0f Record Type scan skipped: ' + ex.getMessage());
         }
 
-        // ─── CHECK 12q: Global Value Set picklist fields on this object ─
+        // --- CHECK 12q: Global Value Set picklist fields on this object -
         try {
             String gpSoql = 'SELECT DeveloperName, Metadata FROM CustomField ' +
                             'WHERE EntityDefinition.QualifiedApiName = \'' + String.escapeSingleQuotes(fullObjectName) + '\' ' +
@@ -12302,7 +12450,7 @@ public without sharing class MetadataEngine {
             result.warningNotes.add('\u26a0\ufe0f Global Picklist scan skipped: ' + ex.getMessage());
         }
 
-        // ─── CHECK 12r: Field Sets on this object ─────────────────────
+        // --- CHECK 12r: Field Sets on this object ---------------------
         try {
             String fsSoql = 'SELECT DeveloperName, Label FROM FieldSet ' +
                             'WHERE EntityDefinitionId IN (' +
@@ -12333,7 +12481,7 @@ public without sharing class MetadataEngine {
             result.warningNotes.add('\u26a0\ufe0f Field Set scan skipped: ' + ex.getMessage());
         }
 
-        // ─── CHECK 12s: Scheduled Apex jobs querying this object ───────
+        // --- CHECK 12s: Scheduled Apex jobs querying this object -------
         try {
             List<CronTrigger> sched = [
                 SELECT CronJobDetail.Name, State
@@ -12365,7 +12513,7 @@ public without sharing class MetadataEngine {
             result.warningNotes.add('\u26a0\ufe0f Scheduled Job scan skipped: ' + ex.getMessage());
         }
 
-        // ─── CHECK 12t: Has Active Records (DATA LOSS WARNING) ─────────
+        // --- CHECK 12t: Has Active Records (DATA LOSS WARNING) ---------
         try {
             Integer totalCount = Database.countQuery('SELECT COUNT() FROM ' + fullObjectName);
             if (totalCount > 0) {
@@ -12380,7 +12528,7 @@ public without sharing class MetadataEngine {
         }
 
 
-        // ─── CHECK 12m: External integration advisory ─────────────────
+        // --- CHECK 12m: External integration advisory -----------------
         // Data Loader CSV mappings, MuleSoft connectors, Connect REST API
         // clients, ETL tools, partner integrations  -  none of these leave
         // a trace inside the org. Always advise.
@@ -12391,14 +12539,14 @@ public without sharing class MetadataEngine {
             'your integration inventory before deleting.'
         );
 
-        // ─── CHECK 13: Dynamic Apex advisory (always shown) ───────────
+        // --- CHECK 13: Dynamic Apex advisory (always shown) -----------
         result.warningNotes.add(
             '[i]  Dynamic Reference Advisory: SObjectType.getDescribe(), ' +
             'Database.query(<string>), and JSON.deserialize() can reference ' +
             '"' + fullObjectName + '" without leaving a static trace. Verify manually if needed.'
         );
 
-        // ─── Finalize ────────────────────────────────────────────────
+        // --- Finalize ------------------------------------------------
         result.referenceCount        = result.references.size();
         result.hasBlockingReferences = result.referenceCount > 0;
         if (result.hasBlockingReferences) {
@@ -12407,7 +12555,7 @@ public without sharing class MetadataEngine {
         return result;
     }
 
-    // ─────────────────────────────────────────────────────────────────
+    // -----------------------------------------------------------------
     // checkAllCustomFieldReferences  -  full multi-source scan
     //
     // Checks (modelled on checkAllApexReferences):
@@ -12424,7 +12572,7 @@ public without sharing class MetadataEngine {
     //  11.  Permission Set / Profile FLS              -  FieldPermissions
     //  12.  Field Sets containing this field          -  FieldDefinition
     //  13.  Dynamic Apex advisory                     -  non-blocking note
-    // ─────────────────────────────────────────────────────────────────
+    // -----------------------------------------------------------------
     @SuppressWarnings('PMD.NcssMethodCount,PMD.CognitiveComplexity')
     /** Returns FieldReferenceCheckResult result of checkAllCustomFieldReferences. */
     public static FieldReferenceCheckResult checkAllCustomFieldReferences(String objectName, String fieldName) {
@@ -12491,7 +12639,7 @@ public without sharing class MetadataEngine {
         Set<String> seenKeys = new Set<String>();
         Http        http     = new Http();
 
-        // ─── CHECK 1: MCD by Id ───────────────────────────────────────
+        // --- CHECK 1: MCD by Id ---------------------------------------
         try {
             if (fieldId != null) {
                 String mcdSoql = 'SELECT MetadataComponentName, MetadataComponentType ' +
@@ -12523,7 +12671,7 @@ public without sharing class MetadataEngine {
             result.warningNotes.add('[!] MCD-by-Id scan skipped: ' + ex.getMessage());
         }
 
-        // ─── CHECK 2: MCD by Name fallback (Object.field token) ───────
+        // --- CHECK 2: MCD by Name fallback (Object.field token) -------
         try {
             String safeRef = String.escapeSingleQuotes(fullApiName);
             String soql    = 'SELECT MetadataComponentName, MetadataComponentType ' +
@@ -12557,7 +12705,7 @@ public without sharing class MetadataEngine {
         // Skip expensive body scans if MCD already found blocking references
         Boolean skipBodyScans = !result.references.isEmpty();
 
-        // ─── CHECK 3: Apex class body scan ────────────────────────────
+        // --- CHECK 3: Apex class body scan ----------------------------
         if (skipBodyScans) {
             result.warningNotes.add('[i] Apex body scan skipped  -  blocking references already found by MCD.');
         } else if (Limits.getCpuTime() > Limits.getLimitCpuTime() - CPU_RESERVE_MS) {
@@ -12593,7 +12741,7 @@ public without sharing class MetadataEngine {
             result.warningNotes.add('[!] Apex body scan skipped: ' + ex.getMessage());
         }
 
-        // ─── CHECK 4: Apex trigger body scan ──────────────────────────
+        // --- CHECK 4: Apex trigger body scan --------------------------
         if (skipBodyScans) {
             result.warningNotes.add('[i] Trigger body scan skipped  -  blocking references already found by MCD.');
         } else if (Limits.getCpuTime() > Limits.getLimitCpuTime() - CPU_RESERVE_MS) {
@@ -12628,7 +12776,7 @@ public without sharing class MetadataEngine {
             result.warningNotes.add('[!] Trigger body scan skipped: ' + ex.getMessage());
         }
 
-        // ─── CHECK 5: LWC JS source scan ──────────────────────────────
+        // --- CHECK 5: LWC JS source scan ------------------------------
         if (skipBodyScans) {
             result.warningNotes.add('[i] LWC source scan skipped  -  blocking references already found by MCD.');
         } else if (Limits.getCpuTime() > Limits.getLimitCpuTime() - CPU_RESERVE_MS) {
@@ -12686,7 +12834,7 @@ public without sharing class MetadataEngine {
             result.warningNotes.add('[!] LWC source scan skipped: ' + ex.getMessage());
         }
 
-        // ─── CHECK 6: Aura component source scan ──────────────────────
+        // --- CHECK 6: Aura component source scan ----------------------
         if (skipBodyScans) {
             result.warningNotes.add('[i] Aura source scan skipped  -  blocking references already found by MCD.');
         } else if (Limits.getCpuTime() > Limits.getLimitCpuTime() - CPU_RESERVE_MS) {
@@ -12739,7 +12887,7 @@ public without sharing class MetadataEngine {
             result.warningNotes.add('[!] Aura source scan skipped: ' + ex.getMessage());
         }
 
-        // ─── CHECK 7: Validation rule formula scan ────────────────────
+        // --- CHECK 7: Validation rule formula scan --------------------
         try {
             for (String hit : getFieldDependencyReferences(fullObjectName, cleanField)) {
                 Integer br = hit.lastIndexOf('[');
@@ -12753,12 +12901,12 @@ public without sharing class MetadataEngine {
             result.warningNotes.add('[!] VR/formula scan skipped: ' + ex.getMessage());
         }
 
-        // ─── CHECK 8: Page-layout reference scan ──────────────────────
+        // --- CHECK 8: Page-layout reference scan ----------------------
         // Layouts are no longer treated as blockers (Salesforce auto-removes
         // the field placement on delete). Skipping  -  the object-level layout
         // count is already advisory and shown elsewhere.
 
-        // ─── CHECK 9: Automation (workflows / processes / approvals) ──
+        // --- CHECK 9: Automation (workflows / processes / approvals) --
         try {
             for (String hit : getAutomationReferences(fullField, 'CustomField')) {
                 Integer br = hit.lastIndexOf('[');
@@ -12772,7 +12920,7 @@ public without sharing class MetadataEngine {
             result.warningNotes.add('[!] Automation scan skipped: ' + ex.getMessage());
         }
 
-        // ─── CHECK 10: Reports & Dashboards ───────────────────────────
+        // --- CHECK 10: Reports & Dashboards ---------------------------
         try {
             for (String hit : getReportAndDashboardReferences(fullApiName, 'CustomField')) {
                 Integer br = hit.lastIndexOf('[');
@@ -12786,7 +12934,7 @@ public without sharing class MetadataEngine {
             result.warningNotes.add('[!] Reports/Dashboards scan skipped: ' + ex.getMessage());
         }
 
-        // ─── CHECK 11: Permission Set / Profile FLS (advisory only) ──
+        // --- CHECK 11: Permission Set / Profile FLS (advisory only) --
         // FLS rows in FieldPermissions are NOT blockers  -  Salesforce
         // cleans them up automatically when the field is deleted. Also,
         // the rows we'd see here include auto-generated permsets that
@@ -12811,7 +12959,7 @@ public without sharing class MetadataEngine {
             result.warningNotes.add('[!] Field-level security count skipped: ' + ex.getMessage());
         }
 
-        // ─── CHECK 12: Field Sets containing this field ───────────────
+        // --- CHECK 12: Field Sets containing this field ---------------
         // (FieldSet membership is exposed via the Tooling API's FieldSet object;
         // direct membership query isn't reliably available everywhere, so we
         // emit an advisory rather than a hard block.)
@@ -12821,7 +12969,7 @@ public without sharing class MetadataEngine {
             'Setup > Object Manager > Field Sets before deleting.'
         );
 
-        // ─── CHECK 12a: Roll-up summary fields aggregating this field ──
+        // --- CHECK 12a: Roll-up summary fields aggregating this field --
         // Roll-ups live on the parent of a master-detail relationship. The
         // SummarizedField is stored as Object.Field on the rollup CustomField
         // record. Real blocker  -  Salesforce rejects the delete with a
@@ -12859,7 +13007,7 @@ public without sharing class MetadataEngine {
             result.warningNotes.add('[!] Roll-up summary scan skipped: ' + ex.getMessage());
         }
 
-        // ─── CHECK 12b: Cross-object formula fields referencing this field ──
+        // --- CHECK 12b: Cross-object formula fields referencing this field --
         // Formula fields on OTHER objects can reference this field via a
         // relationship path (e.g. Opportunity formula reading Account.Field).
         // Body text scan across all custom formula fields; field-name match
@@ -12909,7 +13057,7 @@ public without sharing class MetadataEngine {
             result.warningNotes.add('[!] Cross-object formula scan skipped: ' + ex.getMessage());
         }
 
-        // ─── CHECK 12c: Custom Metadata Type records storing field name (advisory) ──
+        // --- CHECK 12c: Custom Metadata Type records storing field name (advisory) --
         // Same caveat as the object-level CMT check  -  CMT may store the
         // field API name as DATA. Best-effort advisory.
         try {
@@ -12938,7 +13086,7 @@ public without sharing class MetadataEngine {
             // Silent.
         }
 
-        // ─── CHECK 12d: Duplicate / Matching rules referencing this field ──
+        // --- CHECK 12d: Duplicate / Matching rules referencing this field --
         // Duplicate rules + their matching rules can pin fields directly.
         // The MatchingRule + MatchingRuleItem objects in Tooling expose this.
         try {
@@ -12968,7 +13116,7 @@ public without sharing class MetadataEngine {
             // MatchingRuleItem isn't queryable in every org version  -  fail soft.
         }
 
-        // ─── CHECK 12e: List Views filtering on this field (advisory) ─
+        // --- CHECK 12e: List Views filtering on this field (advisory) -
         // ListViewFilter exposes Field; the field name is stored as 'Object.Field'.
         // Body scan via ListView.Columns / FilterCriteria isn't reliable in Apex,
         // so we emit a count-only advisory based on the object's list views.
@@ -12988,7 +13136,7 @@ public without sharing class MetadataEngine {
             // Silent.
         }
 
-        // ─── CHECK 12f: Email templates referencing the parent object ──
+        // --- CHECK 12f: Email templates referencing the parent object --
         // Real blocker for Classic templates with RelatedEntityType set;
         // merge-field detection inside template body is best-effort.
         try {
@@ -13014,7 +13162,7 @@ public without sharing class MetadataEngine {
             result.warningNotes.add('[!] Email template scan skipped: ' + ex.getMessage());
         }
 
-        // ─── CHECK 12g: Lead conversion field mappings (Lead only) ────
+        // --- CHECK 12g: Lead conversion field mappings (Lead only) ----
         // LeadConvertSettings expose mappings between Lead and
         // Account/Contact/Opportunity. The schema varies by API version,
         // so we emit a targeted advisory rather than querying field names
@@ -13029,7 +13177,7 @@ public without sharing class MetadataEngine {
             );
         }
 
-        // ─── CHECK 12h: Experience Cloud (CMS) / Community pages ──────
+        // --- CHECK 12h: Experience Cloud (CMS) / Community pages ------
         // CMS pages may reference the field via record-detail or related-list
         // components that aren't fully indexed in MCD. Best-effort count.
         try {
@@ -13058,7 +13206,7 @@ public without sharing class MetadataEngine {
             // Silent  -  ExperienceBundle isn't available in all orgs.
         }
 
-        // ─── CHECK 12i: Service Cloud Queue routing on parent object ──
+        // --- CHECK 12i: Service Cloud Queue routing on parent object --
         // Field-specific routing criteria aren't reliably introspectable.
         // Emit an advisory if the object has any queues at all.
         try {
@@ -13079,7 +13227,7 @@ public without sharing class MetadataEngine {
             // Silent.
         }
 
-        // ─── CHECK 12j: Einstein Predictions / ML models using this field ──
+        // --- CHECK 12j: Einstein Predictions / ML models using this field --
         // MLPredictionDefinition can use a field as an input or target.
         // Direct field-binding isn't exposed; if predictions target this
         // object, emit an advisory.
@@ -13107,7 +13255,7 @@ public without sharing class MetadataEngine {
             // Einstein Discovery not enabled  -  silent.
         }
 
-        // ─── CHECK 12k: Custom Notifications (count advisory) ─────────
+        // --- CHECK 12k: Custom Notifications (count advisory) ---------
         // Custom Notification Types may include field merge tokens in
         // their title/body templates. Direct introspection isn't reliable.
         try {
@@ -13122,7 +13270,7 @@ public without sharing class MetadataEngine {
             // Silent.
         }
 
-        // ─── CHECK 12l: Path Settings using this field (advisory) ─────
+        // --- CHECK 12l: Path Settings using this field (advisory) -----
         // PathAssistant.SobjectType identifies the object, but the
         // field-binding (PathAssistantStep / picklist field) requires
         // metadata-level inspection. Advisory only.
@@ -13153,7 +13301,7 @@ public without sharing class MetadataEngine {
         } catch (Exception ex) {
             // Silent.
         }
-        // ─── CHECK 12n: Compact Layouts containing this field ────────
+        // --- CHECK 12n: Compact Layouts containing this field --------
         try {
             String clSoql = 'SELECT DeveloperName, Label, Metadata FROM CompactLayout ' +
                             'WHERE EntityDefinition.QualifiedApiName = \'' + String.escapeSingleQuotes(fullObjectName) + '\' LIMIT 50';
@@ -13196,7 +13344,7 @@ public without sharing class MetadataEngine {
             result.warningNotes.add('\u26a0\ufe0f Compact Layout scan skipped: ' + ex.getMessage());
         }
 
-        // ─── CHECK 12o: Global Value Set (field uses GlobalPicklist) ───
+        // --- CHECK 12o: Global Value Set (field uses GlobalPicklist) ---
         // A picklist field backed by a Global Value Set cannot be independently
         // deleted without verifying the GVS has other consumers.
         try {
@@ -13234,7 +13382,7 @@ public without sharing class MetadataEngine {
             result.warningNotes.add('\u26a0\ufe0f Global Value Set check skipped: ' + ex.getMessage());
         }
 
-        // ─── CHECK 12p: Sharing Rules using this field as criteria ────
+        // --- CHECK 12p: Sharing Rules using this field as criteria ----
         try {
             for (String hit : getSharingRuleReferences(fullObjectName)) {
                 // getSharingRuleReferences returns rules for the whole object;
@@ -13259,7 +13407,7 @@ public without sharing class MetadataEngine {
             result.warningNotes.add('\u26a0\ufe0f Sharing Rule scan skipped: ' + ex.getMessage());
         }
 
-        // ─── CHECK 12q: FlexiPage field components ─────────────────────
+        // --- CHECK 12q: FlexiPage field components ---------------------
         // Lightning Record Pages (FlexiPages) can pin individual fields via
         // the Fields component or record-detail components. MCD usually
         // catches these but field-level pinning can be missed. Direct scan.
@@ -13296,7 +13444,7 @@ public without sharing class MetadataEngine {
 
 
 
-        // ─── CHECK 12m: External integration advisory ─────────────────
+        // --- CHECK 12m: External integration advisory -----------------
         // Data Loader CSV mappings, MuleSoft connectors, Connect REST API
         // clients, ETL tools, partner integrations  -  none of these leave
         // a trace inside the org. Always advise.
@@ -13307,7 +13455,7 @@ public without sharing class MetadataEngine {
             'your integration inventory before deleting.'
         );
 
-        // ─── CHECK 13: Dynamic Apex advisory (always shown) ───────────
+        // --- CHECK 13: Dynamic Apex advisory (always shown) -----------
         result.warningNotes.add(
             '[i]  Dynamic Reference Advisory: Database.query(<string>), ' +
             'SObject.get(\'' + fullField + '\'), and JSON.deserialize() can ' +
@@ -13315,7 +13463,7 @@ public without sharing class MetadataEngine {
         );
 
 
-        // ─── CHECK 14: Live data check — field has populated records ──────
+        // --- CHECK 14: Live data check -- field has populated records ------
         // Block the delete if ANY record on the parent object has a non-null
         // value for this field. Zero metadata references does NOT mean safe to
         // delete when the field is holding live data that would be permanently lost.
@@ -13342,7 +13490,7 @@ public without sharing class MetadataEngine {
             );
         }
 
-        // ─── Finalize ────────────────────────────────────────────────
+        // --- Finalize ------------------------------------------------
         result.referenceCount        = result.references.size();
         result.hasBlockingReferences = result.referenceCount > 0;
         if (result.hasBlockingReferences) {
@@ -13356,11 +13504,11 @@ public without sharing class MetadataEngine {
     // ===============================
     /** Returns DeleteResult result of deleteCustomObjectByName. */
     public static DeleteResult deleteCustomObjectByName(String objectName) {
-        // ── Deep multi-source reference check (mirrors checkAllApexReferences) ──
+        // -- Deep multi-source reference check (mirrors checkAllApexReferences) --
         // 13 checks: MCD by Id/Name, Apex/Trigger body, LWC/Aura source, VRs,
         // Layouts, automation, sharing rules, reports/dashboards, perm-set/profile
         // object access, plus dynamic-Apex advisory. If ANY blocking reference is
-        // found → return the full formatted report and skip the delete entirely.
+        // found -> return the full formatted report and skip the delete entirely.
         FieldReferenceCheckResult deepRefs = checkAllCustomObjectReferences(objectName);
         if (deepRefs.isManagedPackage) {
             DeleteResult blocked = new DeleteResult();
@@ -13380,7 +13528,7 @@ public without sharing class MetadataEngine {
             return blocked;
         }
 
-        // ── Production guard \u2014 only fires if no references block ──
+        // -- Production guard \u2014 only fires if no references block --
         Http         http   = new Http();
         DeleteResult result = new DeleteResult();
 
@@ -13425,7 +13573,7 @@ public without sharing class MetadataEngine {
         String              nsPrefix  = (String) objRec.get('NamespacePrefix');
         Boolean             isManaged = String.isNotBlank(nsPrefix);
 
-        // ── Safety gate  -  match Apex Class & Flow behavior ──
+        // -- Safety gate  -  match Apex Class & Flow behavior --
         // Reference check above (line ~7966) already blocks IN_USE.
         // Here we only need to block MANAGED (managed-package objects can't
         // be deleted via API anyway).
@@ -13629,7 +13777,7 @@ public without sharing class MetadataEngine {
     // ===============================
     // DELETE LWC COMPONENT BY NAME
     // ===============================
-    // ── Shared helper: parse DEPENDENCY_EXISTS error body into a clean message ──
+    // -- Shared helper: parse DEPENDENCY_EXISTS error body into a clean message --
     /** Returns String result of parseDependencyError. */
     private static String parseDependencyError(String componentName, String componentType, String errBody) {
         String sfMsg = '';
@@ -13659,7 +13807,7 @@ public without sharing class MetadataEngine {
 
     /** Returns DeleteResult result of deleteLwcByName. */
     public static DeleteResult deleteLwcByName(String componentName) {
-        // ── Deep reference check (MCD + JS source scan + HTML scan) ───
+        // -- Deep reference check (MCD + JS source scan + HTML scan) ---
         ReferenceResult compRefs = checkAllLwcReferences(componentName);
         if (compRefs.hasReferences) {
             DeleteResult blocked = new DeleteResult();
@@ -13739,7 +13887,7 @@ public without sharing class MetadataEngine {
     // ===============================
     /** Returns DeleteResult result of deleteAuraByName. */
     public static DeleteResult deleteAuraByName(String componentName) {
-        // ── Deep reference check FIRST  -  MCD by Id + markup + FlexiPage + Flow + CustomTab ──
+        // -- Deep reference check FIRST  -  MCD by Id + markup + FlexiPage + Flow + CustomTab --
         ReferenceResult auraRefs = checkAllAuraReferences(componentName);
         if (auraRefs.hasReferences) {
             DeleteResult blocked = new DeleteResult();
@@ -13748,7 +13896,7 @@ public without sharing class MetadataEngine {
             return blocked;
         }
 
-        // ── Production guard \u2014 only fires if no references block ──
+        // -- Production guard \u2014 only fires if no references block --
         Http         http   = new Http();
         DeleteResult result = new DeleteResult();
 
@@ -13808,10 +13956,10 @@ public without sharing class MetadataEngine {
         Http         http   = new Http();
         DeleteResult result = new DeleteResult();
 
-        // ── Deep multi-source reference check (mirrors checkAllApexReferences) ──
+        // -- Deep multi-source reference check (mirrors checkAllApexReferences) --
         // 13 checks: MCD by Id/Name, Apex/Trigger body, LWC/Aura source, VRs,
         // Layouts, automation, reports/dashboards, perm-set/profile FLS, field-set
-        // and dynamic-Apex advisories. If ANY blocking reference is found → return
+        // and dynamic-Apex advisories. If ANY blocking reference is found -> return
         // the full formatted report and skip the delete entirely.
         FieldReferenceCheckResult deepRefs = checkAllCustomFieldReferences(objectName, fieldName);
         if (deepRefs.isManagedPackage) {
@@ -13849,7 +13997,7 @@ public without sharing class MetadataEngine {
         System.debug('Field API Name  : ' + fullFieldName);
         System.debug('Metadata Full   : ' + fullApiName);
 
-        // ── Field Id lookup  -  try QualifiedApiName filter first, fall back to TableEnumOrId ──
+        // -- Field Id lookup  -  try QualifiedApiName filter first, fall back to TableEnumOrId --
         // EntityDefinition.QualifiedApiName filtering is unreliable for some standard objects
         // in the Tooling API. If it returns 0 rows, retry using TableEnumOrId (the keyPrefix).
         List<Object> records = null;
@@ -13914,7 +14062,7 @@ public without sharing class MetadataEngine {
 
         System.debug('Field found: ' + fullApiName);
 
-        // ── Safety gate  -  match Apex Class & Flow behavior ──
+        // -- Safety gate  -  match Apex Class & Flow behavior --
         // Reference check above (line ~8445) already blocks IN_USE.
         // Here we only need to block MANAGED (managed-package fields can't
         // be deleted via API anyway).
@@ -14066,7 +14214,7 @@ public without sharing class MetadataEngine {
     // DELETE VALIDATION RULE BY OBJECT + RULE NAME
     // ===============================
     /** Returns DeleteResult result of deleteValidationRuleByName. */
-    // ─────────────────────────────────────────────────────────────────────
+    // ---------------------------------------------------------------------
     // checkAllValidationRuleBlockersPublic
     //
     // Public pre-delete scan for ValidationRules. Mirrors EXACTLY the
@@ -14074,9 +14222,9 @@ public without sharing class MetadataEngine {
     // DELETE attempt:
     //
     //   1. Lookup VR Id + Active + ManageableState (filter by object name)
-    //   2. Managed-package guard  → BLOCK if installed / installedEditable
-    //   3. Active-rule guard      → BLOCK if Active == true
-    //   4. External reference scan → BLOCK if any Apex/Flow/MCD references
+    //   2. Managed-package guard  -> BLOCK if installed / installedEditable
+    //   3. Active-rule guard      -> BLOCK if Active == true
+    //   4. External reference scan -> BLOCK if any Apex/Flow/MCD references
     //
     // Used by OrgCleanupAgentAction.checkReferences() so the chat pre-check
     // returns the SAME blocker the real delete would return  -  no more
@@ -14084,7 +14232,7 @@ public without sharing class MetadataEngine {
     //
     // Returns a formatted blocker message ready to display, or null when
     // the VR is genuinely safe to delete.
-    // ─────────────────────────────────────────────────────────────────────
+    // ---------------------------------------------------------------------
     public static String checkAllValidationRuleBlockersPublic(String objectName, String ruleName) {
         if (String.isBlank(objectName) || String.isBlank(ruleName)) return null;
 
@@ -14092,8 +14240,8 @@ public without sharing class MetadataEngine {
         String safeRule = String.escapeSingleQuotes(ruleName.trim());
         String vrRef    = objectName.trim() + '.' + ruleName.trim();
 
-        // ── STEP 1: Look up the VR with full detail ────────────────────
-        // Same SOQL as deleteValidationRuleByName STEP 1 — fetch all the
+        // -- STEP 1: Look up the VR with full detail --------------------
+        // Same SOQL as deleteValidationRuleByName STEP 1 -- fetch all the
         // fields needed for the managed + active guards in one shot.
         String soql = 'SELECT Id, Active, ManageableState, ' +
                       'EntityDefinition.QualifiedApiName ' +
@@ -14107,13 +14255,13 @@ public without sharing class MetadataEngine {
         req.setTimeout(TIMEOUT_SHORT);
         HttpResponse res = http.send(req);
 
-        // Lookup failed → fail-open. Real delete will surface the error.
+        // Lookup failed -> fail-open. Real delete will surface the error.
         if (res.getStatusCode() < 200 || res.getStatusCode() >= 300) return null;
 
         List<Object> records = (List<Object>)((Map<String, Object>) JSON.deserializeUntyped(res.getBody())).get('records');
         if (records == null || records.isEmpty()) return null;
 
-        // Filter in Apex to match the correct object — handles duplicate rule
+        // Filter in Apex to match the correct object -- handles duplicate rule
         // names across multiple objects (e.g. Account.Foo and Contact.Foo).
         Map<String, Object> vrRow = null;
         for (Object raw : records) {
@@ -14125,19 +14273,19 @@ public without sharing class MetadataEngine {
                 break;
             }
         }
-        // VR not found on this object → fail-open. Real delete handles "not found".
+        // VR not found on this object -> fail-open. Real delete handles "not found".
         if (vrRow == null) return null;
 
         Boolean isActive = (Boolean) vrRow.get('Active');
         String  mgState  = (String)  vrRow.get('ManageableState');
 
-        // ── STEP 2: Managed-package guard ───────────────────────────────
+        // -- STEP 2: Managed-package guard -------------------------------
         if ('installed'.equalsIgnoreCase(mgState) || 'installedEditable'.equalsIgnoreCase(mgState)) {
             return '[blocked] Cannot delete "' + vrRef + '"  -  it belongs to a managed package.\n' +
                    'Managed package components cannot be deleted. Uninstall the package if needed.';
         }
 
-        // ── STEP 3: Active-rule guard ──────────────────────────────────
+        // -- STEP 3: Active-rule guard ----------------------------------
         if (isActive == true) {
             return '[!] Cannot delete "' + vrRef + '"  -  it is currently ACTIVE.\n\n' +
                    'Deleting an active validation rule immediately removes data integrity ' +
@@ -14150,7 +14298,7 @@ public without sharing class MetadataEngine {
                    'To view the formula: Setup > Object Manager > ' + objectName + ' > Validation Rules > ' + ruleName + '.';
         }
 
-        // ── STEP 4: External reference scan ────────────────────────────
+        // -- STEP 4: External reference scan ----------------------------
         ReferenceResult vrRefs = getReferencesFor(vrRef, 'ValidationRule');
         if (vrRefs != null && vrRefs.hasReferences) {
             return String.isNotBlank(vrRefs.formattedReport)
@@ -14158,7 +14306,7 @@ public without sharing class MetadataEngine {
                 : buildFormattedReport(vrRef, vrRefs.references, null, 'ValidationRule');
         }
 
-        // All checks passed — safe to delete
+        // All checks passed -- safe to delete
         return null;
     }
 
@@ -14169,7 +14317,7 @@ public without sharing class MetadataEngine {
         String       safeRule = String.escapeSingleQuotes(ruleName.trim());
         String       vrRef    = objectName.trim() + '.' + ruleName.trim();
 
-        // ── STEP 1: Look up the VR with full detail ────────────────────────
+        // -- STEP 1: Look up the VR with full detail ------------------------
         // NOTE: Tooling API does NOT support relationship traversal in WHERE clauses
         // (e.g. EntityDefinition.QualifiedApiName = '...'), which causes HTTP 400.
         // Fix: SELECT EntityDefinition.QualifiedApiName for display only, filter by
@@ -14225,7 +14373,7 @@ public without sharing class MetadataEngine {
         Boolean isActive = (Boolean) vrRow.get('Active');
         String  mgState  = (String)  vrRow.get('ManageableState');
 
-        // ── STEP 2: Managed package check ─────────────────────────────────
+        // -- STEP 2: Managed package check ---------------------------------
         // Cannot delete VRs from installed managed packages.
         if ('installed'.equalsIgnoreCase(mgState) || 'installedEditable'.equalsIgnoreCase(mgState)) {
             result.success = false;
@@ -14234,7 +14382,7 @@ public without sharing class MetadataEngine {
             return result;
         }
 
-        // ── STEP 3: Active status check ────────────────────────────────────
+        // -- STEP 3: Active status check ------------------------------------
         // An ACTIVE validation rule is currently enforcing data integrity on
         // the object. Deleting it removes that constraint immediately for ALL users.
         // Block deletion and require the user to deactivate it first.
@@ -14252,7 +14400,7 @@ public without sharing class MetadataEngine {
             return result;
         }
 
-        // ── STEP 4: External reference check ──────────────────────────────
+        // -- STEP 4: External reference check ------------------------------
         // Check if any other metadata (Apex, Flows, MCD) references this VR.
         ReferenceResult vrRefs = getReferencesFor(vrRef, 'ValidationRule');
         if (vrRefs.hasReferences) {
@@ -14261,7 +14409,7 @@ public without sharing class MetadataEngine {
             return result;
         }
 
-        // ── STEP 5: DELETE ─────────────────────────────────────────────────
+        // -- STEP 5: DELETE -------------------------------------------------
         HttpRequest del = new HttpRequest();
         del.setEndpoint(BASE_URL + 'tooling/sobjects/ValidationRule/' + rId);
         del.setMethod('DELETE');
@@ -14299,7 +14447,7 @@ public without sharing class MetadataEngine {
         Http         http   = new Http();
         DeleteResult result = new DeleteResult();
 
-        // ── PRE-DELETE GUARD 1: MCD + deep reference scan ──────────────────
+        // -- PRE-DELETE GUARD 1: MCD + deep reference scan ------------------
         ReferenceResult psRefs = getReferencesFor(permSetName, 'PermissionSet');
         if (psRefs.hasReferences) {
             result.success = false;
@@ -14307,7 +14455,7 @@ public without sharing class MetadataEngine {
             return result;
         }
 
-        // ── PRE-DELETE GUARD 2: Active user assignments ──────────────────────
+        // -- PRE-DELETE GUARD 2: Active user assignments ----------------------
         // Query by Name; fall back to Label (for PermSets whose label has spaces)
         Integer assignedCount = 0;
         try {
@@ -14364,7 +14512,7 @@ public without sharing class MetadataEngine {
             return result;
         }
 
-        // ── FIX 4+5: Guard 3 removed  -  PSG check already in Guard 1 (deep scan D) ──
+        // -- FIX 4+5: Guard 3 removed  -  PSG check already in Guard 1 (deep scan D) --
         // Guard 3 re-queried PermissionSet.Id and PermissionSetGroupComponent - both
         // already done inside getReferencesFor (deep scans D). Duplicate removed.
 
@@ -14469,7 +14617,7 @@ public without sharing class MetadataEngine {
         Http         http   = new Http();
         DeleteResult result = new DeleteResult();
 
-        // ── Reference check FIRST  -  catch metadata depending on this Profile ──
+        // -- Reference check FIRST  -  catch metadata depending on this Profile --
         ReferenceResult profRefs = getReferencesFor(profileName, 'Profile');
         if (profRefs.hasReferences) {
             result.success = false;
@@ -14477,7 +14625,7 @@ public without sharing class MetadataEngine {
             return result;
         }
 
-        // ── Active user check  -  cannot deactivate if users are still assigned ──
+        // -- Active user check  -  cannot deactivate if users are still assigned --
         Integer activeUserCount = [
             SELECT COUNT() FROM User
             WHERE ProfileId IN (SELECT Id FROM Profile WHERE Name = :profileName)
@@ -14706,18 +14854,18 @@ public without sharing class MetadataEngine {
         return result;
     }
 
-    // ── Helper: Base64 URL Encode ──────────────────────────────
+    // -- Helper: Base64 URL Encode ------------------------------
 
-    // ═══════════════════════════════════════════════════════════════
+    // ===============================================================
     // EXTENDED REFERENCE CHECKS  -  Missing categories added
     // Covers: Dynamic Apex, Parent-child LWC, Experience Cloud,
     //         JS Remoting, Field-level deps, Sharing Rules,
     //         Workflow/Process Builder/Approval, Connected Apps,
     //         Reports/Dashboards, VF Pages, Test class refs,
     //         Interface/extends detection, Static resources
-    // ═══════════════════════════════════════════════════════════════
+    // ===============================================================
 
-    // ── Wrapper for extended reference results ────────────────────
+    // -- Wrapper for extended reference results --------------------
     /** Wrapper class: ExtendedReferenceResult. */
     public class ExtendedReferenceResult {
         @AuraEnabled public String       componentName;
@@ -14741,7 +14889,7 @@ public without sharing class MetadataEngine {
         @AuraEnabled public List<String> warningNotes;
     }
 
-    // ── 1. Dynamic Apex detection (body scan) ────────────────────
+    // -- 1. Dynamic Apex detection (body scan) --------------------
     // Scans all ApexClass bodies for Type.forName(), JSON.deserialize(),
     // Database.query(), and string-based class references.
     @AuraEnabled
@@ -14780,7 +14928,7 @@ public without sharing class MetadataEngine {
         return hits;
     }
 
-    // ── 2. Test class references ─────────────────────────────────
+    // -- 2. Test class references ---------------------------------
     // Finds @isTest classes that reference targetClassName in their body.
     @AuraEnabled
     /** Returns List<String> result of getTestClassReferences. */
@@ -14809,7 +14957,7 @@ public without sharing class MetadataEngine {
         return hits;
     }
 
-    // ── 3. Interface / extends detection ─────────────────────────
+    // -- 3. Interface / extends detection -------------------------
     // Finds classes that implement or extend targetClassName.
     @AuraEnabled
     /** Returns List<String> result of getInterfaceImplementors. */
@@ -14842,7 +14990,7 @@ public without sharing class MetadataEngine {
         return hits;
     }
 
-    // ── 4. Parent-child LWC references ───────────────────────────
+    // -- 4. Parent-child LWC references ---------------------------
     // Scans LWC HTML templates for <c-targetComponent> tag usage.
     @AuraEnabled
     /** Returns List<String> result of getLwcParentChildReferences. */
@@ -14887,7 +15035,7 @@ public without sharing class MetadataEngine {
         return hits;
     }
 
-    // ── 5. Sharing rule references for an object ─────────────────
+    // -- 5. Sharing rule references for an object -----------------
     // Uses MCD to find SharingRule components referencing the object.
     @AuraEnabled
     /** Returns List<String> result of getSharingRuleReferences. */
@@ -14927,7 +15075,7 @@ public without sharing class MetadataEngine {
         return hits;
     }
 
-    // ── 6. Workflow / Process Builder / Approval Process refs ────
+    // -- 6. Workflow / Process Builder / Approval Process refs ----
     @AuraEnabled
     /** Returns List<String> result of getAutomationReferences. */
     public static List<String> getAutomationReferences(String componentName, String componentType) {
@@ -14968,7 +15116,7 @@ public without sharing class MetadataEngine {
         return hits;
     }
 
-    // ── 7. Connected App references ──────────────────────────────
+    // -- 7. Connected App references ------------------------------
     @AuraEnabled
     /** Returns List<String> result of getConnectedAppReferences. */
     public static List<String> getConnectedAppReferences(String componentName, String componentType) {
@@ -15003,7 +15151,7 @@ public without sharing class MetadataEngine {
         return hits;
     }
 
-    // ── 8. Report / Dashboard references ─────────────────────────
+    // -- 8. Report / Dashboard references -------------------------
     // Uses MCD to find Report and Dashboard metadata depending on a component.
     @AuraEnabled
     /** Returns List<String> result of getReportAndDashboardReferences. */
@@ -15040,7 +15188,7 @@ public without sharing class MetadataEngine {
         return hits;
     }
 
-    // ── 9. Visualforce page references ───────────────────────────
+    // -- 9. Visualforce page references ---------------------------
     // Finds VF pages using an Apex class as controller or extension,
     // and scans for JS remoting (@RemoteAction).
     @AuraEnabled
@@ -15109,7 +15257,7 @@ public without sharing class MetadataEngine {
         return hits;
     }
 
-    // ── 10. LWC in Experience Cloud / Utility Bar ─────────────────
+    // -- 10. LWC in Experience Cloud / Utility Bar -----------------
     // Scans ExperienceBundle and AppPage FlexiPage metadata for LWC references.
     @AuraEnabled
     /** Returns List<String> result of getExperienceCloudReferences. */
@@ -15151,7 +15299,7 @@ public without sharing class MetadataEngine {
         return hits;
     }
 
-    // ── 11. Field-level references: Validation Rules & Formulas ──
+    // -- 11. Field-level references: Validation Rules & Formulas --
     // Finds Validation Rules and Formula fields that reference a given field.
     @AuraEnabled
     /** Returns List<String> result of getFieldDependencyReferences. */
@@ -15206,7 +15354,7 @@ public without sharing class MetadataEngine {
         return hits;
     }
 
-    // ── 12. Static resource references ───────────────────────────
+    // -- 12. Static resource references ---------------------------
     // Finds LWC, Aura, and VF files importing a named static resource.
     @AuraEnabled
     /** Returns List<String> result of getStaticResourceReferences. */
@@ -15275,7 +15423,7 @@ public without sharing class MetadataEngine {
         return hits;
     }
 
-    // ── 13. Full extended reference check (aggregates all above) ─
+    // -- 13. Full extended reference check (aggregates all above) -
     @AuraEnabled
     /** Returns ExtendedReferenceResult result of getExtendedReferencesFor. */
     public static ExtendedReferenceResult getExtendedReferencesFor(
@@ -15341,7 +15489,7 @@ public without sharing class MetadataEngine {
             .replace('=', '');
     }
 
-    // ── Parses Salesforce REST error response body ─────────────
+    // -- Parses Salesforce REST error response body -------------
     /** Returns String result of parseErrorBody. */
     private static String parseErrorBody(String body) {
         if (String.isBlank(body)) return 'No error details returned.';
@@ -15361,9 +15509,9 @@ public without sharing class MetadataEngine {
         }
     }
 
-    // ═══════════════════════════════════════════════════════
+    // =======================================================
     // MASS DELETE  -  VF PAGES
-    // ═══════════════════════════════════════════════════════
+    // =======================================================
     /** Returns MassDeleteResult result of massDeleteVfPages. */
     public static MassDeleteResult massDeleteVfPages(List<String> pageNames) {
         MassDeleteResult result  = new MassDeleteResult();
@@ -15391,11 +15539,11 @@ public without sharing class MetadataEngine {
         return result;
     }
 
-    // ═══════════════════════════════════════════════════════
+    // =======================================================
     // DELETE SINGLE VF PAGE BY NAME
-    // ═══════════════════════════════════════════════════════
+    // =======================================================
     /** Returns DeleteResult result of deleteVfByName. */
-    // ─────────────────────────────────────────────────────────────────────
+    // ---------------------------------------------------------------------
     // checkAllVfPageBlockersPublic
     //
     // Public pre-delete scan for Visualforce Pages. Runs ALL checks the
@@ -15404,19 +15552,19 @@ public without sharing class MetadataEngine {
     //
     // Checks:
     //   1. Lookup ApexPage (Id + ManageableState)
-    //   2. Managed-package guard → BLOCK if installed / installedEditable
+    //   2. Managed-package guard -> BLOCK if installed / installedEditable
     //   3. Deep 6-source reference scan via DeleteVfPageAction
     //      (MCD + Apex body + Custom Tabs + FlexiPages + Flow body + Custom Buttons/Links)
     //
     // Used by OrgCleanupAgentAction.checkReferences() AND deleteVfByName()
     // so pre-check and delete share a single source of truth.
-    // ─────────────────────────────────────────────────────────────────────
+    // ---------------------------------------------------------------------
     public static String checkAllVfPageBlockersPublic(String pageName) {
         if (String.isBlank(pageName)) return null;
 
         Http http = new Http();
 
-        // ── STEP 1: Look up Id + ManageableState ────────────────────────
+        // -- STEP 1: Look up Id + ManageableState ------------------------
         String soql = 'SELECT Id, ManageableState FROM ApexPage WHERE Name = \'' +
                       String.escapeSingleQuotes(pageName.trim()) + '\' LIMIT 1';
         HttpRequest req = new HttpRequest();
@@ -15429,7 +15577,7 @@ public without sharing class MetadataEngine {
         try {
             res = http.send(req);
         } catch (Exception ex) {
-            // Lookup callout failed → fail-open. Real delete will surface error.
+            // Lookup callout failed -> fail-open. Real delete will surface error.
             return null;
         }
         if (res.getStatusCode() < 200 || res.getStatusCode() >= 300) return null;
@@ -15437,19 +15585,19 @@ public without sharing class MetadataEngine {
         List<Object> records = (List<Object>)((Map<String, Object>)
             JSON.deserializeUntyped(res.getBody())).get('records');
         if (records == null || records.isEmpty()) {
-            // Not found → fail-open, real delete will say "not found"
+            // Not found -> fail-open, real delete will say "not found"
             return null;
         }
 
         Map<String, Object> row     = (Map<String, Object>) records[0];
         String              mgState = (String) row.get('ManageableState');
 
-        // ── STEP 2: Managed-package guard ───────────────────────────────
+        // -- STEP 2: Managed-package guard -------------------------------
         if ('installed'.equalsIgnoreCase(mgState) || 'installedEditable'.equalsIgnoreCase(mgState)) {
             return '[blocked] "' + pageName + '" belongs to a managed package and cannot be deleted.';
         }
 
-        // ── STEP 3: Deep 6-source reference scan ────────────────────────
+        // -- STEP 3: Deep 6-source reference scan ------------------------
         try {
             DeleteVfPageAction.VfReferencesOutput vfOut =
                 DeleteVfPageAction.findReferencesForVfPage(pageName);
@@ -15457,12 +15605,12 @@ public without sharing class MetadataEngine {
 
             // Build combined report (same format the agent action uses)
             String report = '';
-            if (String.isNotBlank(vfOut.apexClasses))    report += '⚙️  Apex Classes:\n'           + vfOut.apexClasses    + '\n';
-            if (String.isNotBlank(vfOut.flows))          report += '📋 Flows:\n'                  + vfOut.flows          + '\n';
-            if (String.isNotBlank(vfOut.customTabs))     report += '📑 Custom Tabs:\n'            + vfOut.customTabs     + '\n';
-            if (String.isNotBlank(vfOut.flexiPages))     report += '📄 Lightning Pages:\n'        + vfOut.flexiPages     + '\n';
-            if (String.isNotBlank(vfOut.customButtons))  report += '🔗 Custom Buttons & Links:\n' + vfOut.customButtons   + '\n';
-            if (String.isNotBlank(vfOut.otherReferences))report += '📌 Other:\n'                  + vfOut.otherReferences + '\n';
+            if (String.isNotBlank(vfOut.apexClasses))    report += '  Apex Classes:\n'           + vfOut.apexClasses    + '\n';
+            if (String.isNotBlank(vfOut.flows))          report += ' Flows:\n'                  + vfOut.flows          + '\n';
+            if (String.isNotBlank(vfOut.customTabs))     report += ' Custom Tabs:\n'            + vfOut.customTabs     + '\n';
+            if (String.isNotBlank(vfOut.flexiPages))     report += ' Lightning Pages:\n'        + vfOut.flexiPages     + '\n';
+            if (String.isNotBlank(vfOut.customButtons))  report += ' Custom Buttons & Links:\n' + vfOut.customButtons   + '\n';
+            if (String.isNotBlank(vfOut.otherReferences))report += ' Other:\n'                  + vfOut.otherReferences + '\n';
             if (vfOut.warningNotes != null && !vfOut.warningNotes.isEmpty())
                 report += '\n' + String.join(vfOut.warningNotes, '\n');
             return String.isNotBlank(report) ? report : vfOut.report;
@@ -15473,9 +15621,9 @@ public without sharing class MetadataEngine {
     }
 
     public static DeleteResult deleteVfByName(String pageName) {
-        // ── Reference check FIRST ─────────────────────────────
-        // ── Unified pre-delete scan: managed guard + deep 6-source refs ──
-        // Single source of truth — same method the agent pre-check calls,
+        // -- Reference check FIRST -----------------------------
+        // -- Unified pre-delete scan: managed guard + deep 6-source refs --
+        // Single source of truth -- same method the agent pre-check calls,
         // so behaviour is guaranteed identical.
         String blockerReport = checkAllVfPageBlockersPublic(pageName);
         if (String.isNotBlank(blockerReport)) {
@@ -15488,7 +15636,7 @@ public without sharing class MetadataEngine {
         Http         http   = new Http();
         DeleteResult result = new DeleteResult();
 
-        // ── Look up Id again for the DELETE call ───────────────
+        // -- Look up Id again for the DELETE call ---------------
         // (The blocker scan already validated managed state and references;
         //  this lookup just gets the Id for the actual REST DELETE.)
         String      soql = 'SELECT Id FROM ApexPage WHERE Name = \'' +
@@ -15518,7 +15666,7 @@ public without sharing class MetadataEngine {
         Map<String, Object> row   = (Map<String, Object>) records[0];
         String              pgId  = (String) row.get('Id');
 
-        // ── DELETE ─────────────────────────────────────────────
+        // -- DELETE ---------------------------------------------
         HttpRequest del = new HttpRequest();
         del.setEndpoint(BASE_URL + 'tooling/sobjects/ApexPage/' + pgId);
         del.setMethod('DELETE');
@@ -15551,12 +15699,12 @@ public without sharing class MetadataEngine {
         return result;
     }
 
-    // ══════════════════════════════════════════════════════════
+    // ==========================================================
     // deleteVfComponentByName
     // Checks references then deletes a Visualforce Component (ApexComponent)
-    // ══════════════════════════════════════════════════════════
+    // ==========================================================
     /** Returns DeleteResult result of deleteVfComponentByName. */
-    // ─────────────────────────────────────────────────────────────────────
+    // ---------------------------------------------------------------------
     // checkAllVfComponentReferencesPublic
     //
     // Public pre-delete scan for Visualforce Components. Runs ALL checks
@@ -15564,24 +15712,24 @@ public without sharing class MetadataEngine {
     // reference scan (vs the old shallow MCD-only check):
     //
     //   1. Lookup ApexComponent (Id + ManageableState)
-    //   2. Managed-package guard → BLOCK if installed / installedEditable
+    //   2. Managed-package guard -> BLOCK if installed / installedEditable
     //   3. Deep multi-source reference scan:
-    //        • MCD (MetadataComponentDependency)
-    //        • ApexClass.Body  → contains 'c:CompName' or 'Component.CompName'
-    //        • ApexPage.Markup → contains '<c:CompName' tag
-    //        • ApexComponent.Markup → contains '<c:CompName' tag (other VF components)
-    //   4. If any references found → BLOCK with grouped report
+    //         MCD (MetadataComponentDependency)
+    //         ApexClass.Body  -> contains 'c:CompName' or 'Component.CompName'
+    //         ApexPage.Markup -> contains '<c:CompName' tag
+    //         ApexComponent.Markup -> contains '<c:CompName' tag (other VF components)
+    //   4. If any references found -> BLOCK with grouped report
     //
     // Used by OrgCleanupAgentAction.checkReferences() AND deleteVfComponentByName().
     // Returns a formatted blocker message, or null when genuinely safe.
-    // ─────────────────────────────────────────────────────────────────────
+    // ---------------------------------------------------------------------
     public static String checkAllVfComponentReferencesPublic(String componentName) {
         if (String.isBlank(componentName)) return null;
 
         Http   http     = new Http();
         String safeName = componentName.trim();
 
-        // ── STEP 1: Look up Id + ManageableState ────────────────────────
+        // -- STEP 1: Look up Id + ManageableState ------------------------
         String soql = 'SELECT Id, ManageableState FROM ApexComponent WHERE Name = \'' +
                       String.escapeSingleQuotes(safeName) + '\' LIMIT 1';
         HttpRequest req = new HttpRequest();
@@ -15606,16 +15754,16 @@ public without sharing class MetadataEngine {
         String              compId  = (String) row.get('Id');
         String              mgState = (String) row.get('ManageableState');
 
-        // ── STEP 2: Managed-package guard ───────────────────────────────
+        // -- STEP 2: Managed-package guard -------------------------------
         if ('installed'.equalsIgnoreCase(mgState) || 'installedEditable'.equalsIgnoreCase(mgState)) {
             return '[blocked] "' + componentName + '" belongs to a managed package and cannot be deleted.';
         }
 
-        // ── STEP 3: Deep multi-source reference scan ───────────────────
+        // -- STEP 3: Deep multi-source reference scan -------------------
         // Match patterns: case-insensitive. Two ways a VF Component can be
         // referenced in markup or Apex:
-        //   <c:CompName ...>           ← most common
-        //   Component.CompName         ← rare but valid in Apex
+        //   <c:CompName ...>           <- most common
+        //   Component.CompName         <- rare but valid in Apex
         String tagPattern    = 'c:' + safeName.toLowerCase();
         String dotPattern    = 'component.' + safeName.toLowerCase();
         List<String> apexClassRefs   = new List<String>();
@@ -15645,7 +15793,7 @@ public without sharing class MetadataEngine {
             System.debug(LoggingLevel.WARN, 'VFC MCD scan failed: ' + ex.getMessage());
         }
 
-        // 3b) ApexClass bodies — scan for c:Name or Component.Name patterns
+        // 3b) ApexClass bodies -- scan for c:Name or Component.Name patterns
         try {
             String acSoql = 'SELECT Name, Body FROM ApexClass WHERE NamespacePrefix = null LIMIT 1000';
             HttpRequest acReq = new HttpRequest();
@@ -15674,7 +15822,7 @@ public without sharing class MetadataEngine {
             System.debug(LoggingLevel.WARN, 'VFC ApexClass body scan failed: ' + ex.getMessage());
         }
 
-        // 3c) ApexPage (Visualforce) markup — scan for <c:Name tag
+        // 3c) ApexPage (Visualforce) markup -- scan for <c:Name tag
         try {
             String apSoql = 'SELECT Name, Markup FROM ApexPage WHERE NamespacePrefix = null LIMIT 1000';
             HttpRequest apReq = new HttpRequest();
@@ -15702,7 +15850,7 @@ public without sharing class MetadataEngine {
             System.debug(LoggingLevel.WARN, 'VFC ApexPage markup scan failed: ' + ex.getMessage());
         }
 
-        // 3d) Other VF Components — scan for <c:Name tag, exclude self
+        // 3d) Other VF Components -- scan for <c:Name tag, exclude self
         try {
             String vcSoql = 'SELECT Name, Markup FROM ApexComponent WHERE NamespacePrefix = null LIMIT 1000';
             HttpRequest vcReq = new HttpRequest();
@@ -15731,35 +15879,35 @@ public without sharing class MetadataEngine {
             System.debug(LoggingLevel.WARN, 'VFC ApexComponent markup scan failed: ' + ex.getMessage());
         }
 
-        // ── STEP 4: Build report ────────────────────────────────────────
+        // -- STEP 4: Build report ----------------------------------------
         Boolean hasAny = !apexClassRefs.isEmpty() || !vfPageRefs.isEmpty() ||
                          !vfComponentRefs.isEmpty() || !otherRefs.isEmpty();
         if (!hasAny) return null;
 
         String report = 'Cannot delete "' + componentName + '". The following references must be removed first:\n\n';
         if (!apexClassRefs.isEmpty()) {
-            report += '⚙️  Apex Classes:\n';
+            report += '  Apex Classes:\n';
             for (Integer i = 0; i < apexClassRefs.size(); i++) {
                 report += '  ' + (i+1) + '. ' + apexClassRefs[i] + '\n';
             }
             report += '\n';
         }
         if (!vfPageRefs.isEmpty()) {
-            report += '📄 Visualforce Pages:\n';
+            report += ' Visualforce Pages:\n';
             for (Integer i = 0; i < vfPageRefs.size(); i++) {
                 report += '  ' + (i+1) + '. ' + vfPageRefs[i] + '\n';
             }
             report += '\n';
         }
         if (!vfComponentRefs.isEmpty()) {
-            report += '🧩 Visualforce Components:\n';
+            report += ' Visualforce Components:\n';
             for (Integer i = 0; i < vfComponentRefs.size(); i++) {
                 report += '  ' + (i+1) + '. ' + vfComponentRefs[i] + '\n';
             }
             report += '\n';
         }
         if (!otherRefs.isEmpty()) {
-            report += '📌 Other:\n';
+            report += ' Other:\n';
             for (Integer i = 0; i < otherRefs.size(); i++) {
                 report += '  ' + (i+1) + '. ' + otherRefs[i] + '\n';
             }
@@ -15770,8 +15918,8 @@ public without sharing class MetadataEngine {
     }
 
     public static DeleteResult deleteVfComponentByName(String componentName) {
-        // ── Unified pre-delete scan: managed guard + deep 4-source refs ──
-        // Single source of truth — same method the agent pre-check calls,
+        // -- Unified pre-delete scan: managed guard + deep 4-source refs --
+        // Single source of truth -- same method the agent pre-check calls,
         // so behaviour is guaranteed identical.
         String blockerReport = checkAllVfComponentReferencesPublic(componentName);
         if (String.isNotBlank(blockerReport)) {
@@ -15784,7 +15932,7 @@ public without sharing class MetadataEngine {
         Http         http   = new Http();
         DeleteResult result = new DeleteResult();
 
-        // ── Look up Id again for the DELETE call ───────────────
+        // -- Look up Id again for the DELETE call ---------------
         // (Blocker scan already validated managed state and references;
         //  this lookup just gets the Id for the actual REST DELETE.)
         String      soql = 'SELECT Id FROM ApexComponent WHERE Name = \'' +
@@ -15814,7 +15962,7 @@ public without sharing class MetadataEngine {
         Map<String, Object> row     = (Map<String, Object>) records[0];
         String              compId  = (String) row.get('Id');
 
-        // ── DELETE ─────────────────────────────────────────────
+        // -- DELETE ---------------------------------------------
         HttpRequest del = new HttpRequest();
         del.setEndpoint(BASE_URL + 'tooling/sobjects/ApexComponent/' + compId);
         del.setMethod('DELETE');
@@ -15846,10 +15994,10 @@ public without sharing class MetadataEngine {
         return result;
     }
 
-    // ══════════════════════════════════════════════════════════
+    // ==========================================================
     // massDeleteVfComponents
     // Deletes multiple Visualforce Components sequentially
-    // ══════════════════════════════════════════════════════════
+    // ==========================================================
     /** Returns MassDeleteResult result of massDeleteVfComponents. */
     public static MassDeleteResult massDeleteVfComponents(List<String> componentNames) {
         MassDeleteResult result  = new MassDeleteResult();
